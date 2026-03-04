@@ -43,7 +43,7 @@ with st.sidebar:
         st.session_state.models,
         index=(
             next(
-                (i for i, m in enumerate(st.session_state.models) if "gemini-2.5-flash" in m),
+                (i for i, m in enumerate(st.session_state.models) if "gemini-3.1-pro-preview" in m),
                 0,
             )
         ),
