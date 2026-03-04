@@ -1,6 +1,11 @@
+import os
+
 import streamlit as st
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+
+load_dotenv()
 
 st.set_page_config(page_title="natlangq", layout="centered")
 st.title("natlangq")
@@ -20,6 +25,15 @@ if "api_key" not in st.session_state:
     st.session_state.api_key = None
     st.session_state.models = []
     st.session_state.messages = []
+
+    env_key = os.environ.get("GEMINI_API_KEY")
+    if env_key:
+        try:
+            client = genai.Client(api_key=env_key)
+            st.session_state.models = list_models(client)
+            st.session_state.api_key = env_key
+        except Exception:
+            pass
 
 if not st.session_state.api_key:
     st.markdown("Enter your Google Gemini API key to get started.")
