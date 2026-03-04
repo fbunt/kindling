@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>natlangq</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div id="login-view" class="view">
+        <div class="login-card">
+            <h1>natlangq</h1>
+            <p>Enter your Google Gemini API key to get started.</p>
+            <form id="login-form">
+                <input type="password" id="api-key-input" placeholder="Gemini API key" required>
+                <button type="submit" id="login-btn">Connect</button>
+            </form>
+            <div id="login-error" class="error" hidden></div>
+        </div>
+    </div>
+
+    <div id="chat-view" class="view" hidden>
+        <header>
+            <h1>natlangq</h1>
+            <div class="header-controls">
+                <select id="model-select"></select>
+                <button id="logout-btn">Logout</button>
+            </div>
+        </header>
+        <div id="messages"></div>
+        <form id="chat-form">
+            <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off" required>
+            <button type="submit" id="send-btn">Send</button>
+        </form>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>
