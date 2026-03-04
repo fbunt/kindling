@@ -48,6 +48,13 @@ with st.sidebar:
             )
         ),
     )
+    uploaded_image = st.file_uploader(
+        "Upload an image for your next message",
+        type=["png", "jpg", "jpeg"],
+    )
+    if uploaded_image:
+        st.image(uploaded_image, caption="Ready to send")
+
     if st.button("Logout"):
         st.session_state.api_key = None
         st.session_state.models = []
@@ -56,30 +63,48 @@ with st.sidebar:
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+        st.write(msg["content"])
+        if "image_bytes" in msg:
+            st.image(msg["image_bytes"], width=300)
 
 if prompt := st.chat_input("Type a message..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
-        st.markdown(prompt)
+        st.write(prompt)
+        if uploaded_image:
+            st.image(uploaded_image, width=300)
+
+    user_msg = {"role": "user", "content": prompt}
+    if uploaded_image:
+        user_msg["image_bytes"] = uploaded_image.getvalue()
+        user_msg["image_mime"] = uploaded_image.type
+    st.session_state.messages.append(user_msg)
 
     client = genai.Client(api_key=st.session_state.api_key)
     contents = []
     for msg in st.session_state.messages:
         role = "user" if msg["role"] == "user" else "model"
-        contents.append(types.Content(role=role, parts=[types.Part(text=msg["content"])]))
+        parts = [types.Part(text=msg["content"])]
+        if "image_bytes" in msg:
+            parts.insert(0, types.Part(
+                inline_data=types.Blob(
+                    mime_type=msg["image_mime"],
+                    data=msg["image_bytes"],
+                )
+            ))
+        contents.append(types.Content(role=role, parts=parts))
 
     with st.chat_message("assistant"):
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    tools=[types.Tool(google_search=types.GoogleSearch())],
-                ),
-            )
-            text = response.text
-            st.markdown(text)
-            st.session_state.messages.append({"role": "assistant", "content": text})
-        except Exception as e:
-            st.error(str(e))
+        with st.spinner("Thinking..."):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        tools=[types.Tool(google_search=types.GoogleSearch())],
+                    ),
+                )
+                text = response.text
+                st.write(text)
+                st.session_state.messages.append({"role": "assistant", "content": text})
+            except Exception as e:
+                st.error(str(e))
