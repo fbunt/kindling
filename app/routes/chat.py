@@ -62,10 +62,7 @@ async def chat(
 
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
-        tools=[
-            FIRE_DATA_TOOLS,
-            types.Tool(google_search=types.GoogleSearch()),
-        ],
+        tools=[FIRE_DATA_TOOLS],
     )
 
     try:
