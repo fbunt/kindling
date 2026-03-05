@@ -88,3 +88,42 @@
 .image-upload-label.has-image {
     color: var(--bs-primary);
 }
+
+/* Markdown content in assistant messages */
+.message.assistant {
+    white-space: normal;
+}
+
+.message.assistant p:last-child {
+    margin-bottom: 0;
+}
+
+.message.assistant table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem 0;
+    font-size: 0.85rem;
+}
+
+.message.assistant th,
+.message.assistant td {
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--bs-border-color);
+    text-align: left;
+}
+
+.message.assistant th {
+    background: var(--bs-secondary-bg);
+    font-weight: 600;
+}
+
+.message.assistant pre {
+    background: var(--bs-secondary-bg);
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.25rem;
+    overflow-x: auto;
+}
+
+.message.assistant code {
+    font-size: 0.85em;
+}

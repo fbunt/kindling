@@ -42,7 +42,11 @@ function populateModels(models) {
 function addMessage(role, content, imageDataUrl) {
     const div = document.createElement("div");
     div.className = `message ${role}`;
-    div.textContent = content;
+    if (role === "assistant") {
+        div.innerHTML = marked.parse(content);
+    } else {
+        div.textContent = content;
+    }
     if (imageDataUrl) {
         const img = document.createElement("img");
         img.src = imageDataUrl;

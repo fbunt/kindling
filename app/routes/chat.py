@@ -1,10 +1,15 @@
 import base64
+import json
 
 from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form
 from google import genai
 from google.genai import types
 
+from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION, execute_function_call
+
 router = APIRouter()
+
+MAX_TOOL_ROUNDS = 5
 
 
 @router.post("/chat")
@@ -19,7 +24,6 @@ async def chat(
     if not api_key:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    import json
     history_list = json.loads(history)
 
     client = genai.Client(api_key=api_key)
@@ -56,14 +60,44 @@ async def chat(
 
     contents.append(types.Content(role="user", parts=current_parts))
 
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_INSTRUCTION,
+        tools=[
+            FIRE_DATA_TOOLS,
+            types.Tool(google_search=types.GoogleSearch()),
+        ],
+    )
+
     try:
-        response = client.models.generate_content(
-            model=model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-            ),
-        )
+        # Function calling loop
+        for _ in range(MAX_TOOL_ROUNDS):
+            response = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
+
+            # Check for function calls in the response
+            function_calls = response.function_calls
+            if not function_calls:
+                break
+
+            # Append the model's response (with function call parts) to contents
+            contents.append(response.candidates[0].content)
+
+            # Execute each function call and build response parts
+            fc_response_parts = []
+            for fc in function_calls:
+                result_str = execute_function_call(fc.name, fc.args or {})
+                fc_response_parts.append(types.Part(
+                    function_response=types.FunctionResponse(
+                        name=fc.name,
+                        response=json.loads(result_str),
+                    )
+                ))
+
+            contents.append(types.Content(role="user", parts=fc_response_parts))
+
         return {
             "response": response.text,
             "image_info": image_info,
