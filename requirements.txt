@@ -1,6 +1,0 @@
-fastapi
-uvicorn[standard]
-google-genai
-itsdangerous
-python-dotenv
-python-multipart

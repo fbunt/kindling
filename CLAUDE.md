@@ -9,9 +9,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Dev Commands
 
 ```bash
-python -m venv .venv               # Create virtual environment (first time)
-.venv/bin/pip install -r requirements.txt  # Install dependencies
-.venv/bin/uvicorn app.main:app --reload    # Run dev server (http://localhost:8000)
+uv sync                                    # Install dependencies (creates .venv automatically)
+uv run uvicorn app.main:app --reload       # Run dev server (http://localhost:8000)
+uv add <package>                           # Add a dependency
 ```
 
 ## Architecture
