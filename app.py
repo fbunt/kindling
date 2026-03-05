@@ -25,6 +25,9 @@ if "api_key" not in st.session_state:
     st.session_state.api_key = None
     st.session_state.models = []
     st.session_state.messages = []
+    st.session_state.client = None
+    st.session_state.chat_session = None
+    st.session_state.current_model = None
 
     env_key = os.environ.get("GEMINI_API_KEY")
     if env_key:
@@ -32,6 +35,7 @@ if "api_key" not in st.session_state:
             client = genai.Client(api_key=env_key)
             st.session_state.models = list_models(client)
             st.session_state.api_key = env_key
+            st.session_state.client = client
         except Exception:
             pass
 
@@ -45,6 +49,7 @@ if not st.session_state.api_key:
             client = genai.Client(api_key=api_key)
             st.session_state.models = list_models(client)
             st.session_state.api_key = api_key
+            st.session_state.client = client
             st.rerun()
         except Exception as e:
             st.error(f"Invalid API key: {e}")
@@ -73,7 +78,21 @@ with st.sidebar:
         st.session_state.api_key = None
         st.session_state.models = []
         st.session_state.messages = []
+        st.session_state.client = None
+        st.session_state.chat_session = None
+        st.session_state.current_model = None
         st.rerun()
+
+# Create or recreate chat session when model changes
+if st.session_state.current_model != model:
+    st.session_state.chat_session = st.session_state.client.chats.create(
+        model=model,
+        config=types.GenerateContentConfig(
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+        ),
+    )
+    st.session_state.current_model = model
+    st.session_state.messages = []
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -88,35 +107,23 @@ if prompt := st.chat_input("Type a message..."):
             st.image(uploaded_image, width=300)
 
     user_msg = {"role": "user", "content": prompt}
+    payload = [prompt]
     if uploaded_image:
-        user_msg["image_bytes"] = uploaded_image.getvalue()
+        image_bytes = uploaded_image.getvalue()
+        payload.insert(0, types.Part(
+            inline_data=types.Blob(
+                mime_type=uploaded_image.type,
+                data=image_bytes,
+            )
+        ))
+        user_msg["image_bytes"] = image_bytes
         user_msg["image_mime"] = uploaded_image.type
     st.session_state.messages.append(user_msg)
-
-    client = genai.Client(api_key=st.session_state.api_key)
-    contents = []
-    for msg in st.session_state.messages:
-        role = "user" if msg["role"] == "user" else "model"
-        parts = [types.Part(text=msg["content"])]
-        if "image_bytes" in msg:
-            parts.insert(0, types.Part(
-                inline_data=types.Blob(
-                    mime_type=msg["image_mime"],
-                    data=msg["image_bytes"],
-                )
-            ))
-        contents.append(types.Content(role=role, parts=parts))
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        tools=[types.Tool(google_search=types.GoogleSearch())],
-                    ),
-                )
+                response = st.session_state.chat_session.send_message(payload)
                 text = response.text
                 st.write(text)
                 st.session_state.messages.append({"role": "assistant", "content": text})
