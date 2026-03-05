@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>natlangq</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div id="login-view" class="view">
+        <div class="login-card">
+            <h1>natlangq</h1>
+            <p>Enter your Google Gemini API key to get started.</p>
+            <form id="login-form">
+                <input type="password" id="api-key-input" placeholder="Gemini API key" required>
+                <button type="submit" id="login-btn">Connect</button>
+            </form>
+            <div id="login-error" class="error" hidden></div>
+        </div>
+    </div>
+
+    <div id="chat-view" class="view" hidden>
+        <header>
+            <h1>natlangq</h1>
+            <div class="header-controls">
+                <select id="model-select"></select>
+                <button id="logout-btn">Logout</button>
+            </div>
+        </header>
+        <div id="messages"></div>
+        <form id="chat-form">
+            <div class="input-wrapper">
+                <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off" required>
+                <span id="image-name" hidden></span>
+                <label id="image-upload-label" title="Attach image">
+                    <input type="file" id="image-input" accept="image/png,image/jpeg" hidden>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                </label>
+            </div>
+            <button type="submit" id="send-btn">Send</button>
+        </form>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

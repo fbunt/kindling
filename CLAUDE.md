@@ -4,25 +4,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`natlangq` — a natural language query tool. Streamlit chat interface powered by Google Gemini that will eventually translate natural language into Python queries against parquet files.
+`natlangq` — a natural language query tool. Web app with a chat interface powered by Google Gemini that will eventually translate natural language into Python queries against parquet files.
 
 ## Dev Commands
 
 ```bash
 python -m venv .venv               # Create virtual environment (first time)
 .venv/bin/pip install -r requirements.txt  # Install dependencies
-.venv/bin/streamlit run app.py             # Run dev server (http://localhost:8501)
+.venv/bin/uvicorn app.main:app --reload    # Run dev server (http://localhost:8000)
 ```
 
 ## Architecture
 
-- **Framework**: Streamlit
+- **Backend**: FastAPI (Python)
+- **Frontend**: Vanilla HTML/CSS/JS (served as static files)
 - **LLM**: Google Gemini via `google-genai` SDK
-- **Entry point**: `app.py`
+
+### Structure
+
+```
+app/
+├── main.py              # FastAPI app, middleware, static file serving
+├── routes/
+│   ├── auth.py          # POST /api/auth, GET /api/auth/status, POST /api/auth/logout
+│   └── chat.py          # POST /api/chat - send message + optional image to Gemini
+└── static/
+    ├── index.html       # Single-page app: login + chat views
+    ├── style.css
+    └── app.js           # Frontend logic: auth, chat, image upload, model selector
+```
 
 ### Key Design Decisions
 
-- **Session-based API key**: Gemini API key stored in Streamlit session state (in-memory, not persisted).
-- **Conversation history**: Maintained in session state.
-- **Model selector**: Sidebar dropdown populated from available Gemini models.
+- **Session-based API key**: Gemini API key stored server-side in session (in-memory, not persisted). Supports `GEMINI_API_KEY` env var via `.env` file.
+- **Conversation history**: Maintained client-side and sent with each request.
+- **Model selector**: Header dropdown populated from available Gemini models.
+- **Image upload**: Images sent as multipart form data, base64-encoded in history for context.
 - **Google Search grounding**: Enabled via `google_search` tool on all requests.
