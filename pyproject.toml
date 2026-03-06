@@ -10,4 +10,8 @@ dependencies = [
     "itsdangerous",
     "python-dotenv",
     "python-multipart",
+    "polars>=1.38.1",
+    "matplotlib",
+    "seaborn",
+    "pyarrow",
 ]

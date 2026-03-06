@@ -1,10 +1,18 @@
 import base64
+import json
+import logging
 
 from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form
 from google import genai
 from google.genai import types
 
+logger = logging.getLogger(__name__)
+
+from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION, execute_function_call
+
 router = APIRouter()
+
+MAX_TOOL_ROUNDS = 10
 
 
 @router.post("/chat")
@@ -19,7 +27,6 @@ async def chat(
     if not api_key:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    import json
     history_list = json.loads(history)
 
     client = genai.Client(api_key=api_key)
@@ -56,17 +63,74 @@ async def chat(
 
     contents.append(types.Content(role="user", parts=current_parts))
 
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_INSTRUCTION,
+        tools=[FIRE_DATA_TOOLS],
+    )
+
     try:
-        response = client.models.generate_content(
-            model=model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-            ),
-        )
-        return {
-            "response": response.text,
+        all_plots = []
+
+        # Function calling loop
+        for round_num in range(MAX_TOOL_ROUNDS):
+            response = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
+
+            # Log response structure
+            parts = response.candidates[0].content.parts if response.candidates else []
+            part_types = [type(p).__name__ for p in parts]
+            logger.warning(f"Round {round_num}: parts={part_types}")
+            for p in parts:
+                if hasattr(p, 'function_call') and p.function_call:
+                    logger.warning(f"  function_call: {p.function_call.name}({p.function_call.args})")
+                if hasattr(p, 'text') and p.text:
+                    logger.warning(f"  text: {p.text[:200]}")
+
+            # Check for function calls in the response
+            function_calls = response.function_calls
+            if not function_calls:
+                break
+
+            # Append the model's response (with function call parts) to contents
+            contents.append(response.candidates[0].content)
+
+            # Execute each function call and build response parts
+            fc_response_parts = []
+            for fc in function_calls:
+                result_str, plots = execute_function_call(
+                    fc.name, fc.args or {}, client, model
+                )
+                logger.warning(f"  {fc.name} result: {result_str[:500]}")
+                all_plots.extend(plots)
+                fc_response_parts.append(types.Part(
+                    function_response=types.FunctionResponse(
+                        name=fc.name,
+                        response=json.loads(result_str),
+                    )
+                ))
+
+            contents.append(types.Content(role="user", parts=fc_response_parts))
+        else:
+            # Loop exhausted without a text-only response — one final call
+            logger.warning("Loop exhausted, making final call")
+            response = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
+
+        response_text = response.text or ""
+        logger.warning(f"Final response_text ({len(response_text)} chars): {response_text[:200]}")
+
+        result = {
+            "response": response_text,
             "image_info": image_info,
         }
+        if all_plots:
+            result["plots"] = all_plots
+        return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))

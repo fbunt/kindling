@@ -13,8 +13,11 @@ const modelSelect = document.getElementById("model-select");
 const imageInput = document.getElementById("image-input");
 const imageUploadLabel = document.getElementById("image-upload-label");
 const imageName = document.getElementById("image-name");
+const galleryPanel = document.getElementById("gallery-panel");
+const galleryList = document.getElementById("gallery-list");
 
 let history = [];
+let attachedPlotFile = null;
 
 function showLogin() {
     loginView.hidden = false;
@@ -42,7 +45,11 @@ function populateModels(models) {
 function addMessage(role, content, imageDataUrl) {
     const div = document.createElement("div");
     div.className = `message ${role}`;
-    div.textContent = content;
+    if (role === "assistant") {
+        div.innerHTML = marked.parse(content);
+    } else {
+        div.textContent = content;
+    }
     if (imageDataUrl) {
         const img = document.createElement("img");
         img.src = imageDataUrl;
@@ -51,6 +58,41 @@ function addMessage(role, content, imageDataUrl) {
     messagesDiv.appendChild(div);
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
     return div;
+}
+
+function addPlotToGallery(url, name) {
+    galleryPanel.hidden = false;
+    const item = document.createElement("div");
+    item.className = "gallery-item";
+
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = name;
+
+    const label = document.createElement("div");
+    label.className = "gallery-name";
+    label.textContent = name;
+    label.title = name;
+
+    const attachBtn = document.createElement("button");
+    attachBtn.className = "gallery-attach-btn";
+    attachBtn.title = "Attach to message";
+    attachBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>';
+    attachBtn.addEventListener("click", async () => {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const file = new File([blob], name + ".png", { type: "image/png" });
+        // Use DataTransfer to set the file on the input
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        imageInput.files = dt.files;
+        imageInput.dispatchEvent(new Event("change"));
+    });
+
+    item.appendChild(img);
+    item.appendChild(attachBtn);
+    item.appendChild(label);
+    galleryList.appendChild(item);
 }
 
 function clearImageInput() {
@@ -164,6 +206,11 @@ chatForm.addEventListener("submit", async (e) => {
             history.push(userEntry);
             history.push({ role: "assistant", content: data.response });
             addMessage("assistant", data.response);
+            if (data.plots) {
+                for (const plot of data.plots) {
+                    addPlotToGallery(plot.url, plot.name);
+                }
+            }
         } else {
             addMessage("error", data.detail || "Something went wrong.");
         }

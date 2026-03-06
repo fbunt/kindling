@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`natlangq` — a natural language query tool. Web app with a chat interface powered by Google Gemini that will eventually translate natural language into Python queries against parquet files.
+`natlangq` — a natural language query tool. Web app with a chat interface powered by Google Gemini that will eventually translate natural language into Python queries against 38 years of MTBS fire data stored as a parquet dataframe.
 
 ## Dev Commands
 

@@ -88,3 +88,120 @@
 .image-upload-label.has-image {
     color: var(--bs-primary);
 }
+
+/* Markdown content in assistant messages */
+.message.assistant {
+    white-space: normal;
+}
+
+.message.assistant p:last-child {
+    margin-bottom: 0;
+}
+
+.message.assistant table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem 0;
+    font-size: 0.85rem;
+}
+
+.message.assistant th,
+.message.assistant td {
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--bs-border-color);
+    text-align: left;
+}
+
+.message.assistant th {
+    background: var(--bs-secondary-bg);
+    font-weight: 600;
+}
+
+.message.assistant pre {
+    background: var(--bs-secondary-bg);
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.25rem;
+    overflow-x: auto;
+}
+
+.message.assistant code {
+    font-size: 0.85em;
+}
+
+/* Two-panel layout */
+.chat-body {
+    min-height: 0;
+}
+
+.chat-main {
+    min-width: 0;
+}
+
+/* Gallery panel */
+.gallery-panel {
+    width: 280px;
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bs-body-bg);
+}
+
+.gallery-panel[hidden] {
+    display: none !important;
+}
+
+.gallery-list {
+    flex: 1;
+    min-height: 0;
+}
+
+.gallery-item {
+    position: relative;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    background: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+}
+
+.gallery-item img {
+    width: 100%;
+    display: block;
+}
+
+.gallery-item .gallery-name {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.gallery-item .gallery-attach-btn {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.35rem;
+    background: rgba(0, 0, 0, 0.6);
+    border: none;
+    color: #fff;
+    border-radius: 0.25rem;
+    padding: 0.2rem 0.35rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    line-height: 1;
+}
+
+.gallery-item:hover .gallery-attach-btn {
+    opacity: 1;
+}
+
+.gallery-attach-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
+}
+
+@media (max-width: 768px) {
+    .gallery-panel {
+        display: none !important;
+    }
+}
