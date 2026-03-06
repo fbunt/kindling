@@ -20,6 +20,7 @@ const lightboxImg = document.getElementById("lightbox-img");
 
 let history = [];
 let attachedPlotFile = null;
+let abortController = null;
 
 // Lightbox: open on plot image click, close on click/Escape
 function openLightbox(src) {
@@ -200,6 +201,13 @@ loginForm.addEventListener("submit", async (e) => {
     }
 });
 
+sendBtn.addEventListener("click", (e) => {
+    if (abortController) {
+        e.preventDefault();
+        abortController.abort();
+    }
+});
+
 chatForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const message = chatInput.value.trim();
@@ -218,7 +226,10 @@ chatForm.addEventListener("submit", async (e) => {
 
     addMessage("user", message, imageDataUrl);
     chatInput.value = "";
-    sendBtn.disabled = true;
+
+    abortController = new AbortController();
+    sendBtn.textContent = "Stop";
+    sendBtn.classList.add("stop");
 
     const thinkingDiv = addMessage("thinking", "Thinking...");
 
@@ -236,6 +247,7 @@ chatForm.addEventListener("submit", async (e) => {
         const res = await fetch("/api/chat", {
             method: "POST",
             body: formData,
+            signal: abortController.signal,
         });
 
         if (res.status === 401) {
@@ -310,8 +322,13 @@ chatForm.addEventListener("submit", async (e) => {
         }
     } catch (err) {
         thinkingDiv.remove();
-        addMessage("error", "Failed to send message.");
+        if (err.name !== "AbortError") {
+            addMessage("error", "Failed to send message.");
+        }
     } finally {
+        abortController = null;
+        sendBtn.textContent = "Send";
+        sendBtn.classList.remove("stop");
         sendBtn.disabled = false;
         chatInput.focus();
     }

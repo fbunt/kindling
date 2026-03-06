@@ -81,6 +81,8 @@ async def chat(
 
             # Function calling loop
             for round_num in range(MAX_TOOL_ROUNDS):
+                if await request.is_disconnected():
+                    return
                 yield _sse("status", {"status": "thinking"})
 
                 response = await asyncio.to_thread(
@@ -134,6 +136,9 @@ async def chat(
                     ))
 
                 contents.append(types.Content(role="user", parts=fc_response_parts))
+
+                if await request.is_disconnected():
+                    return
             else:
                 # Loop exhausted without a text-only response — one final call
                 logger.warning("Loop exhausted, making final call")

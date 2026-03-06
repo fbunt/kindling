@@ -302,6 +302,12 @@
     box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
 }
 
+/* Stop button */
+#send-btn.stop {
+    background-color: var(--bs-danger, #dc3545);
+    border-color: var(--bs-danger, #dc3545);
+}
+
 /* Make plot images in messages and gallery clickable */
 .message img[src^="/plots"],
 .gallery-item img {
