@@ -19,7 +19,6 @@ const lightbox = document.getElementById("lightbox");
 const lightboxImg = document.getElementById("lightbox-img");
 
 let history = [];
-let attachedPlotFile = null;
 let abortController = null;
 
 // Lightbox: open on plot image click, close on click/Escape

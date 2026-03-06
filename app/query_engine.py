@@ -1,7 +1,6 @@
 import ast
 import logging
 import threading
-import traceback
 from pathlib import Path
 
 import matplotlib

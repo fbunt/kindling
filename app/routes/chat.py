@@ -95,12 +95,12 @@ async def chat(
                 # Log response structure
                 parts = response.candidates[0].content.parts if response.candidates else []
                 part_types = [type(p).__name__ for p in parts]
-                logger.warning(f"Round {round_num}: parts={part_types}")
+                logger.debug(f"Round {round_num}: parts={part_types}")
                 for p in parts:
                     if hasattr(p, 'function_call') and p.function_call:
-                        logger.warning(f"  function_call: {p.function_call.name}({p.function_call.args})")
+                        logger.debug(f"  function_call: {p.function_call.name}({p.function_call.args})")
                     if hasattr(p, 'text') and p.text:
-                        logger.warning(f"  text: {p.text[:200]}")
+                        logger.debug(f"  text: {p.text[:200]}")
 
                 # Check for function calls in the response
                 function_calls = response.function_calls
@@ -126,7 +126,7 @@ async def chat(
                         execute_function_call,
                         fc.name, fc.args or {}, client, model,
                     )
-                    logger.warning(f"  {fc.name} result: {result_str[:500]}")
+                    logger.debug(f"  {fc.name} result: {result_str[:500]}")
                     all_plots.extend(plots)
                     fc_response_parts.append(types.Part(
                         function_response=types.FunctionResponse(
@@ -141,7 +141,7 @@ async def chat(
                     return
             else:
                 # Loop exhausted without a text-only response — one final call
-                logger.warning("Loop exhausted, making final call")
+                logger.debug("Loop exhausted, making final call")
                 yield _sse("status", {"status": "thinking"})
                 response = await asyncio.to_thread(
                     client.models.generate_content,
@@ -151,7 +151,7 @@ async def chat(
                 )
 
             response_text = response.text or ""
-            logger.warning(f"Final response_text ({len(response_text)} chars): {response_text[:200]}")
+            logger.debug(f"Final response_text ({len(response_text)} chars): {response_text[:200]}")
 
             result = {
                 "response": response_text,
