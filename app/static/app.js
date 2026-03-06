@@ -162,6 +162,9 @@ imageInput.addEventListener("change", () => {
     }
 });
 
+// Clear any stale file input from browser restore
+clearImageInput();
+
 // Check if already authenticated
 fetch("/api/auth/status")
     .then(r => r.json())
