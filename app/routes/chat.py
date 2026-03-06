@@ -108,13 +108,18 @@ async def chat(
                 # Append the model's response (with function call parts) to contents
                 contents.append(response.candidates[0].content)
 
-                yield _sse("status", {"status": "running_query"})
+                # Collect queries from this round
+                round_queries = []
+                for fc in function_calls:
+                    if fc.name == "run_query" and fc.args and "code" in fc.args:
+                        round_queries.append(fc.args["code"])
+                all_queries.extend(round_queries)
+
+                yield _sse("status", {"status": "running_query", "queries": round_queries})
 
                 # Execute each function call and build response parts
                 fc_response_parts = []
                 for fc in function_calls:
-                    if fc.name == "run_query" and fc.args and "code" in fc.args:
-                        all_queries.append(fc.args["code"])
                     result_str, plots = await asyncio.to_thread(
                         execute_function_call,
                         fc.name, fc.args or {}, client, model,

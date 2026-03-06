@@ -274,8 +274,14 @@ chatForm.addEventListener("submit", async (e) => {
                 if (!dataStr) continue;
 
                 if (eventType === "status") {
-                    const { status } = JSON.parse(dataStr);
+                    const { status, queries } = JSON.parse(dataStr);
                     thinkingDiv.textContent = statusLabels[status] || status;
+                    if (queries) {
+                        for (const code of queries) {
+                            const codeDiv = addMessage("code", code);
+                            messagesDiv.insertBefore(codeDiv, thinkingDiv);
+                        }
+                    }
                 } else if (eventType === "done") {
                     thinkingDiv.remove();
                     const data = JSON.parse(dataStr);
@@ -285,11 +291,6 @@ chatForm.addEventListener("submit", async (e) => {
                             userEntry.image = data.image_info;
                         }
                         history.push(userEntry);
-                        if (data.queries) {
-                            for (const code of data.queries) {
-                                addMessage("code", code);
-                            }
-                        }
                         history.push({ role: "assistant", content: data.response });
                         addMessage("assistant", data.response);
                         if (data.plots) {
