@@ -76,6 +76,30 @@
     border: 1px solid var(--bs-border-color);
     color: var(--bs-secondary-color);
     font-style: italic;
+    animation: pulse 1.5s ease-in-out infinite;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.message.thinking::before {
+    content: "";
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    border: 2px solid var(--bs-border-color);
+    border-top-color: var(--bs-secondary-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }
 
 .message.code {

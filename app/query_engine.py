@@ -1,5 +1,6 @@
 import ast
-import signal
+import logging
+import threading
 import traceback
 from pathlib import Path
 
@@ -16,6 +17,8 @@ MAX_ROWS = 100
 QUERY_TIMEOUT = 30  # seconds
 
 _plot_counter = 0
+_zombie_threads: list[threading.Thread] = []
+logger = logging.getLogger(__name__)
 
 LF = pl.scan_parquet(PARQUET_PATH)
 
@@ -94,13 +97,6 @@ def validate_code(code: str) -> None:
                     )
 
 
-class _QueryTimeout(Exception):
-    pass
-
-
-def _timeout_handler(signum, frame):
-    raise _QueryTimeout("Query timed out")
-
 
 def execute_query(code: str) -> dict:
     """Validate and execute polars query code. Returns result dicts or error."""
@@ -118,17 +114,30 @@ def execute_query(code: str) -> dict:
     }
     global_ns = {"__builtins__": restricted_builtins}
 
-    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-    signal.alarm(QUERY_TIMEOUT)
-    try:
-        exec(code, global_ns, namespace)
-    except _QueryTimeout:
+    # Check for and clean up zombie threads from previous timed-out queries
+    still_alive = [t for t in _zombie_threads if t.is_alive()]
+    if still_alive:
+        logger.warning(f"{len(still_alive)} zombie query thread(s) still running")
+    _zombie_threads.clear()
+    _zombie_threads.extend(still_alive)
+
+    result_box = [None]
+
+    def _run():
+        try:
+            exec(code, global_ns, namespace)
+        except Exception as e:
+            result_box[0] = {"error": f"Execution error: {type(e).__name__}: {e}"}
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=QUERY_TIMEOUT)
+    if t.is_alive():
+        _zombie_threads.append(t)
+        logger.warning("Query timed out, thread still running in background")
         return {"error": "Query timed out (exceeded 30 seconds)"}
-    except Exception as e:
-        return {"error": f"Execution error: {type(e).__name__}: {e}"}
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
+    if result_box[0] is not None:
+        return result_box[0]
 
     # Capture any matplotlib plots
     global _plot_counter

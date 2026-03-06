@@ -238,34 +238,74 @@ chatForm.addEventListener("submit", async (e) => {
             body: formData,
         });
 
-        thinkingDiv.remove();
-
         if (res.status === 401) {
+            thinkingDiv.remove();
             showLogin();
             return;
         }
 
-        const data = await res.json();
-        if (data.response) {
-            const userEntry = { role: "user", content: message };
-            if (data.image_info) {
-                userEntry.image = data.image_info;
-            }
-            history.push(userEntry);
-            if (data.queries) {
-                for (const code of data.queries) {
-                    addMessage("code", code);
+        // Parse SSE stream
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        const statusLabels = {
+            thinking: "Thinking...",
+            running_query: "Running query...",
+        };
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete SSE messages (separated by double newlines)
+            let boundary;
+            while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+                const raw = buffer.slice(0, boundary);
+                buffer = buffer.slice(boundary + 2);
+
+                let eventType = "message";
+                let dataStr = "";
+                for (const line of raw.split("\n")) {
+                    if (line.startsWith("event: ")) eventType = line.slice(7);
+                    else if (line.startsWith("data: ")) dataStr = line.slice(6);
+                }
+                if (!dataStr) continue;
+
+                if (eventType === "status") {
+                    const { status } = JSON.parse(dataStr);
+                    thinkingDiv.textContent = statusLabels[status] || status;
+                } else if (eventType === "done") {
+                    thinkingDiv.remove();
+                    const data = JSON.parse(dataStr);
+                    if (data.response) {
+                        const userEntry = { role: "user", content: message };
+                        if (data.image_info) {
+                            userEntry.image = data.image_info;
+                        }
+                        history.push(userEntry);
+                        if (data.queries) {
+                            for (const code of data.queries) {
+                                addMessage("code", code);
+                            }
+                        }
+                        history.push({ role: "assistant", content: data.response });
+                        addMessage("assistant", data.response);
+                        if (data.plots) {
+                            for (const plot of data.plots) {
+                                addPlotToGallery(plot.url, plot.name);
+                            }
+                        }
+                    } else {
+                        addMessage("error", "Something went wrong.");
+                    }
+                } else if (eventType === "error") {
+                    thinkingDiv.remove();
+                    const { detail } = JSON.parse(dataStr);
+                    addMessage("error", detail || "Something went wrong.");
                 }
             }
-            history.push({ role: "assistant", content: data.response });
-            addMessage("assistant", data.response);
-            if (data.plots) {
-                for (const plot of data.plots) {
-                    addPlotToGallery(plot.url, plot.name);
-                }
-            }
-        } else {
-            addMessage("error", data.detail || "Something went wrong.");
         }
     } catch (err) {
         thinkingDiv.remove();

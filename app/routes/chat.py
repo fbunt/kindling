@@ -1,8 +1,10 @@
+import asyncio
 import base64
 import json
 import logging
 
 from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form
+from starlette.responses import StreamingResponse
 from google import genai
 from google.genai import types
 
@@ -13,6 +15,10 @@ from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION, execute_function_call
 router = APIRouter()
 
 MAX_TOOL_ROUNDS = 10
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
 @router.post("/chat")
@@ -68,74 +74,85 @@ async def chat(
         tools=[FIRE_DATA_TOOLS],
     )
 
-    try:
-        all_plots = []
-        all_queries = []
+    async def event_stream():
+        try:
+            all_plots = []
+            all_queries = []
 
-        # Function calling loop
-        for round_num in range(MAX_TOOL_ROUNDS):
-            response = client.models.generate_content(
-                model=model,
-                contents=contents,
-                config=config,
-            )
+            # Function calling loop
+            for round_num in range(MAX_TOOL_ROUNDS):
+                yield _sse("status", {"status": "thinking"})
 
-            # Log response structure
-            parts = response.candidates[0].content.parts if response.candidates else []
-            part_types = [type(p).__name__ for p in parts]
-            logger.warning(f"Round {round_num}: parts={part_types}")
-            for p in parts:
-                if hasattr(p, 'function_call') and p.function_call:
-                    logger.warning(f"  function_call: {p.function_call.name}({p.function_call.args})")
-                if hasattr(p, 'text') and p.text:
-                    logger.warning(f"  text: {p.text[:200]}")
-
-            # Check for function calls in the response
-            function_calls = response.function_calls
-            if not function_calls:
-                break
-
-            # Append the model's response (with function call parts) to contents
-            contents.append(response.candidates[0].content)
-
-            # Execute each function call and build response parts
-            fc_response_parts = []
-            for fc in function_calls:
-                if fc.name == "run_query" and fc.args and "code" in fc.args:
-                    all_queries.append(fc.args["code"])
-                result_str, plots = execute_function_call(
-                    fc.name, fc.args or {}, client, model
+                response = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=model,
+                    contents=contents,
+                    config=config,
                 )
-                logger.warning(f"  {fc.name} result: {result_str[:500]}")
-                all_plots.extend(plots)
-                fc_response_parts.append(types.Part(
-                    function_response=types.FunctionResponse(
-                        name=fc.name,
-                        response=json.loads(result_str),
+
+                # Log response structure
+                parts = response.candidates[0].content.parts if response.candidates else []
+                part_types = [type(p).__name__ for p in parts]
+                logger.warning(f"Round {round_num}: parts={part_types}")
+                for p in parts:
+                    if hasattr(p, 'function_call') and p.function_call:
+                        logger.warning(f"  function_call: {p.function_call.name}({p.function_call.args})")
+                    if hasattr(p, 'text') and p.text:
+                        logger.warning(f"  text: {p.text[:200]}")
+
+                # Check for function calls in the response
+                function_calls = response.function_calls
+                if not function_calls:
+                    break
+
+                # Append the model's response (with function call parts) to contents
+                contents.append(response.candidates[0].content)
+
+                yield _sse("status", {"status": "running_query"})
+
+                # Execute each function call and build response parts
+                fc_response_parts = []
+                for fc in function_calls:
+                    if fc.name == "run_query" and fc.args and "code" in fc.args:
+                        all_queries.append(fc.args["code"])
+                    result_str, plots = await asyncio.to_thread(
+                        execute_function_call,
+                        fc.name, fc.args or {}, client, model,
                     )
-                ))
+                    logger.warning(f"  {fc.name} result: {result_str[:500]}")
+                    all_plots.extend(plots)
+                    fc_response_parts.append(types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response=json.loads(result_str),
+                        )
+                    ))
 
-            contents.append(types.Content(role="user", parts=fc_response_parts))
-        else:
-            # Loop exhausted without a text-only response — one final call
-            logger.warning("Loop exhausted, making final call")
-            response = client.models.generate_content(
-                model=model,
-                contents=contents,
-                config=config,
-            )
+                contents.append(types.Content(role="user", parts=fc_response_parts))
+            else:
+                # Loop exhausted without a text-only response — one final call
+                logger.warning("Loop exhausted, making final call")
+                yield _sse("status", {"status": "thinking"})
+                response = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=model,
+                    contents=contents,
+                    config=config,
+                )
 
-        response_text = response.text or ""
-        logger.warning(f"Final response_text ({len(response_text)} chars): {response_text[:200]}")
+            response_text = response.text or ""
+            logger.warning(f"Final response_text ({len(response_text)} chars): {response_text[:200]}")
 
-        result = {
-            "response": response_text,
-            "image_info": image_info,
-        }
-        if all_plots:
-            result["plots"] = all_plots
-        if all_queries:
-            result["queries"] = all_queries
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+            result = {
+                "response": response_text,
+                "image_info": image_info,
+            }
+            if all_plots:
+                result["plots"] = all_plots
+            if all_queries:
+                result["queries"] = all_queries
+            yield _sse("done", result)
+        except Exception as e:
+            yield _sse("error", {"detail": str(e)})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
