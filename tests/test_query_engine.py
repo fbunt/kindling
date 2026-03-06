@@ -2,6 +2,7 @@ import pytest
 import polars as pl
 
 from app.query_engine import validate_code, execute_query, ValidationError
+from app.tools import _unique_display_name, _used_display_names
 
 
 # ── validate_code: allowed ──────────────────────────────────────────
@@ -298,6 +299,14 @@ class TestExecuteQuery:
         out = execute_query("result = lf.head(1)")
         assert "data" in out
         assert isinstance(out["data"], list)
+
+    def test_unique_display_names(self):
+        _used_display_names.clear()
+        assert _unique_display_name("fire-plot") == "fire-plot"
+        assert _unique_display_name("fire-plot") == "fire-plot-001"
+        assert _unique_display_name("fire-plot") == "fire-plot-002"
+        assert _unique_display_name("other-plot") == "other-plot"
+        _used_display_names.clear()
 
     def test_multi_step_query(self):
         out = execute_query(

@@ -54,6 +54,10 @@ Key columns:
 Important: Each row is a 30m PIXEL, not a fire. A single fire (Event_ID) has many pixel rows. \
 To count fires or get fire-level stats, use `.unique("Event_ID")` or group by Event_ID first.
 
+Important: Pixels can show up multiple times if they have burned in more than one fire in the \
+study period. To count the number of fires or derive information related to the number of \
+times pixels have burned, use group by geohash.
+
 Important: NLCD and WUI can change over time. The value for each is the value at the ignition \
 time. nlcd_mode gives the mode for a given pixel across the study period.
 
@@ -137,6 +141,22 @@ def _web_search(query: str, client: genai.Client, model: str) -> dict:
     return {"result": response.text}
 
 
+_used_display_names: set[str] = set()
+
+
+def _unique_display_name(name: str) -> str:
+    """Append a numeric suffix if the display name has already been used."""
+    if name not in _used_display_names:
+        _used_display_names.add(name)
+        return name
+    n = 1
+    while f"{name}-{n:03d}" in _used_display_names:
+        n += 1
+    unique = f"{name}-{n:03d}"
+    _used_display_names.add(unique)
+    return unique
+
+
 def execute_function_call(
     name: str, args: dict, client: genai.Client, model: str
 ) -> tuple[str, list[dict]]:
@@ -150,7 +170,8 @@ def execute_function_call(
         if "plots" in result:
             code = args.get("code", "")
             for url in result["plots"]:
-                display_name = generate_plot_name(code, client) or url.split("/")[-1].replace(".png", "")
+                raw_name = generate_plot_name(code, client) or url.split("/")[-1].replace(".png", "")
+                display_name = _unique_display_name(raw_name)
                 plots.append({"url": url, "name": display_name})
             result["plots"] = plots
     elif name == "web_search":
