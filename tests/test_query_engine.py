@@ -193,7 +193,9 @@ class TestAdversarial:
 
     # --- Timeout / resource abuse ---
 
-    def test_infinite_loop_times_out(self):
+    def test_infinite_loop_times_out(self, monkeypatch):
+        import app.query_engine as qe
+        monkeypatch.setattr(qe, "QUERY_TIMEOUT", 1)
         out = execute_query("while True: pass\nresult = 'done'")
         assert "error" in out
         assert "timed out" in out["error"].lower()

@@ -13,7 +13,7 @@ PARQUET_PATH = Path("data/mtbs_pix_data.parquet")
 PLOTS_DIR = Path("plots")
 PLOTS_DIR.mkdir(exist_ok=True)
 MAX_ROWS = 100
-QUERY_TIMEOUT = 30  # seconds
+QUERY_TIMEOUT = 300  # seconds
 
 _plot_counter = 0
 _zombie_threads: list[threading.Thread] = []
