@@ -112,6 +112,7 @@ def execute_query(code: str) -> dict:
     try:
         validate_code(code)
     except ValidationError as e:
+        logger.warning(f"Validation rejected code: {e}\n{code}")
         return {"error": str(e)}
 
     namespace = {"pl": pl, "lf": LF.clone(), "plt": plt, "sns": sns}
@@ -136,6 +137,7 @@ def execute_query(code: str) -> dict:
         try:
             exec(code, global_ns, namespace)
         except Exception as e:
+            logger.warning(f"Runtime error in query: {type(e).__name__}: {e}\n{code}")
             result_box[0] = {"error": f"Execution error: {type(e).__name__}: {e}"}
 
     t = threading.Thread(target=_run, daemon=True)
