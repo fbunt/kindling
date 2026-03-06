@@ -1,7 +1,10 @@
 import json
+import logging
 
 from google import genai
 from google.genai import types
+
+logger = logging.getLogger(__name__)
 
 from app.query_engine import get_dataset_info, execute_query
 
@@ -98,14 +101,15 @@ def generate_plot_name(code: str, client: genai.Client) -> str | None:
     """Call flash-lite to generate a short kebab-case name for a plot."""
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash-lite",
+            model="gemini-3.1-flash-lite-preview",
             contents=f"Generate a short kebab-case filename (no extension, max 5 words) for a plot created by this code. Reply with ONLY the filename, nothing else:\n\n{code}",
         )
         name = response.text.strip().strip("`").strip()
         # Sanitize: keep only lowercase alphanumeric and hyphens
         name = "-".join(w for w in name.lower().split("-") if w.isalnum())
         return name if name else None
-    except Exception:
+    except Exception as e:
+        logger.warning(f"generate_plot_name failed: {e}")
         return None
 
 
