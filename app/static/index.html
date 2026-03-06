@@ -34,9 +34,9 @@
         <div class="chat-body d-flex flex-grow-1 overflow-hidden">
             <div class="chat-main d-flex flex-column flex-grow-1">
                 <div id="messages" class="flex-grow-1 overflow-auto p-3 d-flex flex-column gap-2 mx-auto w-100" style="max-width: 1275px;"></div>
-                <form id="chat-form" class="d-flex align-items-center gap-2 p-3 border-top mx-auto w-100" style="max-width: 1275px;">
+                <form id="chat-form" class="d-flex align-items-end gap-2 p-3 border-top mx-auto w-100" style="max-width: 1275px;">
                     <div class="input-wrapper position-relative flex-grow-1">
-                        <input type="text" id="chat-input" class="form-control pe-5" placeholder="Type a message..." autocomplete="off" required>
+                        <textarea id="chat-input" class="form-control pe-5" placeholder="Type a message..." rows="3" required></textarea>
                         <span id="image-name" class="image-name" hidden></span>
                         <label id="image-upload-label" class="image-upload-label" title="Attach image">
                             <input type="file" id="image-input" accept="image/png,image/jpeg" hidden>

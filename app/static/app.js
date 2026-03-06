@@ -164,6 +164,13 @@ imageInput.addEventListener("change", () => {
 // Clear any stale file input from browser restore
 clearImageInput();
 
+// Auto-resize textarea
+function autoResize() {
+    chatInput.style.height = "auto";
+    chatInput.style.height = chatInput.scrollHeight + "px";
+}
+chatInput.addEventListener("input", autoResize);
+
 // Check if already authenticated
 fetch("/api/auth/status")
     .then(r => r.json())
