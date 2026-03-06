@@ -70,6 +70,7 @@ async def chat(
 
     try:
         all_plots = []
+        all_queries = []
 
         # Function calling loop
         for round_num in range(MAX_TOOL_ROUNDS):
@@ -100,6 +101,8 @@ async def chat(
             # Execute each function call and build response parts
             fc_response_parts = []
             for fc in function_calls:
+                if fc.name == "run_query" and fc.args and "code" in fc.args:
+                    all_queries.append(fc.args["code"])
                 result_str, plots = execute_function_call(
                     fc.name, fc.args or {}, client, model
                 )
@@ -131,6 +134,8 @@ async def chat(
         }
         if all_plots:
             result["plots"] = all_plots
+        if all_queries:
+            result["queries"] = all_queries
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))

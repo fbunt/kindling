@@ -47,6 +47,15 @@ function addMessage(role, content, imageDataUrl) {
     div.className = `message ${role}`;
     if (role === "assistant") {
         div.innerHTML = marked.parse(content);
+        div.querySelectorAll("pre code").forEach(el => hljs.highlightElement(el));
+    } else if (role === "code") {
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        code.className = "language-python";
+        code.textContent = content;
+        hljs.highlightElement(code);
+        pre.appendChild(code);
+        div.appendChild(pre);
     } else {
         div.textContent = content;
     }
@@ -204,6 +213,11 @@ chatForm.addEventListener("submit", async (e) => {
                 userEntry.image = data.image_info;
             }
             history.push(userEntry);
+            if (data.queries) {
+                for (const code of data.queries) {
+                    addMessage("code", code);
+                }
+            }
             history.push({ role: "assistant", content: data.response });
             addMessage("assistant", data.response);
             if (data.plots) {

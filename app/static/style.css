@@ -49,6 +49,26 @@
     font-style: italic;
 }
 
+.message.code {
+    align-self: flex-start;
+    border: 1px solid var(--bs-border-color);
+    max-width: 85%;
+    padding: 0;
+    white-space: normal;
+    overflow: visible;
+}
+
+.message.code pre {
+    margin: 0;
+    padding: 0.75rem 1rem;
+    font-size: 0.82rem;
+}
+
+.message.code pre code {
+    padding: 0;
+    background: transparent;
+}
+
 /* Image upload inside input */
 .input-wrapper {
     display: flex;
