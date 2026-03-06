@@ -40,16 +40,25 @@ Key columns:
 - Incid_Name (String): Fire incident name
 - Event_ID (String): Unique fire event identifier
 - area_acres (Float64): Fire area in acres
+- geohash (Int64): Unique ID for each pixel location
 - bs (UInt8): Burn severity class (1=Unburned, 2=Low, 3=Moderate, 4=High, 5=Increased Greenness, 6=Non-processing)
-- Ig_Date (Datetime): Ignition date
+- Ig_Date (Datetime): Ignition date of fire
 - lat/lon (Float64): Latitude/longitude
 - elevation (Float32): Elevation
+- eco1/eco2/eco3 (Int16): Ecoregion levels as ints
 - eco1s/eco2s/eco3s (String): Ecoregion levels
 - nlcd (UInt8): NLCD land cover class
-- wui_flag (UInt8): Wildland-Urban Interface flag
+- nlcd_mode (UInt8): NLCD land cover class mode stat across the 38 year period for a given location
+- wui_bool (UInt8): Wildland-Urban Interface True/False 1/0
 
 Important: Each row is a 30m PIXEL, not a fire. A single fire (Event_ID) has many pixel rows. \
 To count fires or get fire-level stats, use `.unique("Event_ID")` or group by Event_ID first.
+
+Important: NLCD and WUI can change over time. The value for each is the value at the ignition \
+time. nlcd_mode gives the mode for a given pixel across the study period.
+
+Prefer building intermediate dataframes in a single run_query call rather than splitting across multiple calls. \
+Each run_query invocation starts with a fresh namespace, so variables from previous calls are not available.
 
 Always call `get_dataset_info` first if you're unsure about column names or data types. \
 Format results as markdown tables when presenting to the user.\
