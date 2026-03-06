@@ -79,6 +79,16 @@ def validate_code(code: str) -> None:
             if isinstance(func, ast.Name) and func.id in _FORBIDDEN_BUILTINS:
                 raise ValidationError(f"Forbidden call: {func.id}()")
 
+        # Reject forbidden names used as decorators
+        if isinstance(node, ast.FunctionDef) and node.decorator_list:
+            for dec in node.decorator_list:
+                if isinstance(dec, ast.Name) and dec.id in _FORBIDDEN_BUILTINS:
+                    raise ValidationError(f"Forbidden decorator: {dec.id}")
+
+        # Reject references to dunder names (e.g. __builtins__)
+        if isinstance(node, ast.Name) and node.id.startswith("__") and node.id.endswith("__"):
+            raise ValidationError(f"Forbidden name: {node.id}")
+
         # Reject dunder attribute access
         if isinstance(node, ast.Attribute):
             if node.attr.startswith("__") and node.attr.endswith("__"):
