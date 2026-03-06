@@ -145,17 +145,50 @@ function addPlotToGallery(url, name) {
 
 function clearImageInput() {
     imageInput.value = "";
-    imageUploadLabel.classList.remove("has-image");
     imageName.hidden = true;
     imageName.textContent = "";
+    // Remove thumbnail card and restore upload button
+    const card = document.getElementById("image-thumb-card");
+    if (card) card.remove();
+    imageUploadLabel.hidden = false;
 }
 
-// Track selected image
+// Track selected image — show thumbnail card replacing upload button
 imageInput.addEventListener("change", () => {
     if (imageInput.files.length > 0) {
-        imageUploadLabel.classList.add("has-image");
-        imageName.textContent = imageInput.files[0].name;
-        imageName.hidden = false;
+        const file = imageInput.files[0];
+        imageUploadLabel.hidden = true;
+        imageName.hidden = true;
+
+        // Create thumbnail card
+        const card = document.createElement("div");
+        card.className = "image-thumb-card";
+        card.id = "image-thumb-card";
+
+        const thumb = document.createElement("img");
+        thumb.src = URL.createObjectURL(file);
+        thumb.alt = file.name;
+
+        const name = document.createElement("span");
+        name.className = "image-thumb-name";
+        name.textContent = file.name;
+        name.title = file.name;
+
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "image-thumb-remove";
+        removeBtn.title = "Remove image";
+        removeBtn.innerHTML = "&times;";
+        removeBtn.addEventListener("click", () => {
+            clearImageInput();
+        });
+
+        card.appendChild(thumb);
+        card.appendChild(name);
+        card.appendChild(removeBtn);
+
+        // Insert card where the upload label is
+        imageUploadLabel.parentNode.insertBefore(card, imageUploadLabel);
     } else {
         clearImageInput();
     }
