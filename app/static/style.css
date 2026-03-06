@@ -307,6 +307,18 @@
     box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
 }
 
+/* Send button */
+.send-btn-label kbd {
+    display: inline-block;
+    font-size: 0.7em;
+    padding: 0.1em 0.35em;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 0.2rem;
+    font-family: inherit;
+    line-height: 1;
+    vertical-align: middle;
+}
+
 /* Stop button */
 #send-btn.stop {
     background-color: var(--bs-danger, #dc3545);

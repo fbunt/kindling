@@ -171,6 +171,14 @@ function autoResize() {
 }
 chatInput.addEventListener("input", autoResize);
 
+// Ctrl+Enter (or Cmd+Enter) to submit
+chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        chatForm.requestSubmit();
+    }
+});
+
 // Check if already authenticated
 fetch("/api/auth/status")
     .then(r => r.json())
@@ -336,7 +344,7 @@ chatForm.addEventListener("submit", async (e) => {
         }
     } finally {
         abortController = null;
-        sendBtn.textContent = "Send";
+        sendBtn.innerHTML = 'Send <kbd>Ctrl</kbd> <kbd>↵</kbd>';
         sendBtn.classList.remove("stop");
         sendBtn.disabled = false;
         chatInput.focus();
