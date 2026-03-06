@@ -85,7 +85,9 @@ async def chat(
             # Execute each function call and build response parts
             fc_response_parts = []
             for fc in function_calls:
-                result_str = execute_function_call(fc.name, fc.args or {})
+                result_str = execute_function_call(
+                    fc.name, fc.args or {}, client, model
+                )
                 fc_response_parts.append(types.Part(
                     function_response=types.FunctionResponse(
                         name=fc.name,

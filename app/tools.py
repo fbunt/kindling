@@ -1,5 +1,6 @@
 import json
 
+from google import genai
 from google.genai import types
 
 from app.query_engine import get_dataset_info, execute_query
@@ -9,9 +10,10 @@ You are a data analyst assistant for the MTBS (Monitoring Trends in Burn Severit
 fire dataset. This dataset contains ~79 million rows of pixel-level fire data from \
 1984 to 2022 across the United States.
 
-You have two tools available:
+You have three tools available:
 1. `get_dataset_info` — call this to see the column schema, data types, and sample rows
 2. `run_query` — execute a Polars query against the dataset
+3. `web_search` — search the web for current information, context, or facts
 
 When using `run_query`, write Polars code that operates on a LazyFrame called `lf`. \
 Your code MUST assign the final result to a variable called `result`.
@@ -67,16 +69,46 @@ FIRE_DATA_TOOLS = types.Tool(
                 required=["code"],
             ),
         ),
+        types.FunctionDeclaration(
+            name="web_search",
+            description="Search the web for current information. Use this to look up facts, context, or recent events that aren't in the fire dataset.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "query": types.Schema(
+                        type="STRING",
+                        description="The search query.",
+                    ),
+                },
+                required=["query"],
+            ),
+        ),
     ],
 )
 
 
-def execute_function_call(name: str, args: dict) -> str:
+def _web_search(query: str, client: genai.Client, model: str) -> dict:
+    """Perform a web search by calling Gemini with Google Search enabled."""
+    response = client.models.generate_content(
+        model=model,
+        contents=query,
+        config=types.GenerateContentConfig(
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+        ),
+    )
+    return {"result": response.text}
+
+
+def execute_function_call(
+    name: str, args: dict, client: genai.Client, model: str
+) -> str:
     """Dispatch a function call from Gemini and return the JSON result."""
     if name == "get_dataset_info":
         result = get_dataset_info()
     elif name == "run_query":
         result = execute_query(args["code"])
+    elif name == "web_search":
+        result = _web_search(args["query"], client, model)
     else:
         result = {"error": f"Unknown function: {name}"}
     return json.dumps(result, default=str)
