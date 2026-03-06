@@ -254,3 +254,32 @@
         display: none !important;
     }
 }
+
+/* Lightbox */
+.lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+}
+
+.lightbox[hidden] {
+    display: none !important;
+}
+
+.lightbox img {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 0.5rem;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+}
+
+/* Make plot images in messages and gallery clickable */
+.message img[src^="/plots"],
+.gallery-item img {
+    cursor: zoom-in;
+}

@@ -15,9 +15,28 @@ const imageUploadLabel = document.getElementById("image-upload-label");
 const imageName = document.getElementById("image-name");
 const galleryPanel = document.getElementById("gallery-panel");
 const galleryList = document.getElementById("gallery-list");
+const lightbox = document.getElementById("lightbox");
+const lightboxImg = document.getElementById("lightbox-img");
 
 let history = [];
 let attachedPlotFile = null;
+
+// Lightbox: open on plot image click, close on click/Escape
+function openLightbox(src) {
+    lightboxImg.src = src;
+    lightbox.hidden = false;
+}
+
+lightbox.addEventListener("click", () => { lightbox.hidden = true; });
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !lightbox.hidden) lightbox.hidden = true;
+});
+
+// Delegate click on plot images in messages
+messagesDiv.addEventListener("click", (e) => {
+    const img = e.target.closest("img[src^='/plots']");
+    if (img) openLightbox(img.src);
+});
 
 function showLogin() {
     loginView.hidden = false;
@@ -96,6 +115,7 @@ function addPlotToGallery(url, name) {
     const img = document.createElement("img");
     img.src = url;
     img.alt = name;
+    img.addEventListener("click", () => openLightbox(url));
 
     const label = document.createElement("div");
     label.className = "gallery-name";
