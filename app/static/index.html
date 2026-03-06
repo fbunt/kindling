@@ -34,16 +34,18 @@
         <div class="chat-body d-flex flex-grow-1 overflow-hidden">
             <div class="chat-main d-flex flex-column flex-grow-1">
                 <div id="messages" class="flex-grow-1 overflow-auto p-3 d-flex flex-column gap-2 mx-auto w-100" style="max-width: 1275px;"></div>
-                <form id="chat-form" class="d-flex align-items-end gap-2 p-3 border-top mx-auto w-100" style="max-width: 1275px;">
-                    <div class="input-wrapper position-relative flex-grow-1">
-                        <textarea id="chat-input" class="form-control pe-5" placeholder="Type a message..." rows="3" required></textarea>
+                <form id="chat-form" class="p-3 border-top mx-auto w-100" style="max-width: 1275px;">
+                    <div class="input-wrapper position-relative">
+                        <textarea id="chat-input" class="form-control" placeholder="Type a message..." rows="3" required></textarea>
                         <span id="image-name" class="image-name" hidden></span>
-                        <label id="image-upload-label" class="image-upload-label" title="Attach image">
-                            <input type="file" id="image-input" accept="image/png,image/jpeg" hidden>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                        </label>
+                        <div class="input-toolbar">
+                            <label id="image-upload-label" class="image-upload-label" title="Attach image">
+                                <input type="file" id="image-input" accept="image/png,image/jpeg" hidden>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                            </label>
+                            <button type="submit" id="send-btn" class="btn btn-primary btn-sm send-btn-label">Send <kbd>Ctrl</kbd> <kbd>↵</kbd></button>
+                        </div>
                     </div>
-                    <button type="submit" id="send-btn" class="btn btn-primary send-btn-label">Send <kbd>Ctrl</kbd> <kbd>↵</kbd></button>
                 </form>
             </div>
             <div id="gallery-panel" class="gallery-panel border-start" hidden>

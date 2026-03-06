@@ -127,6 +127,7 @@
     resize: none;
     overflow-y: auto;
     max-height: 50vh;
+    padding-bottom: 2.2rem;
 }
 
 /* Image upload inside input */
@@ -147,10 +148,16 @@
     white-space: nowrap;
 }
 
-.image-upload-label {
+.input-toolbar {
     position: absolute;
     right: 0.4rem;
-    bottom: 0.25rem;
+    bottom: 0.3rem;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.image-upload-label {
     cursor: pointer;
     color: var(--bs-secondary-color);
     display: flex;
@@ -165,9 +172,6 @@
 
 /* Image thumbnail card (replaces upload button when image attached) */
 .image-thumb-card {
-    position: absolute;
-    right: 0.4rem;
-    bottom: 0.25rem;
     display: flex;
     align-items: center;
     gap: 0.35rem;
