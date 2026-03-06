@@ -3,11 +3,19 @@ import signal
 import traceback
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
 import polars as pl
 
 PARQUET_PATH = Path("data/mtbs_pix_data.parquet")
+PLOTS_DIR = Path("plots")
+PLOTS_DIR.mkdir(exist_ok=True)
 MAX_ROWS = 100
 QUERY_TIMEOUT = 30  # seconds
+
+_plot_counter = 0
 
 LF = pl.scan_parquet(PARQUET_PATH)
 
@@ -101,7 +109,7 @@ def execute_query(code: str) -> dict:
     except ValidationError as e:
         return {"error": str(e)}
 
-    namespace = {"pl": pl, "lf": LF.clone()}
+    namespace = {"pl": pl, "lf": LF.clone(), "plt": plt, "sns": sns}
     restricted_builtins = {
         "True": True, "False": False, "None": None,
         "len": len, "range": range, "str": str, "int": int, "float": float,
@@ -122,23 +130,39 @@ def execute_query(code: str) -> dict:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, old_handler)
 
+    # Capture any matplotlib plots
+    global _plot_counter
+    plot_urls = []
+    for fig_num in plt.get_fignums():
+        _plot_counter += 1
+        filename = f"plot-{_plot_counter:03d}.png"
+        fig = plt.figure(fig_num)
+        fig.savefig(PLOTS_DIR / filename, bbox_inches="tight", dpi=150)
+        plt.close(fig)
+        plot_urls.append(f"/plots/{filename}")
+
     result = namespace.get("result")
-    if result is None:
+    if result is None and not plot_urls:
         return {"error": "No result produced. Code must assign to `result`."}
 
     try:
-        if isinstance(result, pl.LazyFrame):
-            result = result.collect()
-        if isinstance(result, pl.DataFrame):
-            total_rows = len(result)
-            if total_rows > MAX_ROWS:
-                result = result.head(MAX_ROWS)
-            return {
-                "data": result.to_dicts(),
-                "total_rows": total_rows,
-                "truncated": total_rows > MAX_ROWS,
-            }
-        # Scalar or other result
-        return {"data": str(result)}
+        output = {}
+        if result is not None:
+            if isinstance(result, pl.LazyFrame):
+                result = result.collect()
+            if isinstance(result, pl.DataFrame):
+                total_rows = len(result)
+                if total_rows > MAX_ROWS:
+                    result = result.head(MAX_ROWS)
+                output["data"] = result.to_dicts()
+                output["total_rows"] = total_rows
+                output["truncated"] = total_rows > MAX_ROWS
+            else:
+                output["data"] = str(result)
+        if plot_urls:
+            output["plots"] = plot_urls
+            if "data" not in output:
+                output["data"] = "Plot(s) generated successfully."
+        return output
     except Exception as e:
         return {"error": f"Result processing error: {e}"}

@@ -23,7 +23,14 @@ Example queries:
 - `result = lf.filter(pl.col("year") == 2020).sort("area_acres", descending=True).head(5)`
 - `result = lf.group_by("year").agg(pl.col("area_acres").sum()).sort("year")`
 
-Available objects: `pl` (polars module) and `lf` (LazyFrame of the fire dataset).
+Available objects: `pl` (polars module), `lf` (LazyFrame of the fire dataset), `plt` (matplotlib.pyplot), and `sns` (seaborn).
+
+IMPORTANT: Do NOT use `import` statements — all libraries are pre-loaded in the execution environment. \
+Use `plt`, `sns`, `pl`, and `lf` directly.
+
+Plots are auto-captured — do NOT call `plt.savefig()` or `plt.show()`. Just create the figure and it will be saved automatically.
+When plots are generated, reference them in your response using markdown image syntax with the returned URLs: `![description](url)`
+If you only need to create a chart (no tabular data), you don't need to assign to `result`.
 
 Key columns:
 - year (UInt16): Fire year (1984-2022)
@@ -87,6 +94,21 @@ FIRE_DATA_TOOLS = types.Tool(
 )
 
 
+def generate_plot_name(code: str, client: genai.Client) -> str | None:
+    """Call flash-lite to generate a short kebab-case name for a plot."""
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-lite",
+            contents=f"Generate a short kebab-case filename (no extension, max 5 words) for a plot created by this code. Reply with ONLY the filename, nothing else:\n\n{code}",
+        )
+        name = response.text.strip().strip("`").strip()
+        # Sanitize: keep only lowercase alphanumeric and hyphens
+        name = "-".join(w for w in name.lower().split("-") if w.isalnum())
+        return name if name else None
+    except Exception:
+        return None
+
+
 def _web_search(query: str, client: genai.Client, model: str) -> dict:
     """Perform a web search by calling Gemini with Google Search enabled."""
     response = client.models.generate_content(
@@ -101,14 +123,22 @@ def _web_search(query: str, client: genai.Client, model: str) -> dict:
 
 def execute_function_call(
     name: str, args: dict, client: genai.Client, model: str
-) -> str:
-    """Dispatch a function call from Gemini and return the JSON result."""
+) -> tuple[str, list[dict]]:
+    """Dispatch a function call from Gemini. Returns (json_result, plots_list)."""
+    plots = []
     if name == "get_dataset_info":
         result = get_dataset_info()
     elif name == "run_query":
         result = execute_query(args["code"])
+        # Generate display names for any plots
+        if "plots" in result:
+            code = args.get("code", "")
+            for url in result["plots"]:
+                display_name = generate_plot_name(code, client) or url.split("/")[-1].replace(".png", "")
+                plots.append({"url": url, "name": display_name})
+            result["plots"] = plots
     elif name == "web_search":
         result = _web_search(args["query"], client, model)
     else:
         result = {"error": f"Unknown function: {name}"}
-    return json.dumps(result, default=str)
+    return json.dumps(result, default=str), plots

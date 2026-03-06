@@ -30,18 +30,28 @@
                 <button id="logout-btn" class="btn btn-outline-secondary btn-sm">Logout</button>
             </div>
         </nav>
-        <div id="messages" class="flex-grow-1 overflow-auto p-3 d-flex flex-column gap-2 mx-auto w-100" style="max-width: 1275px;"></div>
-        <form id="chat-form" class="d-flex align-items-center gap-2 p-3 border-top mx-auto w-100" style="max-width: 1275px;">
-            <div class="input-wrapper position-relative flex-grow-1">
-                <input type="text" id="chat-input" class="form-control pe-5" placeholder="Type a message..." autocomplete="off" required>
-                <span id="image-name" class="image-name" hidden></span>
-                <label id="image-upload-label" class="image-upload-label" title="Attach image">
-                    <input type="file" id="image-input" accept="image/png,image/jpeg" hidden>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                </label>
+        <div class="chat-body d-flex flex-grow-1 overflow-hidden">
+            <div class="chat-main d-flex flex-column flex-grow-1">
+                <div id="messages" class="flex-grow-1 overflow-auto p-3 d-flex flex-column gap-2 mx-auto w-100" style="max-width: 1275px;"></div>
+                <form id="chat-form" class="d-flex align-items-center gap-2 p-3 border-top mx-auto w-100" style="max-width: 1275px;">
+                    <div class="input-wrapper position-relative flex-grow-1">
+                        <input type="text" id="chat-input" class="form-control pe-5" placeholder="Type a message..." autocomplete="off" required>
+                        <span id="image-name" class="image-name" hidden></span>
+                        <label id="image-upload-label" class="image-upload-label" title="Attach image">
+                            <input type="file" id="image-input" accept="image/png,image/jpeg" hidden>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                        </label>
+                    </div>
+                    <button type="submit" id="send-btn" class="btn btn-primary">Send</button>
+                </form>
             </div>
-            <button type="submit" id="send-btn" class="btn btn-primary">Send</button>
-        </form>
+            <div id="gallery-panel" class="gallery-panel border-start" hidden>
+                <div class="gallery-header px-3 py-2 border-bottom d-flex align-items-center">
+                    <strong>Plots</strong>
+                </div>
+                <div id="gallery-list" class="gallery-list overflow-auto p-2 d-flex flex-column gap-2"></div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
