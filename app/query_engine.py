@@ -52,6 +52,13 @@ _FORBIDDEN_BUILTINS = {
     "property",
 }
 
+_FORBIDDEN_ATTRIBUTES = {
+    "write_parquet", "write_csv", "write_json", "write_ipc", "write_excel",
+    "write_ndjson", "write_avro", "write_clipboard", "write_database",
+    "sink_parquet", "sink_csv", "sink_ipc", "sink_ndjson",
+    "savefig", "to_pandas",
+}
+
 _FORBIDDEN_STRING_PATTERNS = {"__", "import ", "eval(", "exec(", "open("}
 
 
@@ -89,9 +96,13 @@ def validate_code(code: str) -> None:
         if isinstance(node, ast.Name) and node.id.startswith("__") and node.id.endswith("__"):
             raise ValidationError(f"Forbidden name: {node.id}")
 
-        # Reject dunder attribute access
+        # Reject dunder and write-related attribute access
         if isinstance(node, ast.Attribute):
             if node.attr.startswith("__") and node.attr.endswith("__"):
+                raise ValidationError(
+                    f"Forbidden attribute access: {node.attr}"
+                )
+            if node.attr in _FORBIDDEN_ATTRIBUTES:
                 raise ValidationError(
                     f"Forbidden attribute access: {node.attr}"
                 )
