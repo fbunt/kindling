@@ -399,3 +399,95 @@ logoutBtn.addEventListener("click", async () => {
     messagesDiv.innerHTML = "";
     showLogin();
 });
+
+// Download chat as self-contained HTML
+const downloadBtn = document.getElementById("download-btn");
+downloadBtn.addEventListener("click", async () => {
+    const messages = messagesDiv.querySelectorAll(".message");
+    if (messages.length === 0) return;
+
+    // Convert plot image URLs to base64 data URLs
+    const imgPromises = [];
+    const tempDiv = document.createElement("div");
+
+    for (const msg of messages) {
+        const clone = msg.cloneNode(true);
+        // Remove copy buttons
+        clone.querySelectorAll(".copy-btn").forEach(b => b.remove());
+        // Expand collapsed details
+        clone.querySelectorAll("details").forEach(d => d.open = true);
+        tempDiv.appendChild(clone);
+    }
+
+    // Convert plot images to base64
+    const plotImgs = tempDiv.querySelectorAll("img[src^='/plots']");
+    for (const img of plotImgs) {
+        imgPromises.push(
+            fetch(img.src)
+                .then(r => r.blob())
+                .then(blob => new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => { img.src = reader.result; resolve(); };
+                    reader.readAsDataURL(blob);
+                }))
+                .catch(() => {})
+        );
+    }
+    await Promise.all(imgPromises);
+
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>natlangq chat - ${timestamp}</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; margin: 0; padding: 2rem; }
+.chat { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.75rem; }
+h1 { text-align: center; color: #888; font-size: 1rem; margin-bottom: 1.5rem; }
+.message { padding: 0.75rem 1rem; border-radius: 0.5rem; line-height: 1.5; max-width: 75%; word-wrap: break-word; }
+.message.user { align-self: flex-end; background: #0d6efd; color: #fff; }
+.message.assistant { align-self: flex-start; background: #2d2d3d; border: 1px solid #3d3d4d; }
+.message.code { align-self: flex-start; background: #1e1e2e; border: 1px solid #3d3d4d; max-width: 85%; padding: 0; }
+.message.code summary { padding: 0.4rem 0.75rem; font-size: 0.8rem; color: #888; cursor: pointer; }
+.message.code pre { margin: 0; padding: 0.75rem 1rem; font-size: 0.82rem; border-top: 1px solid #3d3d4d; overflow-x: auto; }
+.message.error { align-self: center; background: #3d1f1f; border: 1px solid #5a2d2d; color: #f5a5a5; }
+.message img { max-width: 50%; border-radius: 0.25rem; margin-top: 0.5rem; cursor: zoom-in; }
+.message table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.85rem; }
+.message th, .message td { padding: 0.35rem 0.6rem; border: 1px solid #3d3d4d; text-align: left; }
+.message th { background: #2a2a3a; font-weight: 600; }
+.message pre { background: #2a2a3a; padding: 0.5rem 0.75rem; border-radius: 0.25rem; overflow-x: auto; }
+.message code { font-size: 0.85em; }
+.message p:last-child { margin-bottom: 0; }
+.lightbox { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; cursor: zoom-out; }
+.lightbox.open { display: flex; }
+.lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 0.5rem; box-shadow: 0 0 40px rgba(0,0,0,0.5); }
+</style>
+</head>
+<body>
+<h1>natlangq chat &mdash; ${new Date().toLocaleString()}</h1>
+<div class="chat">
+${tempDiv.innerHTML}
+</div>
+<div class="lightbox" id="lb" onclick="this.classList.remove('open')"><img id="lb-img" src="" alt=""></div>
+<script>
+document.querySelectorAll('.message img').forEach(img => {
+    img.addEventListener('click', () => {
+        document.getElementById('lb-img').src = img.src;
+        document.getElementById('lb').classList.add('open');
+    });
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('lb').classList.remove('open'); });
+</script>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `natlangq-chat-${timestamp}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+});
