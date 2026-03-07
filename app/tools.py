@@ -35,6 +35,33 @@ Plots are auto-captured — do NOT call `plt.savefig()` or `plt.show()`. Just cr
 When plots are generated, reference them in your response using markdown image syntax with the returned URLs: `![description](url)`
 If you only need to create a chart (no tabular data), you don't need to assign to `result`.
 
+Dataset statistics (lf.describe(), transposed and trimmed):
+
+| column | count | null_count | min | max |
+| --- | --- | --- | --- | --- |
+| year | 79,518,543 | 0 | 1,984 | 2,022 |
+| Event_ID | 79,518,543 | 0 | AR3442609385720060311 | WY4345810607820060718 |
+| Incid_Name | 79,518,543 | 0 | 016 CROWELL | ZOGG |
+| Incid_Type | 79,518,543 | 0 | 0 | 3 |
+| Ig_Date | 79,518,543 | 0 | 1984-03-29 | 2022-12-08 |
+| area_m2 | 79,518,543 | 0 | 2,021,962 | 4,325,251,517 |
+| area_acres | 79,518,543 | 0 | 500 | 1,068,793 |
+| eco1 | 79,518,543 | 0 | 5 | 13 |
+| eco2 | 79,518,543 | 0 | 52 | 131 |
+| eco3 | 79,518,543 | 0 | 5,201 | 13,101 |
+| geohash | 79,518,543 | 0 | 1,136,176,211 | 13,878,407,646 |
+| lon | 79,518,543 | 0 | -123.38 | -74.18 |
+| lat | 79,518,543 | 0 | 27.38 | 48.91 |
+| bs | 79,388,154 | 130,389 | 1 | 6 |
+| nlcd | 79,518,543 | 0 | 11 | 95 |
+| nlcd_mode | 79,518,543 | 0 | 11 | 95 |
+| wui_bool | 79,518,543 | 0 | 0 | 1 |
+| wui_prox | 79,518,543 | 0 | 0 | 69,462 |
+| elevation | 79,518,543 | 0 | -4 | 3,454 |
+| eco1s | 79,518,543 | 0 | 05 | 13 |
+| eco2s | 79,518,543 | 0 | 05.2 | 13.1 |
+| eco3s | 79,518,543 | 0 | 05.2.01 | 13.1.01 |
+
 Key columns:
 - year (UInt16): Fire year (1984-2022)
 - Incid_Name (String): Fire incident name
