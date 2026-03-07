@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form
 from starlette.responses import StreamingResponse
@@ -47,6 +48,13 @@ async def chat(
                 inline_data=types.Blob(
                     mime_type=msg["image"]["mime"],
                     data=img_data,
+                )
+            ))
+        for plot_img in msg.get("plot_images", []):
+            parts.append(types.Part(
+                inline_data=types.Blob(
+                    mime_type=plot_img["mime"],
+                    data=base64.b64decode(plot_img["data"]),
                 )
             ))
         contents.append(types.Content(role=role, parts=parts))
@@ -153,12 +161,24 @@ async def chat(
             response_text = response.text or ""
             logger.debug(f"Final response_text ({len(response_text)} chars): {response_text[:200]}")
 
+            # Read plot images for client-side history
+            plot_images = []
+            for plot in all_plots:
+                plot_path = Path(plot["url"].lstrip("/"))
+                if plot_path.exists():
+                    plot_images.append({
+                        "data": base64.b64encode(plot_path.read_bytes()).decode(),
+                        "mime": "image/png",
+                    })
+
             result = {
                 "response": response_text,
                 "image_info": image_info,
             }
             if all_plots:
                 result["plots"] = all_plots
+            if plot_images:
+                result["plot_images"] = plot_images
             if all_queries:
                 result["queries"] = all_queries
             yield _sse("done", result)

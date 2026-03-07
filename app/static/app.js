@@ -353,7 +353,11 @@ chatForm.addEventListener("submit", async (e) => {
                             userEntry.image = data.image_info;
                         }
                         history.push(userEntry);
-                        history.push({ role: "assistant", content: data.response });
+                        const assistantEntry = { role: "assistant", content: data.response };
+                        if (data.plot_images) {
+                            assistantEntry.plot_images = data.plot_images;
+                        }
+                        history.push(assistantEntry);
                         addMessage("assistant", data.response);
                         if (data.plots) {
                             for (const plot of data.plots) {
