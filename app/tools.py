@@ -97,7 +97,8 @@ Prefer building intermediate dataframes in a single run_query call rather than s
 Each run_query invocation starts with a fresh namespace, so variables from previous calls are not available.
 
 Always call `get_dataset_info` first if you're unsure about column names or data types. \
-Format results as markdown tables when presenting to the user.\
+Format results as markdown tables when presenting to the user.
+If a user's request is ambiguous or could be interpreted multiple ways, ask for clarification before running a query.\
 """
 
 FIRE_DATA_TOOLS = types.Tool(
