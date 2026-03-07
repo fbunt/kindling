@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form
 from starlette.responses import StreamingResponse
@@ -134,6 +135,16 @@ async def chat(
                             response=json.loads(result_str),
                         )
                     ))
+                    # Include plot images so the model can see what it generated
+                    for plot in plots:
+                        plot_path = Path(plot["url"].lstrip("/"))
+                        if plot_path.exists():
+                            fc_response_parts.append(types.Part(
+                                inline_data=types.Blob(
+                                    mime_type="image/png",
+                                    data=plot_path.read_bytes(),
+                                )
+                            ))
 
                 contents.append(types.Content(role="user", parts=fc_response_parts))
 

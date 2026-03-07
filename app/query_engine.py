@@ -56,7 +56,11 @@ _FORBIDDEN_ATTRIBUTES = {
     "write_parquet", "write_csv", "write_json", "write_ipc", "write_excel",
     "write_ndjson", "write_avro", "write_clipboard", "write_database",
     "sink_parquet", "sink_csv", "sink_ipc", "sink_ndjson",
-    "savefig", "to_pandas",
+    "savefig",
+    # Pandas write methods (reachable via .to_pandas())
+    "to_csv", "to_excel", "to_parquet", "to_json", "to_sql",
+    "to_hdf", "to_feather", "to_stata", "to_pickle", "to_clipboard",
+    "to_latex", "to_gbq",
 }
 
 _FORBIDDEN_STRING_PATTERNS = {"__", "import ", "eval(", "exec(", "open("}
@@ -129,7 +133,8 @@ def execute_query(code: str) -> dict:
     namespace = {"pl": pl, "lf": LF.clone(), "plt": plt, "sns": sns}
     restricted_builtins = {
         "True": True, "False": False, "None": None,
-        "len": len, "range": range, "str": str, "int": int, "float": float,
+        "len": len, "range": range, "enumerate": enumerate, "str": str,
+        "int": int, "float": float,
         "list": list, "dict": dict, "bool": bool, "abs": abs,
         "min": min, "max": max, "sum": sum, "round": round, "sorted": sorted,
     }
