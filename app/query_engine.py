@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
 import polars as pl
 
 PARQUET_PATH = Path("data/mtbs_pix_data.parquet")
@@ -61,6 +62,8 @@ _FORBIDDEN_ATTRIBUTES = {
     "to_csv", "to_excel", "to_parquet", "to_json", "to_sql",
     "to_hdf", "to_feather", "to_stata", "to_pickle", "to_clipboard",
     "to_latex", "to_gbq",
+    # Numpy file I/O
+    "save", "savez", "savez_compressed", "savetxt", "load", "fromfile",
 }
 
 _FORBIDDEN_STRING_PATTERNS = {"__", "import ", "eval(", "exec(", "open("}
@@ -130,7 +133,7 @@ def execute_query(code: str) -> dict:
         logger.warning(f"Validation rejected code: {e}\n{code}")
         return {"error": str(e)}
 
-    namespace = {"pl": pl, "lf": LF.clone(), "plt": plt, "sns": sns}
+    namespace = {"pl": pl, "np": np, "lf": LF.clone(), "plt": plt, "sns": sns}
     restricted_builtins = {
         "True": True, "False": False, "None": None,
         "len": len, "range": range, "enumerate": enumerate, "str": str,

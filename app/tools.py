@@ -26,7 +26,7 @@ Example queries:
 - `result = lf.filter(pl.col("year") == 2020).sort("area_acres", descending=True).head(5)`
 - `result = lf.group_by("year").agg(pl.col("area_acres").sum()).sort("year")`
 
-Available objects: `pl` (polars module), `lf` (LazyFrame of the fire dataset), `plt` (matplotlib.pyplot), and `sns` (seaborn).
+Available objects: `pl` (polars module), `np` (numpy), `lf` (LazyFrame of the fire dataset), `plt` (matplotlib.pyplot), and `sns` (seaborn).
 
 IMPORTANT: Do NOT use `import` statements — all libraries are pre-loaded in the execution environment. \
 Use `plt`, `sns`, `pl`, and `lf` directly.
