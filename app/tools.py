@@ -66,6 +66,7 @@ Key columns:
 - year (UInt16): Fire year (1984-2022)
 - Incid_Name (String): Fire incident name
 - Event_ID (String): Unique fire event identifier
+- Incid_Type (UInt8): Incident type (0=Unknown, 1=Wildfire, 2=Prescribed Fire, 3=Wildland Fire Use). Category 3 is a wildfire left to burn, functionally similar to wildfire.
 - area_acres (Float64): Fire area in acres
 - geohash (Int64): Unique ID for each pixel location
 - bs (UInt8): Burn severity class (1=Unburned, 2=Low, 3=Moderate, 4=High, 5=Increased Greenness, 6=Non-processing)
