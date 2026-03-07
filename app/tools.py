@@ -85,8 +85,8 @@ Important: Pixels can show up multiple times if they have burned in more than on
 study period. To count the number of fires or derive information related to the number of \
 times pixels have burned, use group by geohash.
 
-Important: NLCD and WUI can change over time. The value for each is the value at the ignition \
-time. nlcd_mode gives the mode for a given pixel across the study period.
+Important: NLCD and WUI can change over time. The value for each is the value for the year of \
+the given burn event. nlcd_mode gives the mode for a given pixel across the study period.
 
 Important: ecoregion almost always refers to ecoregion level 1 (eco1/eco1s). Let the user be \
 specific if they want levels 2 or 3.
@@ -188,12 +188,13 @@ def execute_function_call(
     name: str, args: dict, client: genai.Client, model: str
 ) -> tuple[str, list[dict]]:
     """Dispatch a function call from Gemini. Returns (json_result, plots_list)."""
+    logger.info(f"Function call: {name}({json.dumps(args, default=str)[:200]})")
     plots = []
     if name == "get_dataset_info":
         result = get_dataset_info()
     elif name == "run_query":
         result = execute_query(args["code"])
-        # Generate display names for any plots
+    # Generate display names for any plots
         if "plots" in result:
             code = args.get("code", "")
             for url in result["plots"]:
