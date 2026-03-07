@@ -68,13 +68,18 @@ function addMessage(role, content, imageDataUrl) {
         div.innerHTML = marked.parse(content);
         div.querySelectorAll("pre code").forEach(el => hljs.highlightElement(el));
     } else if (role === "code") {
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = "Query";
         const pre = document.createElement("pre");
         const code = document.createElement("code");
         code.className = "language-python";
         code.textContent = content;
         hljs.highlightElement(code);
         pre.appendChild(code);
-        div.appendChild(pre);
+        details.appendChild(summary);
+        details.appendChild(pre);
+        div.appendChild(details);
     } else {
         div.textContent = content;
     }
