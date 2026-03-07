@@ -5,6 +5,7 @@ from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
+matplotlib.rcParams["figure.figsize"] = (10, 6)
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np

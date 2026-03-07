@@ -52,7 +52,7 @@
 }
 
 .message img {
-    max-width: 300px;
+    max-width: 50%;
     border-radius: 0.25rem;
     margin-top: 0.5rem;
 }
