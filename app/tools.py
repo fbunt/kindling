@@ -34,6 +34,7 @@ Use `plt`, `sns`, `pl`, and `lf` directly.
 Plots are auto-captured — do NOT call `plt.savefig()` or `plt.show()`. Just create the figure and it will be saved automatically.
 When plots are generated, reference them in your response using markdown image syntax with the returned URLs: `![description](url)`
 If you only need to create a chart (no tabular data), you don't need to assign to `result`.
+Any plots you create will be sent back to you as images in your conversation history so you can review them.
 
 Dataset statistics (lf.describe(), transposed and trimmed):
 
