@@ -1,6 +1,7 @@
 import ast
 import logging
 import threading
+import time
 from pathlib import Path
 
 import math
@@ -180,7 +181,7 @@ def execute_query(code: str) -> dict:
         fig = plt.figure(fig_num)
         fig.savefig(PLOTS_DIR / filename, bbox_inches="tight", dpi=150)
         plt.close(fig)
-        plot_urls.append(f"/plots/{filename}")
+        plot_urls.append(f"/plots/{filename}?t={int(time.time())}")
 
     result = namespace.get("result")
     if result is None and not plot_urls:

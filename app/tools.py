@@ -201,7 +201,8 @@ def execute_function_call(
         if "plots" in result:
             code = args.get("code", "")
             for url in result["plots"]:
-                raw_name = generate_plot_name(code, client) or url.split("/")[-1].replace(".png", "")
+                fallback = url.split("/")[-1].split("?")[0].replace(".png", "")
+                raw_name = generate_plot_name(code, client) or fallback
                 display_name = _unique_display_name(raw_name)
                 plots.append({"url": url, "name": display_name})
             result["plots"] = plots
