@@ -50,7 +50,7 @@ _FORBIDDEN_NODE_TYPES = (
 
 _FORBIDDEN_BUILTINS = {
     "open", "exec", "eval", "compile", "__import__", "input",
-    "getattr", "setattr", "delattr", "globals", "locals", "vars",
+    "getattr", "setattr", "delattr", "globals", "vars",
     "breakpoint", "exit", "quit", "help", "print",
     "memoryview", "type", "super", "classmethod", "staticmethod",
     "property",
@@ -195,10 +195,12 @@ def execute_query(code: str) -> dict:
     namespace = {"pl": pl, "np": np, "math": math, "lf": LF.clone(), "plt": plt, "sns": sns}
     restricted_builtins = {
         "True": True, "False": False, "None": None,
-        "len": len, "range": range, "enumerate": enumerate, "str": str,
-        "int": int, "float": float,
-        "list": list, "dict": dict, "bool": bool, "abs": abs,
-        "min": min, "max": max, "sum": sum, "round": round, "sorted": sorted,
+        "abs": abs, "all": all, "any": any, "bool": bool, "dict": dict,
+        "enumerate": enumerate, "filter": filter, "float": float,
+        "hasattr": hasattr, "int": int, "len": len, "list": list, "locals": locals,
+        "map": map, "max": max, "min": min, "pow": pow, "range": range,
+        "round": round, "set": set, "slice": slice, "sorted": sorted,
+        "str": str, "sum": sum, "tuple": tuple, "zip": zip,
     }
     global_ns = {"__builtins__": restricted_builtins}
 
