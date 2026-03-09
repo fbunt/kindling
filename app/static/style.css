@@ -287,6 +287,7 @@
 .gallery-list {
     flex: 1;
     min-height: 0;
+    overflow-y: auto;
 }
 
 .gallery-item {
@@ -295,6 +296,7 @@
     overflow: hidden;
     background: var(--bs-tertiary-bg);
     border: 1px solid var(--bs-border-color);
+    flex-shrink: 0;
 }
 
 .gallery-item img {
