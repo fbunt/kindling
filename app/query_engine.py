@@ -3,6 +3,7 @@ import logging
 import threading
 from pathlib import Path
 
+import math
 import matplotlib
 matplotlib.use("Agg")
 matplotlib.rcParams["figure.figsize"] = (10, 6)
@@ -134,7 +135,7 @@ def execute_query(code: str) -> dict:
         logger.warning(f"Validation rejected code: {e}\n{code}")
         return {"error": str(e)}
 
-    namespace = {"pl": pl, "np": np, "lf": LF.clone(), "plt": plt, "sns": sns}
+    namespace = {"pl": pl, "np": np, "math": math, "lf": LF.clone(), "plt": plt, "sns": sns}
     restricted_builtins = {
         "True": True, "False": False, "None": None,
         "len": len, "range": range, "enumerate": enumerate, "str": str,
