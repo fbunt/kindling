@@ -86,9 +86,8 @@ _ALLOWED_IMPORTS = {
 }
 
 _ALLOWED_IMPORT_FROMS = {
-    # (module, name, alias)
+    # (module, name, alias) — matches "from matplotlib import pyplot as plt"
     ("matplotlib", "pyplot", "plt"),
-    ("matplotlib.pyplot", None, "plt"),  # import matplotlib.pyplot as plt handled below
 }
 
 
@@ -226,7 +225,7 @@ def execute_query(code: str) -> dict:
     if t.is_alive():
         _zombie_threads.append(t)
         logger.warning("Query timed out, thread still running in background")
-        return {"error": "Query timed out (exceeded 30 seconds)"}
+        return {"error": f"Query timed out (exceeded {QUERY_TIMEOUT} seconds)"}
     if result_box[0] is not None:
         return result_box[0]
 
