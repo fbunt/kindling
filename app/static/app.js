@@ -349,6 +349,19 @@ chatForm.addEventListener("submit", async (e) => {
                             messagesDiv.insertBefore(codeDiv, thinkingDiv);
                         }
                     }
+                } else if (eventType === "rejected") {
+                    const { queries } = JSON.parse(dataStr);
+                    for (const code of queries) {
+                        // Find and remove the matching code block
+                        const codeBlocks = messagesDiv.querySelectorAll(".message.code");
+                        for (const block of codeBlocks) {
+                            const codeEl = block.querySelector("code");
+                            if (codeEl && codeEl.textContent === code) {
+                                block.remove();
+                                break;
+                            }
+                        }
+                    }
                 } else if (eventType === "done") {
                     thinkingDiv.remove();
                     const data = JSON.parse(dataStr);

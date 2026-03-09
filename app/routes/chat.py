@@ -123,25 +123,31 @@ async def chat(
                 for fc in function_calls:
                     if fc.name == "run_query" and fc.args and "code" in fc.args:
                         round_queries.append(fc.args["code"])
-                all_queries.extend(round_queries)
 
                 yield _sse("status", {"status": "running_query", "queries": round_queries})
 
                 # Execute each function call and build response parts
                 fc_response_parts = []
+                rejected_queries = []
                 for fc in function_calls:
                     result_str, plots = await asyncio.to_thread(
                         execute_function_call,
                         fc.name, fc.args or {}, client, model,
                     )
                     logger.debug(f"  {fc.name} result: {result_str[:500]}")
+                    result_data = json.loads(result_str)
                     all_plots.extend(plots)
                     fc_response_parts.append(types.Part(
                         function_response=types.FunctionResponse(
                             name=fc.name,
-                            response=json.loads(result_str),
+                            response=result_data,
                         )
                     ))
+                    if fc.name == "run_query" and fc.args and "code" in fc.args and "error" in result_data:
+                        rejected_queries.append(fc.args["code"])
+                all_queries.extend(q for q in round_queries if q not in rejected_queries)
+                if rejected_queries:
+                    yield _sse("rejected", {"queries": rejected_queries})
 
                 contents.append(types.Content(role="user", parts=fc_response_parts))
 
