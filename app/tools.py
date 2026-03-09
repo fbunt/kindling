@@ -28,8 +28,10 @@ Example queries:
 
 Available objects: `pl` (polars module), `np` (numpy), `math`, `lf` (LazyFrame of the fire dataset), `plt` (matplotlib.pyplot), and `sns` (seaborn).
 
-IMPORTANT: Do NOT use `import` statements — all libraries are pre-loaded in the execution environment. \
-Use `plt`, `sns`, `pl`, and `lf` directly.
+All libraries are pre-loaded in the execution environment, so imports are not required. \
+If you do include imports, only these are allowed: `import numpy as np`, `import polars as pl`, `import math`, \
+`import matplotlib.pyplot as plt`, `import seaborn as sns`, `from matplotlib import pyplot as plt`. \
+Any other import will be rejected.
 
 Plots are auto-captured — do NOT call `plt.savefig()` or `plt.show()`. Just create the figure and it will be saved automatically.
 When plots are generated, reference them in your response using markdown image syntax with the returned URLs: `![description](url)`

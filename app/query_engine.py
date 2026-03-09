@@ -76,12 +76,66 @@ class ValidationError(Exception):
     pass
 
 
-def validate_code(code: str) -> None:
-    """Parse and validate polars query code via AST inspection."""
+# Imports the model is allowed to include (already in the execution namespace)
+_ALLOWED_IMPORTS = {
+    # import X as Y — keyed by module name, value is expected alias (or None for no alias)
+    "numpy": "np",
+    "polars": "pl",
+    "math": None,
+    "seaborn": "sns",
+}
+
+_ALLOWED_IMPORT_FROMS = {
+    # (module, name, alias)
+    ("matplotlib", "pyplot", "plt"),
+    ("matplotlib.pyplot", None, "plt"),  # import matplotlib.pyplot as plt handled below
+}
+
+
+def _strip_allowed_imports(tree: ast.Module) -> ast.Module:
+    """Remove import statements that match the allowed set from the AST."""
+    new_body = []
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            # Handle "import numpy as np", "import matplotlib.pyplot as plt", etc.
+            remaining = []
+            for alias in node.names:
+                module = alias.name
+                asname = alias.asname
+                # Check plain module imports: import numpy as np
+                if module in _ALLOWED_IMPORTS and (asname == _ALLOWED_IMPORTS[module] or (asname is None and _ALLOWED_IMPORTS[module] is None)):
+                    continue
+                # Check dotted imports: import matplotlib.pyplot as plt
+                if module == "matplotlib.pyplot" and asname == "plt":
+                    continue
+                remaining.append(alias)
+            if remaining:
+                node.names = remaining
+                new_body.append(node)
+        elif isinstance(node, ast.ImportFrom):
+            # Handle "from matplotlib import pyplot as plt"
+            remaining = []
+            for alias in node.names:
+                if (node.module, alias.name, alias.asname) in _ALLOWED_IMPORT_FROMS:
+                    continue
+                remaining.append(alias)
+            if remaining:
+                node.names = remaining
+                new_body.append(node)
+        else:
+            new_body.append(node)
+    tree.body = new_body
+    return tree
+
+
+def validate_code(code: str) -> str:
+    """Parse, strip allowed imports, and validate query code. Returns cleaned code."""
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
         raise ValidationError(f"Syntax error: {e}")
+
+    tree = _strip_allowed_imports(tree)
 
     for node in ast.walk(tree):
         # Reject forbidden node types
@@ -126,12 +180,14 @@ def validate_code(code: str) -> None:
                         f"Forbidden string content: '{pat}'"
                     )
 
+    return ast.unparse(tree)
+
 
 
 def execute_query(code: str) -> dict:
     """Validate and execute polars query code. Returns result dicts or error."""
     try:
-        validate_code(code)
+        code = validate_code(code)
     except ValidationError as e:
         logger.warning(f"Validation rejected code: {e}\n{code}")
         return {"error": str(e)}
