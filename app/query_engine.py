@@ -225,8 +225,10 @@ def execute_query(code: str) -> dict:
     if t.is_alive():
         _zombie_threads.append(t)
         logger.warning("Query timed out, thread still running in background")
+        plt.close("all")
         return {"error": f"Query timed out (exceeded {QUERY_TIMEOUT} seconds)"}
     if result_box[0] is not None:
+        plt.close("all")
         return result_box[0]
 
     # Capture any matplotlib plots
