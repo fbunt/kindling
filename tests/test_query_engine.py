@@ -312,6 +312,10 @@ class TestExecuteQuery:
         assert _unique_display_name("other-plot") == "other-plot"
         _used_display_names.clear()
 
+    def test_numpy_available(self):
+        out = execute_query("result = np.array([1, 2, 3]).sum()")
+        assert out.get("data") == "6"
+
     def test_multi_step_query(self):
         out = execute_query(
             "fires = lf.unique('Event_ID').head(5).collect()\n"
