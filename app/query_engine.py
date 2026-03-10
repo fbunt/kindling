@@ -51,7 +51,7 @@ _FORBIDDEN_NODE_TYPES = (
 _FORBIDDEN_BUILTINS = {
     "open", "exec", "eval", "compile", "__import__", "input",
     "getattr", "setattr", "delattr", "globals", "vars",
-    "breakpoint", "exit", "quit", "help", "print",
+    "breakpoint", "exit", "quit", "help",
     "memoryview", "type", "super", "classmethod", "staticmethod",
     "property",
 }
@@ -197,7 +197,8 @@ def execute_query(code: str) -> dict:
         "abs": abs, "all": all, "any": any, "bool": bool, "dict": dict,
         "enumerate": enumerate, "filter": filter, "float": float,
         "hasattr": hasattr, "int": int, "len": len, "list": list, "locals": locals,
-        "map": map, "max": max, "min": min, "pow": pow, "range": range,
+        "map": map, "max": max, "min": min, "pow": pow, "print": lambda *a, **kw: None,
+        "range": range,
         "round": round, "set": set, "slice": slice, "sorted": sorted,
         "str": str, "sum": sum, "tuple": tuple, "zip": zip,
     }
