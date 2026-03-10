@@ -80,13 +80,17 @@ class TestValidateForbidden:
         with pytest.raises(ValidationError, match="Delete"):
             validate_code("del x")
 
-    def test_print(self):
-        with pytest.raises(ValidationError, match="print"):
-            validate_code("print('hello')")
+    def test_print_allowed_as_noop(self):
+        """print() is allowed at validation but executes as a silent no-op."""
+        validate_code("print('hello')")
+        out = execute_query("print('hello')\nresult = 'ok'")
+        assert out["data"] == "ok"
 
-    def test_string_with_import(self):
-        with pytest.raises(ValidationError, match="import"):
-            validate_code("x = 'import os'")
+    def test_string_with_import_allowed(self):
+        """Strings containing 'import' are harmless and no longer forbidden."""
+        validate_code("x = 'import os'")
+        out = execute_query("result = 'import os'")
+        assert out["data"] == "import os"
 
     def test_string_with_dunder(self):
         with pytest.raises(ValidationError, match="__"):
