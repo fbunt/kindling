@@ -69,7 +69,7 @@ _FORBIDDEN_ATTRIBUTES = {
     "save", "savez", "savez_compressed", "savetxt", "load", "fromfile",
 }
 
-_FORBIDDEN_STRING_PATTERNS = {"__", "import ", "eval(", "exec(", "open("}
+_FORBIDDEN_STRING_PATTERNS = {"__", "eval(", "exec(", "open("}
 
 
 class ValidationError(Exception):
