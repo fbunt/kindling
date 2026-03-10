@@ -192,6 +192,18 @@ def execute_query(code: str) -> dict:
         return {"error": str(e)}
 
     namespace = {"pl": pl, "np": np, "math": math, "lf": LF.clone(), "plt": plt, "sns": sns}
+
+    # Allow __import__ only for submodules of libraries already in the namespace.
+    # Numpy (and others) internally import submodules during method calls
+    # (e.g. np.array().sum() imports numpy._core._methods).
+    _IMPORTABLE_PREFIXES = ("numpy.", "polars.", "math.", "matplotlib.", "seaborn.")
+    _real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+
+    def _restricted_import(name, *args, **kwargs):
+        if any(name == p[:-1] or name.startswith(p) for p in _IMPORTABLE_PREFIXES):
+            return _real_import(name, *args, **kwargs)
+        raise ImportError(f"Import of '{name}' is not allowed")
+
     restricted_builtins = {
         "True": True, "False": False, "None": None,
         "abs": abs, "all": all, "any": any, "bool": bool, "dict": dict,
@@ -201,6 +213,7 @@ def execute_query(code: str) -> dict:
         "range": range,
         "round": round, "set": set, "slice": slice, "sorted": sorted,
         "str": str, "sum": sum, "tuple": tuple, "zip": zip,
+        "__import__": _restricted_import,
     }
     global_ns = {"__builtins__": restricted_builtins}
 
