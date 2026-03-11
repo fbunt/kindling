@@ -51,6 +51,8 @@ async def chat(
                 )
             ))
         for plot_img in msg.get("plot_images", []):
+            if plot_img.get("name"):
+                parts.append(types.Part(text=f"[Generated plot: {plot_img['name']}]"))
             parts.append(types.Part(
                 inline_data=types.Blob(
                     mime_type=plot_img["mime"],
@@ -60,8 +62,10 @@ async def chat(
         contents.append(types.Content(role=role, parts=parts))
 
     # Build current message parts
-    current_parts = [types.Part(text=message)]
     image_info = None
+    if image and image.size > 0:
+        message = f"[Attached image: {image.filename}]\n{message}"
+    current_parts = [types.Part(text=message)]
     if image and image.size > 0:
         image_bytes = await image.read()
         current_parts.insert(0, types.Part(
@@ -124,6 +128,8 @@ async def chat(
                     if fc.name == "run_query" and fc.args and "code" in fc.args:
                         round_queries.append(fc.args["code"])
 
+                for q in round_queries:
+                    logger.info(f"Executing query: {q}")
                 yield _sse("status", {"status": "running_query", "queries": round_queries})
 
                 # Execute each function call and build response parts
@@ -175,6 +181,7 @@ async def chat(
                     plot_images.append({
                         "data": base64.b64encode(plot_path.read_bytes()).decode(),
                         "mime": "image/png",
+                        "name": plot["name"],
                     })
 
             result = {
