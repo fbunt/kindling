@@ -9,7 +9,7 @@ const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
 const messagesDiv = document.getElementById("messages");
 const logoutBtn = document.getElementById("logout-btn");
-const modelSelect = document.getElementById("model-select");
+const MODEL = "gemini-3.1-pro-preview";
 const imageInput = document.getElementById("image-input");
 const imageUploadLabel = document.getElementById("image-upload-label");
 const imageName = document.getElementById("image-name");
@@ -49,17 +49,6 @@ function showChat() {
     chatInput.focus();
 }
 
-function populateModels(models) {
-    modelSelect.innerHTML = "";
-    for (const model of models) {
-        const opt = document.createElement("option");
-        opt.value = model;
-        opt.textContent = model.replace(/^models\//, "");
-        modelSelect.appendChild(opt);
-    }
-    const preferred = models.find(m => m.includes("gemini-3.1-pro-preview"));
-    if (preferred) modelSelect.value = preferred;
-}
 
 function addMessage(role, content, imageDataUrl) {
     const div = document.createElement("div");
@@ -222,7 +211,6 @@ fetch("/api/auth/status")
     .then(r => r.json())
     .then(data => {
         if (data.authenticated) {
-            populateModels(data.models || []);
             showChat();
         }
     });
@@ -241,7 +229,6 @@ loginForm.addEventListener("submit", async (e) => {
         });
         const data = await res.json();
         if (data.ok) {
-            populateModels(data.models || []);
             showChat();
         } else {
             loginError.textContent = data.error;
@@ -291,7 +278,7 @@ chatForm.addEventListener("submit", async (e) => {
     // Build form data
     const formData = new FormData();
     formData.append("message", message);
-    formData.append("model", modelSelect.value);
+    formData.append("model", MODEL);
     formData.append("history", JSON.stringify(history));
     if (imageFile) {
         formData.append("image", imageFile);
