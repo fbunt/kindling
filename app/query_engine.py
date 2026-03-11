@@ -30,11 +30,38 @@ _SCHEMA = LF.collect_schema()
 _SCHEMA_INFO = {name: str(dtype) for name, dtype in _SCHEMA.items()}
 
 
+_KEY_COLUMNS = {
+    "year": "Fire year (1984-2022)",
+    "Incid_Name": "Fire incident name",
+    "Event_ID": "Unique fire event identifier",
+    "Incid_Type": "Incident type (0=Unknown, 1=Wildfire, 2=Prescribed Fire, 3=Wildland Fire Use). Category 3 is a wildfire left to burn, functionally similar to wildfire.",
+    "area_m2": "Fire area in square meters",
+    "area_acres": "Fire area in acres",
+    "geohash": "Unique ID for each pixel location",
+    "bs": "Burn severity class (1=Unburned, 2=Low, 3=Moderate, 4=High, 5=Increased Greenness, 6=Non-processing)",
+    "Ig_Date": "Ignition date of fire",
+    "lat": "Latitude",
+    "lon": "Longitude",
+    "elevation": "Elevation in meters",
+    "eco1": "Ecoregion level 1 as int (1=Arctic Cordillera, 2=Tundra, 3=Taiga, 4=Hudson Plain, 5=Northern Forests, 6=Northwestern Forested Mountains, 7=Marine West Coast Forest, 8=Eastern Temperate Forests, 9=Great Plains, 10=North American Deserts, 11=Mediterranean California, 12=Southern Semiarid Highlands, 13=Temperate Sierras, 14=Tropical Dry Forests, 15=Tropical Wet Forests)",
+    "eco2": "Ecoregion level 2 as int",
+    "eco3": "Ecoregion level 3 as int",
+    "eco1s": "Ecoregion level 1 as string (form: XX)",
+    "eco2s": "Ecoregion level 2 as string (form: XX.Y)",
+    "eco3s": "Ecoregion level 3 as string (form: XX.Y.ZZ)",
+    "nlcd": "NLCD land cover class (11=Open Water, 12=Perennial Ice/Snow, 21=Developed: Open Space, 22=Developed: Low Intensity, 23=Developed: Med Intensity, 24=Developed: High Intensity, 31=Barren Land, 41=Deciduous Forest, 42=Evergreen Forest, 43=Mixed Forest, 52=Shrub/Scrub, 71=Grassland/Herbaceous, 81=Pasture/Hay, 82=Cultivated Crops, 90=Woody Wetlands, 95=Emergent Herbaceous Wetlands)",
+    "nlcd_mode": "NLCD land cover class mode across the 38-year period for a given location (same codes as nlcd)",
+    "wui_bool": "Wildland-Urban Interface True/False (1/0)",
+    "wui_prox": "Wildland-Urban Interface proximity",
+}
+
+
 def get_dataset_info() -> dict:
     """Return schema, row count, and sample rows for Gemini context."""
     sample = LF.head(5).collect()
     return {
         "columns": _SCHEMA_INFO,
+        "key_columns": _KEY_COLUMNS,
         "row_count_approx": "~79 million",
         "sample_rows": sample.to_dicts(),
     }

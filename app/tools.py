@@ -65,23 +65,6 @@ Dataset statistics (lf.describe(), transposed and trimmed):
 | eco2s | 79,518,543 | 0 | 05.2 | 13.1 |
 | eco3s | 79,518,543 | 0 | 05.2.01 | 13.1.01 |
 
-Key columns:
-- year (UInt16): Fire year (1984-2022)
-- Incid_Name (String): Fire incident name
-- Event_ID (String): Unique fire event identifier
-- Incid_Type (UInt8): Incident type (0=Unknown, 1=Wildfire, 2=Prescribed Fire, 3=Wildland Fire Use). Category 3 is a wildfire left to burn, functionally similar to wildfire.
-- area_acres (Float64): Fire area in acres
-- geohash (Int64): Unique ID for each pixel location
-- bs (UInt8): Burn severity class (1=Unburned, 2=Low, 3=Moderate, 4=High, 5=Increased Greenness, 6=Non-processing)
-- Ig_Date (Datetime): Ignition date of fire
-- lat/lon (Float64): Latitude/longitude
-- elevation (Float32): Elevation
-- eco1/eco2/eco3 (Int16): Ecoregion levels as ints (eco1: 1=Arctic Cordillera, 2=Tundra, 3=Taiga, 4=Hudson Plain, 5=Northern Forests, 6=Northwestern Forested Mountains, 7=Marine West Coast Forest, 8=Eastern Temperate Forests, 9=Great Plains, 10=North American Deserts, 11=Mediterranean California, 12=Southern Semiarid Highlands, 13=Temperate Sierras, 14=Tropical Dry Forests, 15=Tropical Wet Forests)
-- eco1s/eco2s/eco3s (String): Ecoregion levels as strings (of the form eco1s: XX, eco2s: XX.Y, eco3s: XX.Y.ZZ)
-- nlcd (UInt8): NLCD land cover class (11=Open Water, 12=Perennial Ice/Snow, 21=Developed: Open Space, 22=Developed: Low Intensity, 23=Developed: Med Intensity, 24=Developed: High Intensity, 31=Barren Land, 41=Deciduous Forest, 42=Evergreen Forest, 43=Mixed Forest, 52=Shrub/Scrub, 71=Grassland/Herbaceous, 81=Pasture/Hay, 82=Cultivated Crops, 90=Woody Wetlands, 95=Emergent Herbaceous Wetlands)
-- nlcd_mode (UInt8): NLCD land cover class mode stat across the 38 year period for a given location (same codes as nlcd)
-- wui_bool (UInt8): Wildland-Urban Interface True/False 1/0
-
 Important: Each row is a 30m PIXEL, not a fire. A single fire (Event_ID) has many pixel rows. \
 To count fires or get fire-level stats, use `.unique("Event_ID")` or group by Event_ID first.
 
