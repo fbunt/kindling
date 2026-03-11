@@ -9,6 +9,8 @@ const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
 const messagesDiv = document.getElementById("messages");
 const logoutBtn = document.getElementById("logout-btn");
+const clearBtn = document.getElementById("clear-btn");
+const clearConfirmBtn = document.getElementById("clear-confirm-btn");
 const MODEL = "gemini-3.1-pro-preview";
 const imageInput = document.getElementById("image-input");
 const imageUploadLabel = document.getElementById("image-upload-label");
@@ -391,6 +393,22 @@ chatForm.addEventListener("submit", async (e) => {
         sendBtn.disabled = false;
         chatInput.focus();
     }
+});
+
+clearBtn.addEventListener("click", () => {
+    const modal = new bootstrap.Modal(document.getElementById("clear-modal"));
+    modal.show();
+});
+
+clearConfirmBtn.addEventListener("click", () => {
+    if (abortController) abortController.abort();
+    history = [];
+    messagesDiv.innerHTML = "";
+    galleryList.innerHTML = "";
+    galleryPanel.hidden = true;
+    clearImageInput();
+    chatInput.focus();
+    bootstrap.Modal.getInstance(document.getElementById("clear-modal")).hide();
 });
 
 logoutBtn.addEventListener("click", async () => {
