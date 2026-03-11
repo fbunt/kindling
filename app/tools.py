@@ -21,6 +21,11 @@ You have three tools available:
 When using `run_query`, write Polars code that operates on a LazyFrame called `lf`. \
 Your code MUST assign the final result to a variable called `result`.
 
+`lf` is a LazyFrame. If you use a query on it inside of a larger query, you MUST call `collect`.
+
+Add brief comments to your code to explain the intent of key steps, but keep them concise — \
+avoid obvious or redundant commentary.
+
 Example queries:
 - `result = lf.select("year", "Incid_Name", "area_acres").head(10)`
 - `result = lf.filter(pl.col("year") == 2020).sort("area_acres", descending=True).head(5)`
