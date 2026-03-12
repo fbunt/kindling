@@ -12,6 +12,7 @@ from google.genai import types
 logger = logging.getLogger(__name__)
 
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION, execute_function_call
+from app.query_engine import create_namespace
 
 router = APIRouter()
 
@@ -90,6 +91,7 @@ async def chat(
         try:
             all_plots = []
             all_queries = []
+            turn_namespace = create_namespace()
 
             # Function calling loop
             for round_num in range(MAX_TOOL_ROUNDS):
@@ -139,6 +141,7 @@ async def chat(
                     result_str, plots = await asyncio.to_thread(
                         execute_function_call,
                         fc.name, fc.args or {}, client, model,
+                        namespace=turn_namespace,
                     )
                     logger.debug(f"  {fc.name} result: {result_str[:500]}")
                     result_data = json.loads(result_str)

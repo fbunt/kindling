@@ -6,7 +6,7 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-from app.query_engine import get_dataset_info, execute_query
+from app.query_engine import get_dataset_info, execute_query, create_namespace
 
 SYSTEM_INSTRUCTION = """\
 You are a data analyst assistant for the MTBS (Monitoring Trends in Burn Severity) \
@@ -83,8 +83,10 @@ the given burn event. nlcd_mode gives the mode for a given pixel across the stud
 Important: ecoregion almost always refers to ecoregion level 1 (eco1/eco1s). Let the user be \
 specific if they want levels 2 or 3.
 
-Prefer building intermediate dataframes in a single run_query call rather than splitting across multiple calls. \
-Each run_query invocation starts with a fresh namespace, so variables from previous calls are not available.
+Variables you define persist across `run_query` calls within the same response. You can build up intermediate \
+dataframes across calls — for example, define `fires = lf.filter(...).collect()` in one call, then use `fires` \
+in a later call. Note: `result` is cleared between calls, so use other variable names for intermediates. \
+Each call must still assign to `result` (or produce a plot).
 
 Always call `get_dataset_info` first if you're unsure about column names or data types. \
 Format results as markdown tables when presenting to the user.
@@ -103,7 +105,7 @@ FIRE_DATA_TOOLS = types.Tool(
         ),
         types.FunctionDeclaration(
             name="run_query",
-            description="Execute a Polars query against the MTBS fire dataset. The code must use the LazyFrame `lf` and polars `pl`, and assign the result to a variable called `result`.",
+            description="Execute a Polars query against the MTBS fire dataset. Variables from previous run_query calls in the same turn are available. The code must assign the result to a variable called `result`.",
             parameters=types.Schema(
                 type="OBJECT",
                 properties={
@@ -178,7 +180,8 @@ def _unique_display_name(name: str) -> str:
 
 
 def execute_function_call(
-    name: str, args: dict, client: genai.Client, model: str
+    name: str, args: dict, client: genai.Client, model: str,
+    namespace: dict | None = None,
 ) -> tuple[str, list[dict]]:
     """Dispatch a function call from Gemini. Returns (json_result, plots_list)."""
     logger.info(f"Function call: {name}({json.dumps(args, default=str)[:200]})")
@@ -186,7 +189,7 @@ def execute_function_call(
     if name == "get_dataset_info":
         result = get_dataset_info()
     elif name == "run_query":
-        result = execute_query(args["code"])
+        result = execute_query(args["code"], namespace)
     # Generate display names for any plots
         if "plots" in result:
             code = args.get("code", "")

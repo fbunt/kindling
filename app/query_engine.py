@@ -210,7 +210,35 @@ def validate_code(code: str) -> str:
 
 
 
-def execute_query(code: str) -> dict:
+_IMPORTABLE_PREFIXES = ("numpy.", "polars.", "math.", "matplotlib.", "seaborn.")
+_real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+
+
+def _restricted_import(name, *args, **kwargs):
+    if any(name == p[:-1] or name.startswith(p) for p in _IMPORTABLE_PREFIXES):
+        return _real_import(name, *args, **kwargs)
+    raise ImportError(f"Import of '{name}' is not allowed")
+
+
+_GLOBAL_NS = {"__builtins__": {
+    "True": True, "False": False, "None": None,
+    "abs": abs, "all": all, "any": any, "bool": bool, "dict": dict,
+    "enumerate": enumerate, "filter": filter, "float": float,
+    "hasattr": hasattr, "int": int, "len": len, "list": list, "locals": locals,
+    "map": map, "max": max, "min": min, "pow": pow, "print": lambda *a, **kw: None,
+    "range": range,
+    "round": round, "set": set, "slice": slice, "sorted": sorted,
+    "str": str, "sum": sum, "tuple": tuple, "zip": zip,
+    "__import__": _restricted_import,
+}}
+
+
+def create_namespace() -> dict:
+    """Create a fresh execution namespace for a turn."""
+    return {"pl": pl, "np": np, "math": math, "lf": LF.clone(), "plt": plt, "sns": sns}
+
+
+def execute_query(code: str, namespace: dict | None = None) -> dict:
     """Validate and execute polars query code. Returns result dicts or error."""
     try:
         code = validate_code(code)
@@ -218,31 +246,9 @@ def execute_query(code: str) -> dict:
         logger.warning(f"Validation rejected code: {e}\n{code}")
         return {"error": str(e)}
 
-    namespace = {"pl": pl, "np": np, "math": math, "lf": LF.clone(), "plt": plt, "sns": sns}
-
-    # Allow __import__ only for submodules of libraries already in the namespace.
-    # Numpy (and others) internally import submodules during method calls
-    # (e.g. np.array().sum() imports numpy._core._methods).
-    _IMPORTABLE_PREFIXES = ("numpy.", "polars.", "math.", "matplotlib.", "seaborn.")
-    _real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
-
-    def _restricted_import(name, *args, **kwargs):
-        if any(name == p[:-1] or name.startswith(p) for p in _IMPORTABLE_PREFIXES):
-            return _real_import(name, *args, **kwargs)
-        raise ImportError(f"Import of '{name}' is not allowed")
-
-    restricted_builtins = {
-        "True": True, "False": False, "None": None,
-        "abs": abs, "all": all, "any": any, "bool": bool, "dict": dict,
-        "enumerate": enumerate, "filter": filter, "float": float,
-        "hasattr": hasattr, "int": int, "len": len, "list": list, "locals": locals,
-        "map": map, "max": max, "min": min, "pow": pow, "print": lambda *a, **kw: None,
-        "range": range,
-        "round": round, "set": set, "slice": slice, "sorted": sorted,
-        "str": str, "sum": sum, "tuple": tuple, "zip": zip,
-        "__import__": _restricted_import,
-    }
-    global_ns = {"__builtins__": restricted_builtins}
+    if namespace is None:
+        namespace = create_namespace()
+    namespace.pop("result", None)
 
     # Check for and clean up zombie threads from previous timed-out queries
     still_alive = [t for t in _zombie_threads if t.is_alive()]
@@ -255,7 +261,7 @@ def execute_query(code: str) -> dict:
 
     def _run():
         try:
-            exec(code, global_ns, namespace)
+            exec(code, _GLOBAL_NS, namespace)
         except Exception as e:
             logger.warning(f"Runtime error in query: {type(e).__name__}: {e}\n{code}")
             result_box[0] = {"error": f"Execution error: {type(e).__name__}: {e}"}
