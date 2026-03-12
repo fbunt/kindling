@@ -1,8 +1,8 @@
 import pytest
 import polars as pl
 
-from app.query_engine import validate_code, execute_query, ValidationError
-from app.tools import _unique_display_name, _used_display_names
+from app.query_engine import validate_code, execute_query, ValidationError, create_namespace, get_dataset_info, _strip_allowed_imports
+from app.tools import _unique_display_name, _used_display_names, execute_function_call
 
 
 # ── validate_code: allowed ──────────────────────────────────────────
@@ -359,3 +359,247 @@ class TestExecuteQuery:
         # by testing that numpy internals work while os wouldn't
         out = execute_query("result = int(np.sqrt(16))")
         assert out["data"] == "4"
+
+    def test_multiple_plots_in_one_query(self):
+        out = execute_query(
+            "plt.figure()\nplt.plot([1, 2])\n"
+            "plt.figure()\nplt.plot([3, 4])\n"
+            "result = 'two plots'"
+        )
+        assert "plots" in out
+        assert len(out["plots"]) == 2
+
+    def test_plot_only_no_result(self):
+        out = execute_query("plt.figure()\nplt.plot([1, 2, 3])")
+        assert "plots" in out
+        assert "error" not in out
+
+    def test_empty_dataframe_result(self):
+        out = execute_query(
+            "result = pl.DataFrame({'a': [], 'b': []}).cast({'a': pl.Int64, 'b': pl.Int64})"
+        )
+        assert out["data"] == []
+        assert out["total_rows"] == 0
+
+    def test_max_rows_boundary(self):
+        out = execute_query("result = pl.DataFrame({'x': list(range(100))})")
+        assert out["total_rows"] == 100
+        assert out["truncated"] is False
+        assert len(out["data"]) == 100
+
+
+# ── Shared namespace ───────────────────────────────────────────────
+
+class TestSharedNamespace:
+    def test_create_namespace_has_expected_keys(self):
+        ns = create_namespace()
+        assert set(ns.keys()) == {"pl", "np", "math", "lf", "plt", "sns"}
+
+    def test_variables_persist_across_calls(self):
+        ns = create_namespace()
+        out1 = execute_query("x = 42\nresult = 'set x'", ns)
+        assert "error" not in out1
+        out2 = execute_query("result = x + 8", ns)
+        assert out2["data"] == "50"
+
+    def test_dataframe_persists_across_calls(self):
+        ns = create_namespace()
+        out1 = execute_query("fires = lf.head(5).collect()\nresult = len(fires)", ns)
+        assert out1["data"] == "5"
+        out2 = execute_query("result = len(fires)", ns)
+        assert out2["data"] == "5"
+
+    def test_result_cleared_between_calls(self):
+        ns = create_namespace()
+        execute_query("result = 'first'", ns)
+        out = execute_query("x = 1", ns)
+        assert "error" in out
+        assert "No result" in out["error"]
+
+    def test_result_not_accessible_from_previous_call(self):
+        ns = create_namespace()
+        execute_query("result = 'first'", ns)
+        out = execute_query("result = result", ns)
+        assert "error" in out
+
+    def test_separate_namespaces_are_isolated(self):
+        ns1 = create_namespace()
+        ns2 = create_namespace()
+        execute_query("x = 99\nresult = 'ok'", ns1)
+        out = execute_query("result = x", ns2)
+        assert "error" in out
+
+    def test_namespace_none_creates_fresh(self):
+        """Passing None should work like no shared namespace."""
+        out = execute_query("result = 'fresh'", None)
+        assert out["data"] == "fresh"
+
+    def test_overwritten_builtins_dont_persist(self):
+        """Each namespace gets its own lf clone."""
+        ns = create_namespace()
+        execute_query("lf = None\nresult = 'ok'", ns)
+        # lf is now None in this namespace — next call should fail
+        out = execute_query("result = lf.head(1).collect()", ns)
+        assert "error" in out
+
+    def test_plot_in_first_call_data_in_second(self):
+        ns = create_namespace()
+        out1 = execute_query(
+            "vals = [1, 2, 3, 4]\nplt.figure()\nplt.plot(vals)\nresult = 'plotted'", ns
+        )
+        assert "plots" in out1
+        out2 = execute_query("result = vals", ns)
+        assert out2["data"] == "[1, 2, 3, 4]"
+
+
+# ── get_dataset_info ───────────────────────────────────────────────
+
+class TestGetDatasetInfo:
+    def test_return_structure(self):
+        info = get_dataset_info()
+        assert "columns" in info
+        assert "key_columns" in info
+        assert "row_count_approx" in info
+        assert "sample_rows" in info
+
+    def test_columns_match_schema(self):
+        info = get_dataset_info()
+        assert isinstance(info["columns"], dict)
+        assert "year" in info["columns"]
+        assert "Event_ID" in info["columns"]
+        assert "area_acres" in info["columns"]
+
+    def test_key_columns_present(self):
+        info = get_dataset_info()
+        kc = info["key_columns"]
+        assert "year" in kc
+        assert "bs" in kc
+        assert "nlcd" in kc
+        assert "Incid_Type" in kc
+
+    def test_sample_rows(self):
+        info = get_dataset_info()
+        assert isinstance(info["sample_rows"], list)
+        assert len(info["sample_rows"]) == 5
+        assert "year" in info["sample_rows"][0]
+
+    def test_row_count(self):
+        info = get_dataset_info()
+        assert info["row_count_approx"] == "~79 million"
+
+
+# ── execute_function_call ──────────────────────────────────────────
+
+class TestExecuteFunctionCall:
+    def test_get_dataset_info_dispatch(self):
+        result_str, plots = execute_function_call(
+            "get_dataset_info", {}, None, ""
+        )
+        import json
+        result = json.loads(result_str)
+        assert "columns" in result
+        assert "key_columns" in result
+        assert plots == []
+
+    def test_run_query_dispatch(self):
+        result_str, plots = execute_function_call(
+            "run_query", {"code": "result = 42"}, None, ""
+        )
+        import json
+        result = json.loads(result_str)
+        assert result["data"] == "42"
+        assert plots == []
+
+    def test_run_query_with_namespace(self):
+        ns = create_namespace()
+        execute_function_call(
+            "run_query", {"code": "x = 10\nresult = 'ok'"}, None, "",
+            namespace=ns,
+        )
+        result_str, _ = execute_function_call(
+            "run_query", {"code": "result = x * 2"}, None, "",
+            namespace=ns,
+        )
+        import json
+        result = json.loads(result_str)
+        assert result["data"] == "20"
+
+    def test_unknown_function(self):
+        result_str, plots = execute_function_call(
+            "nonexistent", {}, None, ""
+        )
+        import json
+        result = json.loads(result_str)
+        assert "error" in result
+        assert "Unknown function" in result["error"]
+        assert plots == []
+
+    def test_run_query_validation_error(self):
+        result_str, plots = execute_function_call(
+            "run_query", {"code": "import os"}, None, ""
+        )
+        import json
+        result = json.loads(result_str)
+        assert "error" in result
+        assert plots == []
+
+
+# ── _strip_allowed_imports ─────────────────────────────────────────
+
+class TestStripAllowedImports:
+    def test_strips_numpy_import(self):
+        import ast
+        code = "import numpy as np\nresult = 1"
+        tree = _strip_allowed_imports(ast.parse(code))
+        source = ast.unparse(tree)
+        assert "import" not in source
+
+    def test_strips_polars_import(self):
+        import ast
+        code = "import polars as pl\nresult = 1"
+        tree = _strip_allowed_imports(ast.parse(code))
+        source = ast.unparse(tree)
+        assert "import" not in source
+
+    def test_strips_matplotlib_from_import(self):
+        import ast
+        code = "from matplotlib import pyplot as plt\nresult = 1"
+        tree = _strip_allowed_imports(ast.parse(code))
+        source = ast.unparse(tree)
+        assert "import" not in source
+
+    def test_strips_dotted_matplotlib_import(self):
+        import ast
+        code = "import matplotlib.pyplot as plt\nresult = 1"
+        tree = _strip_allowed_imports(ast.parse(code))
+        source = ast.unparse(tree)
+        assert "import" not in source
+
+    def test_keeps_disallowed_import(self):
+        import ast
+        code = "import os\nresult = 1"
+        tree = _strip_allowed_imports(ast.parse(code))
+        source = ast.unparse(tree)
+        assert "import os" in source
+
+    def test_partial_strip_mixed_imports(self):
+        import ast
+        code = "import numpy as np, os\nresult = 1"
+        tree = _strip_allowed_imports(ast.parse(code))
+        source = ast.unparse(tree)
+        assert "os" in source
+        assert "numpy" not in source
+
+    def test_strips_seaborn_import(self):
+        import ast
+        code = "import seaborn as sns\nresult = 1"
+        tree = _strip_allowed_imports(ast.parse(code))
+        source = ast.unparse(tree)
+        assert "import" not in source
+
+    def test_strips_math_import(self):
+        import ast
+        code = "import math\nresult = 1"
+        tree = _strip_allowed_imports(ast.parse(code))
+        source = ast.unparse(tree)
+        assert "import" not in source
