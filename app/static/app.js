@@ -23,15 +23,27 @@ const lightboxImg = document.getElementById("lightbox-img");
 let history = [];
 let abortController = null;
 
-// Lightbox: open on plot image click, close on click/Escape
+// Lightbox: open on plot image click, toggle zoom, close on background/Escape
 function openLightbox(src) {
     lightboxImg.src = src;
     lightbox.hidden = false;
+    lightbox.classList.remove("zoomed");
 }
 
-lightbox.addEventListener("click", () => { lightbox.hidden = true; });
+function closeLightbox() {
+    lightbox.hidden = true;
+    lightbox.classList.remove("zoomed");
+}
+
+lightboxImg.addEventListener("click", (e) => {
+    e.stopPropagation();
+    lightbox.classList.toggle("zoomed");
+});
+lightbox.addEventListener("click", (e) => {
+    if (e.target === lightbox) closeLightbox();
+});
 document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !lightbox.hidden) lightbox.hidden = true;
+    if (e.key === "Escape" && !lightbox.hidden) closeLightbox();
 });
 
 // Delegate click on plot images in messages
