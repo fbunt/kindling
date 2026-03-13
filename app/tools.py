@@ -6,7 +6,7 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-from app.query_engine import get_dataset_info, execute_query, create_namespace
+from app.query_engine import create_namespace, execute_query, get_dataset_info
 
 SYSTEM_INSTRUCTION = """\
 You are a data analyst assistant for the MTBS (Monitoring Trends in Burn Severity) \
@@ -180,7 +180,10 @@ def _unique_display_name(name: str) -> str:
 
 
 def execute_function_call(
-    name: str, args: dict, client: genai.Client, model: str,
+    name: str,
+    args: dict,
+    client: genai.Client,
+    model: str,
     namespace: dict | None = None,
 ) -> tuple[str, list[dict]]:
     """Dispatch a function call from Gemini. Returns (json_result, plots_list)."""
@@ -190,7 +193,7 @@ def execute_function_call(
         result = get_dataset_info()
     elif name == "run_query":
         result = execute_query(args["code"], namespace)
-    # Generate display names for any plots
+        # Generate display names for any plots
         if "plots" in result:
             code = args.get("code", "")
             for url in result["plots"]:

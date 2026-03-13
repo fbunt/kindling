@@ -1,11 +1,18 @@
-import pytest
 import polars as pl
+import pytest
 
-from app.query_engine import validate_code, execute_query, ValidationError, create_namespace, get_dataset_info, _strip_allowed_imports
+from app.query_engine import (
+    ValidationError,
+    _strip_allowed_imports,
+    create_namespace,
+    execute_query,
+    get_dataset_info,
+    validate_code,
+)
 from app.tools import _unique_display_name, _used_display_names, execute_function_call
 
-
 # ── validate_code: allowed ──────────────────────────────────────────
+
 
 class TestValidateAllowed:
     def test_simple_assignment(self):
@@ -34,6 +41,7 @@ class TestValidateAllowed:
 
 
 # ── validate_code: forbidden ────────────────────────────────────────
+
 
 class TestValidateForbidden:
     def test_import(self):
@@ -110,6 +118,7 @@ class TestValidateForbidden:
 
 
 # ── Adversarial bypass attempts ─────────────────────────────────────
+
 
 class TestAdversarial:
     """Attempts to escape the sandbox via creative bypasses."""
@@ -200,6 +209,7 @@ class TestAdversarial:
 
     def test_infinite_loop_times_out(self, monkeypatch):
         import app.query_engine as qe
+
         monkeypatch.setattr(qe, "QUERY_TIMEOUT", 1)
         out = execute_query("while True: pass\nresult = 'done'")
         assert "error" in out
@@ -239,6 +249,7 @@ class TestAdversarial:
 
 
 # ── execute_query ───────────────────────────────────────────────────
+
 
 class TestExecuteQuery:
     def test_simple_result(self):
@@ -333,8 +344,7 @@ class TestExecuteQuery:
 
     def test_numpy_array_mean_std(self):
         out = execute_query(
-            "a = np.array([10.0, 20.0, 30.0])\n"
-            "result = f'{a.mean()},{a.std():.4f}'"
+            "a = np.array([10.0, 20.0, 30.0])\nresult = f'{a.mean()},{a.std():.4f}'"
         )
         assert "error" not in out
         assert out["data"].startswith("20.0,")
@@ -389,6 +399,7 @@ class TestExecuteQuery:
 
 
 # ── Shared namespace ───────────────────────────────────────────────
+
 
 class TestSharedNamespace:
     def test_create_namespace_has_expected_keys(self):
@@ -454,6 +465,7 @@ class TestSharedNamespace:
 
 # ── get_dataset_info ───────────────────────────────────────────────
 
+
 class TestGetDatasetInfo:
     def test_return_structure(self):
         info = get_dataset_info()
@@ -490,12 +502,12 @@ class TestGetDatasetInfo:
 
 # ── execute_function_call ──────────────────────────────────────────
 
+
 class TestExecuteFunctionCall:
     def test_get_dataset_info_dispatch(self):
-        result_str, plots = execute_function_call(
-            "get_dataset_info", {}, None, ""
-        )
+        result_str, plots = execute_function_call("get_dataset_info", {}, None, "")
         import json
+
         result = json.loads(result_str)
         assert "columns" in result
         assert "key_columns" in result
@@ -506,6 +518,7 @@ class TestExecuteFunctionCall:
             "run_query", {"code": "result = 42"}, None, ""
         )
         import json
+
         result = json.loads(result_str)
         assert result["data"] == "42"
         assert plots == []
@@ -513,22 +526,28 @@ class TestExecuteFunctionCall:
     def test_run_query_with_namespace(self):
         ns = create_namespace()
         execute_function_call(
-            "run_query", {"code": "x = 10\nresult = 'ok'"}, None, "",
+            "run_query",
+            {"code": "x = 10\nresult = 'ok'"},
+            None,
+            "",
             namespace=ns,
         )
         result_str, _ = execute_function_call(
-            "run_query", {"code": "result = x * 2"}, None, "",
+            "run_query",
+            {"code": "result = x * 2"},
+            None,
+            "",
             namespace=ns,
         )
         import json
+
         result = json.loads(result_str)
         assert result["data"] == "20"
 
     def test_unknown_function(self):
-        result_str, plots = execute_function_call(
-            "nonexistent", {}, None, ""
-        )
+        result_str, plots = execute_function_call("nonexistent", {}, None, "")
         import json
+
         result = json.loads(result_str)
         assert "error" in result
         assert "Unknown function" in result["error"]
@@ -539,6 +558,7 @@ class TestExecuteFunctionCall:
             "run_query", {"code": "import os"}, None, ""
         )
         import json
+
         result = json.loads(result_str)
         assert "error" in result
         assert plots == []
@@ -546,9 +566,11 @@ class TestExecuteFunctionCall:
 
 # ── _strip_allowed_imports ─────────────────────────────────────────
 
+
 class TestStripAllowedImports:
     def test_strips_numpy_import(self):
         import ast
+
         code = "import numpy as np\nresult = 1"
         tree = _strip_allowed_imports(ast.parse(code))
         source = ast.unparse(tree)
@@ -556,6 +578,7 @@ class TestStripAllowedImports:
 
     def test_strips_polars_import(self):
         import ast
+
         code = "import polars as pl\nresult = 1"
         tree = _strip_allowed_imports(ast.parse(code))
         source = ast.unparse(tree)
@@ -563,6 +586,7 @@ class TestStripAllowedImports:
 
     def test_strips_matplotlib_from_import(self):
         import ast
+
         code = "from matplotlib import pyplot as plt\nresult = 1"
         tree = _strip_allowed_imports(ast.parse(code))
         source = ast.unparse(tree)
@@ -570,6 +594,7 @@ class TestStripAllowedImports:
 
     def test_strips_dotted_matplotlib_import(self):
         import ast
+
         code = "import matplotlib.pyplot as plt\nresult = 1"
         tree = _strip_allowed_imports(ast.parse(code))
         source = ast.unparse(tree)
@@ -577,6 +602,7 @@ class TestStripAllowedImports:
 
     def test_keeps_disallowed_import(self):
         import ast
+
         code = "import os\nresult = 1"
         tree = _strip_allowed_imports(ast.parse(code))
         source = ast.unparse(tree)
@@ -584,6 +610,7 @@ class TestStripAllowedImports:
 
     def test_partial_strip_mixed_imports(self):
         import ast
+
         code = "import numpy as np, os\nresult = 1"
         tree = _strip_allowed_imports(ast.parse(code))
         source = ast.unparse(tree)
@@ -592,6 +619,7 @@ class TestStripAllowedImports:
 
     def test_strips_seaborn_import(self):
         import ast
+
         code = "import seaborn as sns\nresult = 1"
         tree = _strip_allowed_imports(ast.parse(code))
         source = ast.unparse(tree)
@@ -599,6 +627,7 @@ class TestStripAllowedImports:
 
     def test_strips_math_import(self):
         import ast
+
         code = "import math\nresult = 1"
         tree = _strip_allowed_imports(ast.parse(code))
         source = ast.unparse(tree)

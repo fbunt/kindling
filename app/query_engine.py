@@ -1,17 +1,18 @@
 import ast
 import logging
+import math
 import threading
 import time
 from pathlib import Path
 
-import math
 import matplotlib
+
 matplotlib.use("Agg")
 matplotlib.rcParams["figure.figsize"] = (10, 6)
 import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
 import polars as pl
+import seaborn as sns
 
 PARQUET_PATH = Path("data/mtbs_pix_data.parquet")
 PLOTS_DIR = Path("plots")
@@ -70,30 +71,78 @@ def get_dataset_info() -> dict:
 # --- AST Validation ---
 
 _FORBIDDEN_NODE_TYPES = (
-    ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal, ast.Delete,
-    ast.AsyncFunctionDef, ast.AsyncFor, ast.AsyncWith,
-    ast.ClassDef, ast.Yield, ast.YieldFrom,
+    ast.Import,
+    ast.ImportFrom,
+    ast.Global,
+    ast.Nonlocal,
+    ast.Delete,
+    ast.AsyncFunctionDef,
+    ast.AsyncFor,
+    ast.AsyncWith,
+    ast.ClassDef,
+    ast.Yield,
+    ast.YieldFrom,
 )
 
 _FORBIDDEN_BUILTINS = {
-    "open", "exec", "eval", "compile", "__import__", "input",
-    "getattr", "setattr", "delattr", "globals", "vars",
-    "breakpoint", "exit", "quit", "help",
-    "memoryview", "type", "super", "classmethod", "staticmethod",
+    "open",
+    "exec",
+    "eval",
+    "compile",
+    "__import__",
+    "input",
+    "getattr",
+    "setattr",
+    "delattr",
+    "globals",
+    "vars",
+    "breakpoint",
+    "exit",
+    "quit",
+    "help",
+    "memoryview",
+    "type",
+    "super",
+    "classmethod",
+    "staticmethod",
     "property",
 }
 
 _FORBIDDEN_ATTRIBUTES = {
-    "write_parquet", "write_csv", "write_json", "write_ipc", "write_excel",
-    "write_ndjson", "write_avro", "write_clipboard", "write_database",
-    "sink_parquet", "sink_csv", "sink_ipc", "sink_ndjson",
+    "write_parquet",
+    "write_csv",
+    "write_json",
+    "write_ipc",
+    "write_excel",
+    "write_ndjson",
+    "write_avro",
+    "write_clipboard",
+    "write_database",
+    "sink_parquet",
+    "sink_csv",
+    "sink_ipc",
+    "sink_ndjson",
     "savefig",
     # Pandas write methods (reachable via .to_pandas())
-    "to_csv", "to_excel", "to_parquet", "to_json", "to_sql",
-    "to_hdf", "to_feather", "to_stata", "to_pickle", "to_clipboard",
-    "to_latex", "to_gbq",
+    "to_csv",
+    "to_excel",
+    "to_parquet",
+    "to_json",
+    "to_sql",
+    "to_hdf",
+    "to_feather",
+    "to_stata",
+    "to_pickle",
+    "to_clipboard",
+    "to_latex",
+    "to_gbq",
     # Numpy file I/O
-    "save", "savez", "savez_compressed", "savetxt", "load", "fromfile",
+    "save",
+    "savez",
+    "savez_compressed",
+    "savetxt",
+    "load",
+    "fromfile",
 }
 
 _FORBIDDEN_STRING_PATTERNS = {"__", "eval(", "exec(", "open("}
@@ -129,7 +178,10 @@ def _strip_allowed_imports(tree: ast.Module) -> ast.Module:
                 module = alias.name
                 asname = alias.asname
                 # Check plain module imports: import numpy as np
-                if module in _ALLOWED_IMPORTS and (asname == _ALLOWED_IMPORTS[module] or (asname is None and _ALLOWED_IMPORTS[module] is None)):
+                if module in _ALLOWED_IMPORTS and (
+                    asname == _ALLOWED_IMPORTS[module]
+                    or (asname is None and _ALLOWED_IMPORTS[module] is None)
+                ):
                     continue
                 # Check dotted imports: import matplotlib.pyplot as plt
                 if module == "matplotlib.pyplot" and asname == "plt":
@@ -166,9 +218,7 @@ def validate_code(code: str) -> str:
     for node in ast.walk(tree):
         # Reject forbidden node types
         if isinstance(node, _FORBIDDEN_NODE_TYPES):
-            raise ValidationError(
-                f"Forbidden statement: {type(node).__name__}"
-            )
+            raise ValidationError(f"Forbidden statement: {type(node).__name__}")
 
         # Reject calls to forbidden builtins
         if isinstance(node, ast.Call):
@@ -183,35 +233,34 @@ def validate_code(code: str) -> str:
                     raise ValidationError(f"Forbidden decorator: {dec.id}")
 
         # Reject references to dunder names (e.g. __builtins__)
-        if isinstance(node, ast.Name) and node.id.startswith("__") and node.id.endswith("__"):
+        if (
+            isinstance(node, ast.Name)
+            and node.id.startswith("__")
+            and node.id.endswith("__")
+        ):
             raise ValidationError(f"Forbidden name: {node.id}")
 
         # Reject dunder and write-related attribute access
         if isinstance(node, ast.Attribute):
             if node.attr.startswith("__") and node.attr.endswith("__"):
-                raise ValidationError(
-                    f"Forbidden attribute access: {node.attr}"
-                )
+                raise ValidationError(f"Forbidden attribute access: {node.attr}")
             if node.attr in _FORBIDDEN_ATTRIBUTES:
-                raise ValidationError(
-                    f"Forbidden attribute access: {node.attr}"
-                )
+                raise ValidationError(f"Forbidden attribute access: {node.attr}")
 
         # Reject suspicious string literals
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             val = node.value.lower()
             for pat in _FORBIDDEN_STRING_PATTERNS:
                 if pat in val:
-                    raise ValidationError(
-                        f"Forbidden string content: '{pat}'"
-                    )
+                    raise ValidationError(f"Forbidden string content: '{pat}'")
 
     return ast.unparse(tree)
 
 
-
 _IMPORTABLE_PREFIXES = ("numpy.", "polars.", "math.", "matplotlib.", "seaborn.")
-_real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+_real_import = (
+    __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+)
 
 
 def _restricted_import(name, *args, **kwargs):
@@ -220,17 +269,41 @@ def _restricted_import(name, *args, **kwargs):
     raise ImportError(f"Import of '{name}' is not allowed")
 
 
-_GLOBAL_NS = {"__builtins__": {
-    "True": True, "False": False, "None": None,
-    "abs": abs, "all": all, "any": any, "bool": bool, "dict": dict,
-    "enumerate": enumerate, "filter": filter, "float": float,
-    "hasattr": hasattr, "int": int, "len": len, "list": list, "locals": locals,
-    "map": map, "max": max, "min": min, "pow": pow, "print": lambda *a, **kw: None,
-    "range": range,
-    "round": round, "set": set, "slice": slice, "sorted": sorted,
-    "str": str, "sum": sum, "tuple": tuple, "zip": zip,
-    "__import__": _restricted_import,
-}}
+_GLOBAL_NS = {
+    "__builtins__": {
+        "True": True,
+        "False": False,
+        "None": None,
+        "abs": abs,
+        "all": all,
+        "any": any,
+        "bool": bool,
+        "dict": dict,
+        "enumerate": enumerate,
+        "filter": filter,
+        "float": float,
+        "hasattr": hasattr,
+        "int": int,
+        "len": len,
+        "list": list,
+        "locals": locals,
+        "map": map,
+        "max": max,
+        "min": min,
+        "pow": pow,
+        "print": lambda *a, **kw: None,
+        "range": range,
+        "round": round,
+        "set": set,
+        "slice": slice,
+        "sorted": sorted,
+        "str": str,
+        "sum": sum,
+        "tuple": tuple,
+        "zip": zip,
+        "__import__": _restricted_import,
+    }
+}
 
 
 def create_namespace() -> dict:

@@ -4,15 +4,15 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form
-from starlette.responses import StreamingResponse
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from google import genai
 from google.genai import types
+from starlette.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
 
-from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION, execute_function_call
 from app.query_engine import create_namespace
+from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION, execute_function_call
 
 router = APIRouter()
 
@@ -45,21 +45,26 @@ async def chat(
         parts = [types.Part(text=msg["content"])]
         if "image" in msg:
             img_data = base64.b64decode(msg["image"]["data"])
-            parts.insert(0, types.Part(
-                inline_data=types.Blob(
-                    mime_type=msg["image"]["mime"],
-                    data=img_data,
-                )
-            ))
+            parts.insert(
+                0,
+                types.Part(
+                    inline_data=types.Blob(
+                        mime_type=msg["image"]["mime"],
+                        data=img_data,
+                    )
+                ),
+            )
         for plot_img in msg.get("plot_images", []):
             if plot_img.get("name"):
                 parts.append(types.Part(text=f"[Generated plot: {plot_img['name']}]"))
-            parts.append(types.Part(
-                inline_data=types.Blob(
-                    mime_type=plot_img["mime"],
-                    data=base64.b64decode(plot_img["data"]),
+            parts.append(
+                types.Part(
+                    inline_data=types.Blob(
+                        mime_type=plot_img["mime"],
+                        data=base64.b64decode(plot_img["data"]),
+                    )
                 )
-            ))
+            )
         contents.append(types.Content(role=role, parts=parts))
 
     # Build current message parts
@@ -69,12 +74,15 @@ async def chat(
     current_parts = [types.Part(text=message)]
     if image and image.size > 0:
         image_bytes = await image.read()
-        current_parts.insert(0, types.Part(
-            inline_data=types.Blob(
-                mime_type=image.content_type,
-                data=image_bytes,
-            )
-        ))
+        current_parts.insert(
+            0,
+            types.Part(
+                inline_data=types.Blob(
+                    mime_type=image.content_type,
+                    data=image_bytes,
+                )
+            ),
+        )
         image_info = {
             "data": base64.b64encode(image_bytes).decode(),
             "mime": image.content_type,
@@ -107,13 +115,17 @@ async def chat(
                 )
 
                 # Log response structure
-                parts = response.candidates[0].content.parts if response.candidates else []
+                parts = (
+                    response.candidates[0].content.parts if response.candidates else []
+                )
                 part_types = [type(p).__name__ for p in parts]
                 logger.debug(f"Round {round_num}: parts={part_types}")
                 for p in parts:
-                    if hasattr(p, 'function_call') and p.function_call:
-                        logger.debug(f"  function_call: {p.function_call.name}({p.function_call.args})")
-                    if hasattr(p, 'text') and p.text:
+                    if hasattr(p, "function_call") and p.function_call:
+                        logger.debug(
+                            f"  function_call: {p.function_call.name}({p.function_call.args})"
+                        )
+                    if hasattr(p, "text") and p.text:
                         logger.debug(f"  text: {p.text[:200]}")
 
                 # Check for function calls in the response
@@ -132,7 +144,9 @@ async def chat(
 
                 for q in round_queries:
                     logger.info(f"Executing query: {q}")
-                yield _sse("status", {"status": "running_query", "queries": round_queries})
+                yield _sse(
+                    "status", {"status": "running_query", "queries": round_queries}
+                )
 
                 # Execute each function call and build response parts
                 fc_response_parts = []
@@ -140,21 +154,33 @@ async def chat(
                 for fc in function_calls:
                     result_str, plots = await asyncio.to_thread(
                         execute_function_call,
-                        fc.name, fc.args or {}, client, model,
+                        fc.name,
+                        fc.args or {},
+                        client,
+                        model,
                         namespace=turn_namespace,
                     )
                     logger.debug(f"  {fc.name} result: {result_str[:500]}")
                     result_data = json.loads(result_str)
                     all_plots.extend(plots)
-                    fc_response_parts.append(types.Part(
-                        function_response=types.FunctionResponse(
-                            name=fc.name,
-                            response=result_data,
+                    fc_response_parts.append(
+                        types.Part(
+                            function_response=types.FunctionResponse(
+                                name=fc.name,
+                                response=result_data,
+                            )
                         )
-                    ))
-                    if fc.name == "run_query" and fc.args and "code" in fc.args and "error" in result_data:
+                    )
+                    if (
+                        fc.name == "run_query"
+                        and fc.args
+                        and "code" in fc.args
+                        and "error" in result_data
+                    ):
                         rejected_queries.append(fc.args["code"])
-                all_queries.extend(q for q in round_queries if q not in rejected_queries)
+                all_queries.extend(
+                    q for q in round_queries if q not in rejected_queries
+                )
                 if rejected_queries:
                     yield _sse("rejected", {"queries": rejected_queries})
 
@@ -174,18 +200,22 @@ async def chat(
                 )
 
             response_text = response.text or ""
-            logger.debug(f"Final response_text ({len(response_text)} chars): {response_text[:200]}")
+            logger.debug(
+                f"Final response_text ({len(response_text)} chars): {response_text[:200]}"
+            )
 
             # Read plot images for client-side history
             plot_images = []
             for plot in all_plots:
                 plot_path = Path(plot["url"].lstrip("/"))
                 if plot_path.exists():
-                    plot_images.append({
-                        "data": base64.b64encode(plot_path.read_bytes()).decode(),
-                        "mime": "image/png",
-                        "name": plot["name"],
-                    })
+                    plot_images.append(
+                        {
+                            "data": base64.b64encode(plot_path.read_bytes()).decode(),
+                            "mime": "image/png",
+                            "name": plot["name"],
+                        }
+                    )
 
             result = {
                 "response": response_text,

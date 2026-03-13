@@ -1,8 +1,8 @@
 import os
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
 from google import genai
+from pydantic import BaseModel
 
 router = APIRouter()
 
