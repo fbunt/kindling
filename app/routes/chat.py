@@ -11,8 +11,12 @@ from starlette.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
 
-from app.query_engine import create_namespace
-from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION, execute_function_call
+from app.query_engine import create_namespace  # noqa: E402
+from app.tools import (  # noqa: E402
+    FIRE_DATA_TOOLS,
+    SYSTEM_INSTRUCTION,
+    execute_function_call,
+)
 
 router = APIRouter()
 
@@ -29,7 +33,7 @@ async def chat(
     message: str = Form(...),
     model: str = Form("gemini-3.1-pro-preview"),
     history: str = Form("[]"),
-    image: UploadFile | None = File(None),
+    image: UploadFile | None = File(None),  # noqa: B008
 ):
     api_key = request.session.get("api_key")
     if not api_key:
@@ -123,7 +127,7 @@ async def chat(
                 for p in parts:
                     if hasattr(p, "function_call") and p.function_call:
                         logger.debug(
-                            f"  function_call: {p.function_call.name}({p.function_call.args})"
+                            f"  function_call: {p.function_call.name}({p.function_call.args})"  # noqa: E501
                         )
                     if hasattr(p, "text") and p.text:
                         logger.debug(f"  text: {p.text[:200]}")
@@ -201,7 +205,7 @@ async def chat(
 
             response_text = response.text or ""
             logger.debug(
-                f"Final response_text ({len(response_text)} chars): {response_text[:200]}"
+                f"Final response_text ({len(response_text)} chars): {response_text[:200]}"  # noqa: E501
             )
 
             # Read plot images for client-side history

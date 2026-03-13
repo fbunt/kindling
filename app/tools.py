@@ -6,7 +6,7 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-from app.query_engine import create_namespace, execute_query, get_dataset_info
+from app.query_engine import execute_query, get_dataset_info  # noqa: E402
 
 SYSTEM_INSTRUCTION = """\
 You are a data analyst assistant for the MTBS (Monitoring Trends in Burn Severity) \

@@ -1,4 +1,4 @@
-import polars as pl
+import polars as pl  # noqa: F401 — used inside execute_query() code strings
 import pytest
 
 from app.query_engine import (
@@ -386,7 +386,7 @@ class TestExecuteQuery:
 
     def test_empty_dataframe_result(self):
         out = execute_query(
-            "result = pl.DataFrame({'a': [], 'b': []}).cast({'a': pl.Int64, 'b': pl.Int64})"
+            "result = pl.DataFrame({'a': [], 'b': []}).cast({'a': pl.Int64, 'b': pl.Int64})"  # noqa: E501
         )
         assert out["data"] == []
         assert out["total_rows"] == 0
