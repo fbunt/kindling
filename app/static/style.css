@@ -131,6 +131,23 @@
     background: transparent;
 }
 
+.message.code.rejected {
+    opacity: 0.7;
+    border-left: 3px solid var(--bs-danger, #dc3545);
+}
+
+.code-error-label {
+    display: inline-block;
+    margin-left: 0.5rem;
+    font-size: 0.7rem;
+    font-style: normal;
+    color: var(--bs-danger, #dc3545);
+    background: var(--bs-danger-bg-subtle, rgba(220, 53, 69, 0.1));
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.2rem;
+    vertical-align: middle;
+}
+
 /* Textarea auto-resize */
 #chat-input {
     resize: none;

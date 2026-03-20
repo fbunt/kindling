@@ -181,10 +181,11 @@ async def chat(
                         and "code" in fc.args
                         and "error" in result_data
                     ):
-                        rejected_queries.append(fc.args["code"])
-                all_queries.extend(
-                    q for q in round_queries if q not in rejected_queries
-                )
+                        rejected_queries.append(
+                            {"code": fc.args["code"], "error": result_data["error"]}
+                        )
+                rejected_codes = {q["code"] for q in rejected_queries}
+                all_queries.extend(q for q in round_queries if q not in rejected_codes)
                 if rejected_queries:
                     yield _sse("rejected", {"queries": rejected_queries})
 

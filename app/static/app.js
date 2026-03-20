@@ -371,13 +371,25 @@ chatForm.addEventListener("submit", async (e) => {
                     }
                 } else if (eventType === "rejected") {
                     const { queries } = JSON.parse(dataStr);
-                    for (const code of queries) {
-                        // Find and remove the matching code block
+                    for (const q of queries) {
+                        const code = q.code;
+                        const error = q.error || "Query failed";
+                        // Find and mark the matching code block as rejected
                         const codeBlocks = messagesDiv.querySelectorAll(".message.code");
                         for (const block of codeBlocks) {
                             const codeEl = block.querySelector("code");
                             if (codeEl && codeEl.textContent === code) {
-                                block.remove();
+                                block.classList.add("rejected");
+                                const label = document.createElement("span");
+                                label.className = "code-error-label";
+                                // Simplify display: strip "Query " prefix
+                                label.textContent = error.replace(/^Query\s+/i, "");
+                                const summary = block.querySelector("summary");
+                                if (summary) {
+                                    summary.appendChild(label);
+                                } else {
+                                    block.prepend(label);
+                                }
                                 break;
                             }
                         }
