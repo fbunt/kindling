@@ -252,10 +252,41 @@
 }
 
 .message.assistant pre {
+    position: relative;
     background: var(--bs-secondary-bg);
     padding: 0.5rem 0.75rem;
     border-radius: 0.25rem;
     overflow-x: auto;
+}
+
+.code-copy-btn {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    z-index: 1;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s, background 0.15s;
+    padding: 0.25rem;
+    line-height: 1;
+    border-radius: 0.25rem;
+}
+
+.message.assistant pre:hover .code-copy-btn {
+    opacity: 1;
+}
+
+.code-copy-btn:hover {
+    opacity: 1 !important;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.code-copy-btn.copied {
+    opacity: 1 !important;
+    color: var(--bs-success);
 }
 
 .message.assistant code {
