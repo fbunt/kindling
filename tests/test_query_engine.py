@@ -355,7 +355,7 @@ class TestExecuteQuery:
 
     def test_numpy_with_polars(self):
         out = execute_query(
-            "vals = lf.select(pl.col('area_acres')).head(100)"
+            "vals = lf.select(pl.col('area_m2')).head(100)"
             ".collect().to_series().to_numpy()\n"
             "result = float(np.mean(vals))"
         )
@@ -479,7 +479,7 @@ class TestGetDatasetInfo:
         assert isinstance(info["columns"], dict)
         assert "year" in info["columns"]
         assert "Event_ID" in info["columns"]
-        assert "area_acres" in info["columns"]
+        assert "area_m2" in info["columns"]
 
     def test_key_columns_present(self):
         info = get_dataset_info()
@@ -497,7 +497,7 @@ class TestGetDatasetInfo:
 
     def test_row_count(self):
         info = get_dataset_info()
-        assert info["row_count_approx"] == "~79 million"
+        assert info["row_count_approx"] == "~745 million"
 
 
 # ── execute_function_call ──────────────────────────────────────────

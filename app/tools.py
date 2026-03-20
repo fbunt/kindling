@@ -10,7 +10,7 @@ from app.query_engine import execute_query, get_dataset_info  # noqa: E402
 
 SYSTEM_INSTRUCTION = """\
 You are a data analyst assistant for the MTBS (Monitoring Trends in Burn Severity) \
-fire dataset. This dataset contains ~79 million rows of pixel-level fire data from \
+fire dataset. This dataset contains ~745 million rows of pixel-level fire data from \
 1984 to 2022 across the United States.
 
 You have three tools available:
@@ -27,9 +27,9 @@ Add brief comments to your code to explain the intent of key steps, but keep the
 avoid obvious or redundant commentary.
 
 Example queries:
-- `result = lf.select("year", "Incid_Name", "area_acres").head(10)`
-- `result = lf.filter(pl.col("year") == 2020).sort("area_acres", descending=True).head(5)`
-- `result = lf.group_by("year").agg(pl.col("area_acres").sum()).sort("year")`
+- `result = lf.select("year", "Incid_Name", "area_m2").head(10)`
+- `result = lf.filter(pl.col("year") == 2020).sort("area_m2", descending=True).head(5)`
+- `result = lf.group_by("year").agg(pl.col("area_m2").sum()).sort("year")`
 
 Available objects: `pl` (polars module), `np` (numpy), `math`, `lf` (LazyFrame of the fire dataset), `plt` (matplotlib.pyplot), and `sns` (seaborn).
 
@@ -47,28 +47,27 @@ Dataset statistics (lf.describe(), transposed and trimmed):
 
 | column | count | null_count | min | max |
 | --- | --- | --- | --- | --- |
-| year | 79,518,543 | 0 | 1,984 | 2,022 |
-| Event_ID | 79,518,543 | 0 | AR3442609385720060311 | WY4345810607820060718 |
-| Incid_Name | 79,518,543 | 0 | 016 CROWELL | ZOGG |
-| Incid_Type | 79,518,543 | 0 | 0 | 3 |
-| Ig_Date | 79,518,543 | 0 | 1984-03-29 | 2022-12-08 |
-| area_m2 | 79,518,543 | 0 | 2,021,962 | 4,325,251,517 |
-| area_acres | 79,518,543 | 0 | 500 | 1,068,793 |
-| eco1 | 79,518,543 | 0 | 5 | 13 |
-| eco2 | 79,518,543 | 0 | 52 | 131 |
-| eco3 | 79,518,543 | 0 | 5,201 | 13,101 |
-| geohash | 79,518,543 | 0 | 1,136,176,211 | 13,878,407,646 |
-| lon | 79,518,543 | 0 | -123.38 | -74.18 |
-| lat | 79,518,543 | 0 | 27.38 | 48.91 |
-| bs | 79,388,154 | 130,389 | 1 | 6 |
-| nlcd | 79,518,543 | 0 | 11 | 95 |
-| nlcd_mode | 79,518,543 | 0 | 11 | 95 |
-| wui_bool | 79,518,543 | 0 | 0 | 1 |
-| wui_prox | 79,518,543 | 0 | 0 | 69,462 |
-| elevation | 79,518,543 | 0 | -4 | 3,454 |
-| eco1s | 79,518,543 | 0 | 05 | 13 |
-| eco2s | 79,518,543 | 0 | 05.2 | 13.1 |
-| eco3s | 79,518,543 | 0 | 05.2.01 | 13.1.01 |
+| year | 745,294,556 | 0 | 1,984 | 2,022 |
+| Incid_Name | 745,294,556 | 0 | #1 SEASON FIRE | ZWEYGARDT |
+| Event_ID | 745,294,556 | 0 | AL3023008791019970518 | WY4509511033019880815 |
+| Incid_Type | 745,294,556 | 0 | 0 | 3 |
+| area_m2 | 745,294,556 | 0 | 1,595,528 | 4,325,251,517 |
+| geohash | 745,294,556 | 0 | 438,292,660 | 15,001,725,665 |
+| bs | 745,294,556 | 2,903,607 | 1 | 6 |
+| Ig_Date | 745,294,556 | 0 | 1984-01-26 | 2022-12-08 |
+| lat | 745,294,556 | 0 | 25.19 | 49.00 |
+| lon | 745,294,556 | 0 | -124.29 | -67.18 |
+| elevation | 745,294,556 | 0 | -4 | 3,786 |
+| eco1 | 745,294,556 | 0 | 5 | 15 |
+| eco2 | 745,294,556 | 0 | 52 | 154 |
+| eco3 | 745,294,556 | 0 | 5,201 | 15,401 |
+| eco1s | 745,294,556 | 0 | 05 | 15 |
+| eco2s | 745,294,556 | 0 | 05.2 | 15.4 |
+| eco3s | 745,294,556 | 0 | 05.2.01 | 15.4.01 |
+| nlcd | 745,294,556 | 0 | 11 | 95 |
+| nlcd_mode | 745,294,556 | 0 | 11 | 95 |
+| wui_bool | 745,294,556 | 0 | 0 | 1 |
+| wui_prox | 745,294,556 | 0 | 0 | 69,462 |
 
 Important: Each row is a 30m PIXEL, not a fire. A single fire (Event_ID) has many pixel rows. \
 To count fires or get fire-level stats, use `.unique("Event_ID")` or group by Event_ID first.

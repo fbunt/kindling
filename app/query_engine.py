@@ -24,7 +24,7 @@ _plot_counter = 0
 _zombie_threads: list[threading.Thread] = []
 logger = logging.getLogger(__name__)
 
-LF = pl.scan_parquet(PARQUET_PATH)
+LF = pl.scan_parquet(PARQUET_PATH).drop("__null_dask_index__")
 
 # Pre-compute schema info once at module load
 _SCHEMA = LF.collect_schema()
@@ -37,7 +37,6 @@ _KEY_COLUMNS = {
     "Event_ID": "Unique fire event identifier",
     "Incid_Type": "Incident type (0=Unknown, 1=Wildfire, 2=Prescribed Fire, 3=Wildland Fire Use). Category 3 is a wildfire left to burn, functionally similar to wildfire.",  # noqa: E501
     "area_m2": "Fire area in square meters",
-    "area_acres": "Fire area in acres",
     "geohash": "Unique ID for each pixel location",
     "bs": "Burn severity class (1=Unburned, 2=Low, 3=Moderate, 4=High, 5=Increased Greenness, 6=Non-processing)",  # noqa: E501
     "Ig_Date": "Ignition date of fire",
@@ -63,7 +62,7 @@ def get_dataset_info() -> dict:
     return {
         "columns": _SCHEMA_INFO,
         "key_columns": _KEY_COLUMNS,
-        "row_count_approx": "~79 million",
+        "row_count_approx": "~745 million",
         "sample_rows": sample.to_dicts(),
     }
 
