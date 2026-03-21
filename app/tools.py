@@ -82,6 +82,14 @@ the given burn event. nlcd_mode gives the mode for a given pixel across the stud
 Important: ecoregion almost always refers to ecoregion level 1 (eco1/eco1s). Let the user be \
 specific if they want levels 2 or 3.
 
+PERFORMANCE: The dataset has 745M rows — be mindful of query cost.
+- NEVER sort the full dataset. Always filter or group_by BEFORE sorting.
+- NEVER collect the full LazyFrame without filtering first.
+- Use .head() or .limit() to cap results when exploring.
+- Prefer lazy operations (filter, group_by, agg) and only .collect() at the end.
+- When you need top/bottom N, filter or aggregate first, then sort the reduced result.
+Queries that scan or sort the entire dataset will time out.
+
 Variables you define persist across `run_query` calls within the same response. You can build up intermediate \
 dataframes across calls — for example, define `fires = lf.filter(...).collect()` in one call, then use `fires` \
 in a later call. Note: `result` is cleared between calls, so use other variable names for intermediates. \
