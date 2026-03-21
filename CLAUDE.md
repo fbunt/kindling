@@ -25,9 +25,11 @@ uv add <package>                           # Add a dependency
 ```
 app/
 ├── main.py              # FastAPI app, middleware, static file serving
+├── query_engine.py      # Sandboxed query execution (AST validation, restricted builtins, timeout)
+├── tools.py             # Gemini tool definitions (run_query, get_dataset_info, web_search) + system instruction
 ├── routes/
 │   ├── auth.py          # POST /api/auth, GET /api/auth/status, POST /api/auth/logout
-│   └── chat.py          # POST /api/chat - send message + optional image to Gemini
+│   └── chat.py          # POST /api/chat - SSE stream of Gemini responses + tool execution
 └── static/
     ├── index.html       # Single-page app: login + chat views
     ├── style.css
@@ -40,4 +42,6 @@ app/
 - **Conversation history**: Maintained client-side and sent with each request.
 - **Model selector**: Header dropdown populated from available Gemini models.
 - **Image upload**: Images sent as multipart form data, base64-encoded in history for context.
-- **Google Search grounding**: Enabled via `google_search` tool on all requests.
+- **Google Search grounding**: Available to the model via a `web_search` tool.
+- **Query sandbox**: User queries run in a daemon thread with restricted `__builtins__`, AST validation (blocks imports, file I/O, dunder access), and an 8-minute timeout. The namespace persists across `run_query` calls within a single response turn.
+- **SSE streaming**: Chat endpoint streams events to the frontend: `status` (thinking/running_query), `rejected` (failed queries with error reason), `done` (final response + plots), `error`.
