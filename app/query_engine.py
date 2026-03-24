@@ -14,7 +14,7 @@ import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 import seaborn as sns  # noqa: E402
 
-PARQUET_PATH = Path("data/mtbs_pix_data.parquet")
+DEFAULT_PARQUET_PATH = Path("data/mtbs_pix_data.parquet")
 PLOTS_DIR = Path("plots")
 PLOTS_DIR.mkdir(exist_ok=True)
 MAX_ROWS = 100
@@ -24,11 +24,22 @@ _plot_counter = 0
 _zombie_threads: list[threading.Thread] = []
 logger = logging.getLogger(__name__)
 
-LF = pl.scan_parquet(PARQUET_PATH).drop("__null_dask_index__")
+LF: pl.LazyFrame | None = None
+_SCHEMA = None
+_SCHEMA_INFO: dict[str, str] | None = None
 
-# Pre-compute schema info once at module load
-_SCHEMA = LF.collect_schema()
-_SCHEMA_INFO = {name: str(dtype) for name, dtype in _SCHEMA.items()}
+
+def configure(parquet_path: Path | str | None = None) -> None:
+    """Initialize the dataset from a parquet file. Safe to call multiple times."""
+    global LF, _SCHEMA, _SCHEMA_INFO
+    if LF is not None:
+        return
+    path = Path(parquet_path) if parquet_path else DEFAULT_PARQUET_PATH
+    if not path.exists():
+        raise FileNotFoundError(f"Parquet file not found: {path}")
+    LF = pl.scan_parquet(path).drop("__null_dask_index__")
+    _SCHEMA = LF.collect_schema()
+    _SCHEMA_INFO = {name: str(dtype) for name, dtype in _SCHEMA.items()}
 
 
 _KEY_COLUMNS = {

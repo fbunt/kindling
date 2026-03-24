@@ -16,12 +16,25 @@ dependencies = [
     "pyarrow",
 ]
 
+[project.scripts]
+kindling = "app.cli:main"
+
 [dependency-groups]
 dev = [
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
     "ruff>=0.11",
 ]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.uv]
+package = true
 
 [tool.ruff]
 line-length = 88
