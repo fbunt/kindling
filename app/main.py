@@ -6,9 +6,13 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.query_engine import configure
 from app.routes import auth, chat
 
 load_dotenv()
+
+# Auto-configure with default dataset when started via uvicorn directly
+configure()
 
 app = FastAPI()
 
