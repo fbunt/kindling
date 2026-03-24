@@ -1,4 +1,4 @@
-# natlangq
+# kindling
 
 A natural language query tool for 39 years of [MTBS](https://www.mtbs.gov/) (Monitoring Trends in Burn Severity) fire data. Ask questions in plain English; get back tables, numbers, or charts.
 

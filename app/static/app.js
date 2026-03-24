@@ -502,7 +502,7 @@ downloadBtn.addEventListener("click", async () => {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>natlangq chat - ${timestamp}</title>
+<title>kindling chat - ${timestamp}</title>
 <style>
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; margin: 0; padding: 2rem; }
 .chat { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.75rem; }
@@ -527,7 +527,7 @@ h1 { text-align: center; color: #888; font-size: 1rem; margin-bottom: 1.5rem; }
 </style>
 </head>
 <body>
-<h1>natlangq chat &mdash; ${new Date().toLocaleString()}</h1>
+<h1>kindling chat &mdash; ${new Date().toLocaleString()}</h1>
 <div class="chat">
 ${tempDiv.innerHTML}
 </div>
@@ -548,7 +548,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') document.get
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `natlangq-chat-${timestamp}.html`;
+    a.download = `kindling-chat-${timestamp}.html`;
     a.click();
     URL.revokeObjectURL(url);
 });

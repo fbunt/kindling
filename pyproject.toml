@@ -1,5 +1,5 @@
 [project]
-name = "natlangq"
+name = "kindling"
 version = "0.1.0"
 description = "A natural language query tool"
 requires-python = ">=3.12"

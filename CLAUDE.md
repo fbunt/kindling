@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`natlangq` — a natural language query tool. Web app with a chat interface powered by Google Gemini that translates natural language into Python queries against 39 years of MTBS fire data stored as a parquet dataframe, executes them in a sandboxed environment, and returns results or plots.
+`kindling` — a natural language query tool. Web app with a chat interface powered by Google Gemini that translates natural language into Python queries against 39 years of MTBS fire data stored as a parquet dataframe, executes them in a sandboxed environment, and returns results or plots.
 
 ## Dev Commands
 
