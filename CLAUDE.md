@@ -10,7 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 uv sync                                    # Install dependencies (creates .venv automatically)
-uv run uvicorn app.main:app --reload       # Run dev server (http://localhost:8000)
+uv run kindling data/mtbs_pix_data.parquet # Run against a parquet file (http://localhost:8000)
+uv run uvicorn app.main:app --reload       # Run dev server with default dataset + hot reload
 uv add <package>                           # Add a dependency
 ```
 
@@ -24,6 +25,7 @@ uv add <package>                           # Add a dependency
 
 ```
 app/
+├── cli.py               # `kindling` CLI entry point (argparse, starts uvicorn)
 ├── main.py              # FastAPI app, middleware, static file serving
 ├── query_engine.py      # Sandboxed query execution (AST validation, restricted builtins, timeout)
 ├── tools.py             # Gemini tool definitions (run_query, get_dataset_info, web_search) + system instruction
