@@ -204,10 +204,44 @@ async def chat(
                     config=config,
                 )
 
-            response_text = response.text or ""
-            logger.debug(
-                f"Final response_text ({len(response_text)} chars): {response_text[:200]}"  # noqa: E501
-            )
+            # Extract text from the final response
+            try:
+                response_text = response.text or ""
+            except Exception:
+                logger.warning(
+                    "response.text failed, extracting text from parts",
+                    exc_info=True,
+                )
+                response_text = ""
+                if response.candidates:
+                    for p in response.candidates[0].content.parts:
+                        if hasattr(p, "text") and p.text:
+                            response_text += p.text
+            if not response_text:
+                # Log full response structure to diagnose empty responses
+                candidates = response.candidates or []
+                finish_reason = (
+                    candidates[0].finish_reason if candidates else "no_candidates"
+                )
+                parts = candidates[0].content.parts if candidates else []
+                part_details = []
+                for p in parts:
+                    if hasattr(p, "function_call") and p.function_call:
+                        part_details.append(f"function_call({p.function_call.name})")
+                    elif hasattr(p, "text") and p.text:
+                        part_details.append(f"text({len(p.text)} chars)")
+                    else:
+                        part_details.append(f"empty({type(p).__name__})")
+                logger.warning(
+                    f"Empty response_text. finish_reason={finish_reason}, "
+                    f"parts={part_details}, "
+                    f"function_calls={bool(response.function_calls)}, "
+                    f"all_plots={len(all_plots)}, all_queries={len(all_queries)}"
+                )
+            else:
+                logger.debug(
+                    f"Final response_text ({len(response_text)} chars): {response_text[:200]}"  # noqa: E501
+                )
 
             # Read plot images for client-side history
             plot_images = []
@@ -234,6 +268,7 @@ async def chat(
                 result["queries"] = all_queries
             yield _sse("done", result)
         except Exception as e:
+            logger.exception("Chat stream error")
             yield _sse("error", {"detail": str(e)})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
