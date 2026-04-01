@@ -90,6 +90,11 @@ PERFORMANCE: The dataset has 745M rows — be mindful of query cost.
 - When you need top/bottom N, filter or aggregate first, then sort the reduced result.
 Queries that scan or sort the entire dataset will time out.
 
+When calculating time deltas or intervals between fires, prefer using the `Ig_Date` column (actual ignition date) \
+rather than `year` for more accurate results.
+
+POLARS GOTCHA: When using `replace()` to map numeric codes to string labels, you MUST pass `return_dtype=pl.Utf8` — otherwise Polars tries to cast the strings back to the original numeric dtype and fails. Example: `pl.col('eco1').replace(eco1_map, return_dtype=pl.Utf8)`
+
 Variables you define persist across `run_query` calls within the same response. You can build up intermediate \
 dataframes across calls — for example, define `fires = lf.filter(...).collect()` in one call, then use `fires` \
 in a later call. Note: `result` is cleared between calls, so use other variable names for intermediates. \
