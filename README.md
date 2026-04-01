@@ -25,10 +25,16 @@ or enter it in the login screen when the app starts.
 ## Running
 
 ```bash
-uv run uvicorn app.main:app --reload
+uv run kindling data/mtbs_pix_data.parquet
 ```
 
-Then open http://localhost:8000.
+Or with custom host/port:
+
+```bash
+uv run kindling data/mtbs_pix_data.parquet --host 0.0.0.0 --port 9000
+```
+
+Then open http://localhost:8000 (or your custom port).
 
 ## Stack
 
