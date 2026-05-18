@@ -404,7 +404,7 @@ class TestExecuteQuery:
 class TestSharedNamespace:
     def test_create_namespace_has_expected_keys(self):
         ns = create_namespace()
-        assert set(ns.keys()) == {"pl", "np", "math", "lf", "plt", "sns"}
+        assert {"pl", "np", "math", "lf", "plt", "sns"} <= set(ns.keys())
 
     def test_variables_persist_across_calls(self):
         ns = create_namespace()

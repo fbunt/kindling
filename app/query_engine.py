@@ -280,46 +280,52 @@ def _restricted_import(name, *args, **kwargs):
     raise ImportError(f"Import of '{name}' is not allowed")
 
 
-_GLOBAL_NS = {
-    "__builtins__": {
-        "True": True,
-        "False": False,
-        "None": None,
-        "abs": abs,
-        "all": all,
-        "any": any,
-        "bool": bool,
-        "dict": dict,
-        "enumerate": enumerate,
-        "filter": filter,
-        "float": float,
-        "hasattr": hasattr,
-        "int": int,
-        "len": len,
-        "list": list,
-        "locals": locals,
-        "map": map,
-        "max": max,
-        "min": min,
-        "pow": pow,
-        "print": lambda *a, **kw: None,
-        "range": range,
-        "round": round,
-        "set": set,
-        "slice": slice,
-        "sorted": sorted,
-        "str": str,
-        "sum": sum,
-        "tuple": tuple,
-        "zip": zip,
-        "__import__": _restricted_import,
-    }
+_RESTRICTED_BUILTINS = {
+    "True": True,
+    "False": False,
+    "None": None,
+    "abs": abs,
+    "all": all,
+    "any": any,
+    "bool": bool,
+    "dict": dict,
+    "enumerate": enumerate,
+    "filter": filter,
+    "float": float,
+    "hasattr": hasattr,
+    "int": int,
+    "len": len,
+    "list": list,
+    "locals": locals,
+    "map": map,
+    "max": max,
+    "min": min,
+    "pow": pow,
+    "print": lambda *a, **kw: None,
+    "range": range,
+    "round": round,
+    "set": set,
+    "slice": slice,
+    "sorted": sorted,
+    "str": str,
+    "sum": sum,
+    "tuple": tuple,
+    "zip": zip,
+    "__import__": _restricted_import,
 }
 
 
 def create_namespace() -> dict:
     """Create a fresh execution namespace for a turn."""
-    return {"pl": pl, "np": np, "math": math, "lf": LF.clone(), "plt": plt, "sns": sns}
+    return {
+        "__builtins__": _RESTRICTED_BUILTINS,
+        "pl": pl,
+        "np": np,
+        "math": math,
+        "lf": LF.clone(),
+        "plt": plt,
+        "sns": sns,
+    }
 
 
 def execute_query(code: str, namespace: dict | None = None) -> dict:
@@ -345,7 +351,11 @@ def execute_query(code: str, namespace: dict | None = None) -> dict:
 
     def _run():
         try:
-            exec(code, _GLOBAL_NS, namespace)
+            # Pass a single dict so globals == locals. Otherwise nested scopes
+            # (lambdas, comprehensions, def'd functions) can't see top-level
+            # names — Python resolves free vars through globals, not the
+            # caller's locals.
+            exec(code, namespace)
         except Exception as e:
             logger.warning(f"Runtime error in query: {type(e).__name__}: {e}\n{code}")
             result_box[0] = {"error": f"Execution error: {type(e).__name__}: {e}"}
