@@ -108,6 +108,7 @@ async def chat(
         try:
             all_plots = []
             all_queries = []
+            last_rejection: dict | None = None
             turn_namespace = create_namespace()
 
             # Function calling loop
@@ -197,6 +198,7 @@ async def chat(
                 rejected_codes = {q["code"] for q in rejected_queries}
                 all_queries.extend(q for q in round_queries if q not in rejected_codes)
                 if rejected_queries:
+                    last_rejection = rejected_queries[-1]
                     yield _sse("rejected", {"queries": rejected_queries})
 
                 contents.append(types.Content(role="user", parts=fc_response_parts))
@@ -248,6 +250,16 @@ async def chat(
                     f"function_calls={bool(response.function_calls)}, "
                     f"all_plots={len(all_plots)}, all_queries={len(all_queries)}"
                 )
+                response_text = (
+                    "I ran out of tool-use rounds before producing an answer."
+                )
+                if last_rejection:
+                    response_text += (
+                        f" The last query failed with: `{last_rejection['error']}`. "
+                        "Try rephrasing your request or simplifying the query."
+                    )
+                else:
+                    response_text += " Try rephrasing your request."
             else:
                 logger.debug(
                     f"Final response_text ({len(response_text)} chars): {response_text[:200]}"  # noqa: E501

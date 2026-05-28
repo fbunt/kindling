@@ -74,7 +74,7 @@ The dataset has 745M rows. Filter or `group_by` before sorting. Cap exploratory 
 
 ## Polars gotchas
 
-- `replace()` mapping numeric codes to string labels must pass `return_dtype=pl.Utf8`, e.g. `pl.col("eco1").replace(eco1_map, return_dtype=pl.Utf8)`. Otherwise Polars tries to cast strings back to the original numeric dtype and fails.
+- To map numeric codes to string labels (changing dtype), use `replace_strict`, not `replace`. `replace` preserves the original column dtype and will try to cast the new string values back to the numeric type and fail. Example: `pl.col("eco1").replace_strict(eco1_map, return_dtype=pl.Utf8)`. `replace` is correct only when the new values match the existing dtype.
 
 ## Namespace persistence
 
