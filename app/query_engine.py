@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 import seaborn as sns  # noqa: E402
+from matplotlib.patches import Patch  # noqa: E402
 
 DEFAULT_PARQUET_PATH = Path("data/mtbs_pix_data.parquet")
 PLOTS_DIR = Path("plots")
@@ -289,20 +290,24 @@ _RESTRICTED_BUILTINS = {
     "any": any,
     "bool": bool,
     "dict": dict,
+    "divmod": divmod,
     "enumerate": enumerate,
     "filter": filter,
     "float": float,
     "hasattr": hasattr,
     "int": int,
+    "iter": iter,
     "len": len,
     "list": list,
     "locals": locals,
     "map": map,
     "max": max,
     "min": min,
+    "next": next,
     "pow": pow,
     "print": lambda *a, **kw: None,
     "range": range,
+    "reversed": reversed,
     "round": round,
     "set": set,
     "slice": slice,
@@ -325,6 +330,7 @@ def create_namespace() -> dict:
         "lf": LF.clone(),
         "plt": plt,
         "sns": sns,
+        "Patch": Patch,
     }
 
 
