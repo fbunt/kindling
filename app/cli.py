@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -19,12 +20,20 @@ def main():
     parser.add_argument(
         "--port", type=int, default=8000, help="Bind port (default: 8000)"
     )
+    parser.add_argument(
+        "--log-level",
+        default="info",
+        choices=["debug", "info", "warning", "error"],
+        help="Logging level (default: info)",
+    )
 
     args = parser.parse_args()
 
     if not args.path.exists():
         print(f"Error: file not found: {args.path}", file=sys.stderr)
         sys.exit(1)
+
+    os.environ["KINDLING_LOG_LEVEL"] = args.log_level
 
     from app.query_engine import configure
 

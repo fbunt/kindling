@@ -99,6 +99,11 @@ async def chat(
         tools=[FIRE_DATA_TOOLS],
     )
 
+    logger.info(
+        f"Chat turn start: model={model}, history_len={len(history_list)}, "
+        f"msg={message[:80]!r}"
+    )
+
     async def event_stream():
         try:
             all_plots = []
@@ -118,24 +123,29 @@ async def chat(
                     config=config,
                 )
 
-                # Log response structure
                 parts = (
                     response.candidates[0].content.parts if response.candidates else []
                 )
-                part_types = [type(p).__name__ for p in parts]
-                logger.debug(f"Round {round_num}: parts={part_types}")
-                for p in parts:
-                    if hasattr(p, "function_call") and p.function_call:
-                        logger.debug(
-                            f"  function_call: {p.function_call.name}({p.function_call.args})"  # noqa: E501
-                        )
-                    if hasattr(p, "text") and p.text:
-                        logger.debug(f"  text: {p.text[:200]}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    part_types = [type(p).__name__ for p in parts]
+                    logger.debug(f"Round {round_num}: parts={part_types}")
+                    for p in parts:
+                        if hasattr(p, "function_call") and p.function_call:
+                            logger.debug(
+                                f"  function_call: {p.function_call.name}({p.function_call.args})"  # noqa: E501
+                            )
+                        if hasattr(p, "text") and p.text:
+                            logger.debug(f"  text: {p.text[:200]}")
 
                 # Check for function calls in the response
                 function_calls = response.function_calls
                 if not function_calls:
+                    logger.info(f"Round {round_num}: 0 function calls — done")
                     break
+                logger.info(
+                    f"Round {round_num}: {len(function_calls)} function call(s) "
+                    f"({', '.join(fc.name for fc in function_calls)})"
+                )
 
                 # Append the model's response (with function call parts) to contents
                 contents.append(response.candidates[0].content)
@@ -195,7 +205,7 @@ async def chat(
                     return
             else:
                 # Loop exhausted without a text-only response — one final call
-                logger.debug("Loop exhausted, making final call")
+                logger.info("Loop exhausted, making final call")
                 yield _sse("status", {"status": "thinking"})
                 response = await asyncio.to_thread(
                     client.models.generate_content,

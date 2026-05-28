@@ -1,3 +1,5 @@
+import logging
+import os
 import secrets
 from pathlib import Path
 
@@ -6,8 +8,16 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.query_engine import configure
-from app.routes import auth, chat
+logging.basicConfig(
+    level=os.environ.get("KINDLING_LOG_LEVEL", "info").upper(),
+    format="%(asctime)s %(levelname)-7s %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
+)
+for _noisy in ("matplotlib.font_manager", "PIL", "httpx"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+from app.query_engine import configure  # noqa: E402
+from app.routes import auth, chat  # noqa: E402
 
 load_dotenv()
 
