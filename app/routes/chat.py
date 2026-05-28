@@ -20,7 +20,7 @@ from app.tools import (  # noqa: E402
 
 router = APIRouter()
 
-MAX_TOOL_ROUNDS = 10
+MAX_TOOL_ROUNDS = 15
 
 
 def _sse(event: str, data: dict) -> str:
