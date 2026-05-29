@@ -23,7 +23,14 @@ kindling = "app.cli:main"
 dev = [
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
+    "pytest-asyncio>=0.24",
     "ruff>=0.11",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "model_eval: model-behavior eval test (skipped unless --run-evals is passed)",
 ]
 
 [build-system]
