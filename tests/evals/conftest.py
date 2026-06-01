@@ -92,7 +92,10 @@ def run_dir(request) -> Path:
 
 @pytest.fixture
 def run_turn(genai_client, run_dir):
-    """Returns an async callable that runs one chat turn and dumps a JSON trace."""
+    """Returns an async callable that runs one chat turn, dumps a JSON trace,
+    and returns (result, trial_path) so the caller can append judge verdicts
+    or other per-trial metadata to the same file via _append_trial_fields.
+    """
     model = os.environ.get("KINDLING_EVAL_MODEL", "gemini-3.1-pro-preview")
 
     async def _run(prompt: str, trial: int):
@@ -122,9 +125,15 @@ def run_turn(genai_client, run_dir):
             "loop_exhausted": result.loop_exhausted,
             "text": result.text,
         }
-        (run_dir / f"trial_{trial:02d}.json").write_text(
-            json.dumps(trace, indent=2, default=str)
-        )
-        return result
+        trial_path = run_dir / f"trial_{trial:02d}.json"
+        trial_path.write_text(json.dumps(trace, indent=2, default=str))
+        return result, trial_path
 
     return _run
+
+
+def append_trial_fields(trial_path: Path, **fields) -> None:
+    """Merge fields into an existing trial JSON dump."""
+    data = json.loads(trial_path.read_text())
+    data.update(fields)
+    trial_path.write_text(json.dumps(data, indent=2, default=str))

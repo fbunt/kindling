@@ -9,6 +9,7 @@ for inspection.
 
 import pytest
 
+from tests.evals.conftest import append_trial_fields
 from tests.evals.judge import judge
 
 PROMPTS = [
@@ -35,11 +36,16 @@ OUTCOME_CRITERION = (
 async def test_correct_incid_type_mapping(prompt, run_turn, genai_client):
     outcome = []
     for trial in range(N_TRIALS):
-        result = await run_turn(prompt, trial)
+        result, trial_path = await run_turn(prompt, trial)
         verdict = judge(
             genai_client,
             response_text=result.text,
             criterion=OUTCOME_CRITERION,
+        )
+        append_trial_fields(
+            trial_path,
+            outcome_criterion=OUTCOME_CRITERION,
+            outcome_verdict=verdict,
         )
         outcome.append(verdict)
 
