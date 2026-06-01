@@ -2,7 +2,7 @@
 
 from google import genai
 
-JUDGE_MODEL = "gemini-3-flash"
+JUDGE_MODEL = "gemini-3.1-flash-lite-preview"
 
 
 def judge(client: genai.Client, *, response_text: str, criterion: str) -> bool:

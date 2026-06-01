@@ -1,5 +1,10 @@
-"""Eval: model should consult get_dataset_info for Incid_Type questions and
-should not claim Incid_Type=2 is Wildland Fire Use.
+"""Eval: the model must not claim Incid_Type=2 is Wildland Fire Use.
+
+We dropped the behavioral assertion (whether the model calls get_dataset_info)
+because the Numeric encodings section of SYSTEM_INSTRUCTION now states the
+Incid_Type=3 -> WFU mapping directly, so the correct, non-redundant behavior
+is to skip the tool. The trial JSON dumps still record the tool-call trace
+for inspection.
 """
 
 import pytest
@@ -27,27 +32,18 @@ OUTCOME_CRITERION = (
 
 @pytest.mark.model_eval
 @pytest.mark.parametrize("prompt", PROMPTS, ids=lambda p: p[:40])
-@pytest.mark.asyncio
-async def test_calls_dataset_info_and_correct_mapping(prompt, run_turn, genai_client):
-    behavioral = []
+async def test_correct_incid_type_mapping(prompt, run_turn, genai_client):
     outcome = []
     for trial in range(N_TRIALS):
         result = await run_turn(prompt, trial)
-        called = any(tc["name"] == "get_dataset_info" for tc in result.tool_calls)
         verdict = judge(
             genai_client,
             response_text=result.text,
             criterion=OUTCOME_CRITERION,
         )
-        behavioral.append(called)
         outcome.append(verdict)
 
-    b_passes = sum(behavioral)
     o_passes = sum(outcome)
-    assert b_passes >= PASS_THRESHOLD, (
-        f"behavioral: {b_passes}/{N_TRIALS} trials called get_dataset_info "
-        f"for prompt {prompt!r} (trace per trial in .eval-runs/)"
-    )
     assert o_passes >= PASS_THRESHOLD, (
         f"outcome: {o_passes}/{N_TRIALS} trials avoided the wrong claim "
         f"for prompt {prompt!r} (trace per trial in .eval-runs/)"

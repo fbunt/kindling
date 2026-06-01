@@ -3,6 +3,7 @@ import os
 import time
 from pathlib import Path
 
+import polars as pl
 import pytest
 from dotenv import load_dotenv
 from google import genai
@@ -16,6 +17,24 @@ load_dotenv()
 
 _RUN_TS = time.strftime("%Y%m%d-%H%M%S")
 _PARQUET = Path(os.environ.get("KINDLING_PARQUET", "data/mtbs_pix_data.parquet"))
+_SAMPLE = Path(".eval-runs/sample.parquet")
+_SAMPLE_MOD = 1000  # keep ~1/1000 of rows via geohash % N == 0
+
+
+def _build_sample(src: Path, dst: Path) -> None:
+    """Stream a deterministic 1/_SAMPLE_MOD sample of the parquet to dst.
+
+    Uses sink_parquet so memory stays bounded regardless of source size.
+    All Incid_Type categories survive at this rate (verified: WFU = ~3.5k rows).
+    """
+    if dst.exists():
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    (
+        pl.scan_parquet(src)
+        .filter(pl.col("geohash") % _SAMPLE_MOD == 0)
+        .sink_parquet(dst, compression="zstd")
+    )
 
 
 def pytest_addoption(parser):
@@ -51,10 +70,16 @@ def genai_client(api_key) -> genai.Client:
 
 @pytest.fixture(scope="session", autouse=True)
 def _configure_parquet():
-    """Load the parquet once per session so run_query tool calls succeed."""
+    """Configure query_engine with a small streamed sample of the parquet.
+
+    Running the full 745M-row dataset through repeated eval queries OOMs the
+    host. We sub-sample to ~745k rows (1/1000 via geohash modulo) so the
+    sandbox executes real Polars but the memory footprint stays bounded.
+    """
     if not _PARQUET.exists():
         pytest.skip(f"Parquet not found at {_PARQUET}")
-    configure(_PARQUET)
+    _build_sample(_PARQUET, _SAMPLE)
+    configure(_SAMPLE)
 
 
 @pytest.fixture
