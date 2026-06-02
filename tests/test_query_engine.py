@@ -39,6 +39,25 @@ class TestValidateAllowed:
     def test_f_string(self):
         validate_code("result = f'count: {len([1,2,3])}'")
 
+    def test_redundant_allowed_imports_stripped(self):
+        # Imports of objects already preloaded in the namespace must validate
+        # cleanly (they're stripped from the AST). Regression: a model writing
+        # `from matplotlib.patches import Patch` was tripping ImportFrom.
+        cases = [
+            "import numpy as np\nresult = np.array([1])",
+            "import polars as pl\nresult = pl.DataFrame({'a': [1]})",
+            "import math\nresult = math.pi",
+            "import seaborn as sns\nresult = sns.color_palette('viridis')",
+            "import matplotlib.pyplot as plt\nresult = plt.figure()",
+            "from matplotlib import pyplot as plt\nresult = plt.figure()",
+            "from matplotlib.patches import Patch\nresult = Patch()",
+        ]
+        for src in cases:
+            cleaned = validate_code(src)
+            assert "import" not in cleaned, (
+                f"import not stripped from cleaned code: {cleaned!r}"
+            )
+
 
 # ── validate_code: forbidden ────────────────────────────────────────
 

@@ -176,6 +176,8 @@ _ALLOWED_IMPORTS = {
 _ALLOWED_IMPORT_FROMS = {
     # (module, name, alias) — matches "from matplotlib import pyplot as plt"
     ("matplotlib", "pyplot", "plt"),
+    # Patch is preloaded in the namespace; tolerate a redundant import too
+    ("matplotlib.patches", "Patch", None),
 }
 
 
