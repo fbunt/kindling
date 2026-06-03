@@ -18,11 +18,12 @@ from app.chat_loop import (  # noqa: E402
     run_chat_turn,
 )
 from app.query_engine import create_namespace  # noqa: E402
+from app.sandbox.pool import SandboxBusy, SandboxSession  # noqa: E402
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION  # noqa: E402
 
 router = APIRouter()
 
-MAX_TOOL_ROUNDS = 15
+MAX_TOOL_ROUNDS = 20
 
 
 def _sse(event: str, data: dict) -> str:
@@ -107,14 +108,19 @@ async def chat(
     )
 
     async def event_stream():
+        # The pool is set on app.state only in container sandbox mode (main.py
+        # lifespan). Its presence is the single source of truth for which path
+        # to use; otherwise fall back to the in-process namespace.
+        pool = getattr(request.app.state, "sandbox_pool", None)
+        sandbox = None
         try:
-            turn_namespace = create_namespace()
+            sandbox = await pool.acquire_session() if pool else create_namespace()
             async for ev in run_chat_turn(
                 client,
                 model,
                 contents,
                 config,
-                turn_namespace,
+                sandbox,
                 max_rounds=MAX_TOOL_ROUNDS,
                 on_disconnect=request.is_disconnected,
             ):
@@ -129,9 +135,20 @@ async def chat(
                     yield _sse("rejected", {"queries": ev.queries})
                 elif isinstance(ev, DoneEvent):
                     yield _sse("done", _build_done_payload(ev.result, image_info))
+        except SandboxBusy:
+            logger.warning("Sandbox pool exhausted; turn rejected")
+            yield _sse(
+                "error",
+                {"detail": "The sandbox is busy right now. Please retry in a moment."},
+            )
         except Exception as e:
             logger.exception("Chat stream error")
             yield _sse("error", {"detail": str(e)})
+        finally:
+            # Always retire the container (kill + background refill), even on
+            # client disconnect or mid-turn exception.
+            if pool is not None and isinstance(sandbox, SandboxSession):
+                pool.release_session(sandbox)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -139,7 +156,11 @@ async def chat(
 def _build_done_payload(result, image_info: dict | None) -> dict:
     plot_images = []
     for plot in result.plots:
-        plot_path = Path(plot["url"].lstrip("/"))
+        # Use the clean on-disk path, not plot["url"] — the URL carries a ?t=
+        # cache-buster, so Path(url) points at a nonexistent file and the plot
+        # would never be re-embedded into conversation history.
+        fs_path = plot.get("path") or plot["url"].split("?")[0].lstrip("/")
+        plot_path = Path(fs_path)
         if plot_path.exists():
             plot_images.append(
                 {

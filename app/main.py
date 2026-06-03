@@ -1,6 +1,7 @@
 import logging
 import os
 import secrets
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,6 +17,8 @@ logging.basicConfig(
 for _noisy in ("matplotlib.font_manager", "PIL", "httpx"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
+logger = logging.getLogger(__name__)
+
 from app.query_engine import configure  # noqa: E402
 from app.routes import auth, chat  # noqa: E402
 
@@ -24,7 +27,44 @@ load_dotenv()
 # Auto-configure with default dataset when started via uvicorn directly
 configure()
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start/drain the sandbox container pool when KINDLING_SANDBOX=container."""
+    pool = None
+    if os.environ.get("KINDLING_SANDBOX") == "container":
+        from app.sandbox.pool import SandboxPool, podman_available
+
+        if not podman_available():
+            raise RuntimeError(
+                "KINDLING_SANDBOX=container but the `podman` binary is not on PATH."
+            )
+        # Re-derive the parquet path from the env var configure() exported, not
+        # from any module global that an import-time configure() may have set to
+        # the default.
+        parquet = os.environ.get("KINDLING_PARQUET_PATH_HOST")
+        if not parquet:
+            raise RuntimeError("Parquet path unknown; was configure() called?")
+        pool = SandboxPool(
+            parquet,
+            size=int(os.environ.get("KINDLING_POOL_SIZE", "2")),
+            max_total=int(os.environ.get("KINDLING_SANDBOX_MAX_TOTAL", "3")),
+            image=os.environ.get("KINDLING_SANDBOX_IMAGE", "kindling-worker:latest"),
+            memory=os.environ.get("KINDLING_SANDBOX_MEM", "110g"),
+        )
+        await pool.start()
+        logger.info("Sandbox: container pool active (parquet=%s)", parquet)
+    else:
+        logger.info("Sandbox: in-process execution")
+    app.state.sandbox_pool = pool
+    try:
+        yield
+    finally:
+        if pool is not None:
+            await pool.drain()
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(SessionMiddleware, secret_key=secrets.token_hex(32))
 

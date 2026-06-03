@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -195,13 +196,58 @@ def execute_function_call(
         if "plots" in result:
             code = args.get("code", "")
             for url in result["plots"]:
-                fallback = url.split("/")[-1].split("?")[0].replace(".png", "")
-                raw_name = generate_plot_name(code, client) or fallback
-                display_name = _unique_display_name(raw_name)
-                plots.append({"url": url, "name": display_name})
+                raw_name = generate_plot_name(code, client) or _plot_fallback(url)
+                plots.append(_plot_entry(url, _unique_display_name(raw_name)))
             result["plots"] = plots
     elif name == "web_search":
         result = _web_search(args["query"], client, model)
+    else:
+        result = {"error": f"Unknown function: {name}"}
+    return json.dumps(result, default=str), plots
+
+
+def _plot_fallback(url: str) -> str:
+    """Derive a fallback display name from a plot URL."""
+    return url.split("/")[-1].split("?")[0].replace(".png", "")
+
+
+def _plot_entry(url: str, display_name: str) -> dict:
+    """Build a plot entry carrying both the cache-busted URL (for the frontend)
+    and a clean on-disk path (for host-side reads — the URL's ?t= query string
+    makes Path(url) point at a nonexistent file)."""
+    return {"url": url, "name": display_name, "path": url.split("?")[0].lstrip("/")}
+
+
+async def execute_function_call_async(
+    name: str,
+    args: dict,
+    client: genai.Client,
+    model: str,
+    session,
+) -> tuple[str, list[dict]]:
+    """Async dispatch for the container sandbox path.
+
+    Only run_query crosses into the sandbox (awaited on the loop). Every blocking
+    Gemini call (generate_plot_name, web_search) and the local get_dataset_info
+    collect are pushed to threads so the event loop — and all concurrent SSE
+    streams — never stall.
+    """
+    logger.info(f"Function call: {name}({json.dumps(args, default=str)[:200]})")
+    plots: list[dict] = []
+    if name == "get_dataset_info":
+        result = await asyncio.to_thread(get_dataset_info)
+    elif name == "run_query":
+        result = await session.run_query(args["code"])
+        if "plots" in result:
+            code = args.get("code", "")
+            for url in result["plots"]:
+                raw_name = (
+                    await asyncio.to_thread(generate_plot_name, code, client)
+                ) or _plot_fallback(url)
+                plots.append(_plot_entry(url, _unique_display_name(raw_name)))
+            result["plots"] = plots
+    elif name == "web_search":
+        result = await asyncio.to_thread(_web_search, args["query"], client, model)
     else:
         result = {"error": f"Unknown function: {name}"}
     return json.dumps(result, default=str), plots

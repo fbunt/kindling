@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 
 from google.genai import types
 
-from app.tools import execute_function_call
+from app.sandbox.pool import SandboxSession
+from app.tools import execute_function_call, execute_function_call_async
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ async def run_chat_turn(
     model: str,
     contents: list,
     config,
-    namespace: dict,
+    sandbox,
     max_rounds: int = 15,
     on_disconnect: Callable | None = None,
 ):
@@ -64,6 +65,9 @@ async def run_chat_turn(
     Yields structured events (ThinkingEvent, RunningQueryEvent, RejectedEvent,
     DoneEvent). Production code wraps these as SSE; tests collect them
     directly. The DoneEvent carries the full ChatTurnResult.
+
+    `sandbox` is either an in-process namespace dict (the default path) or a
+    SandboxSession (the container path); the tool-call dispatch branches on it.
     """
     all_plots: list[dict] = []
     all_queries: list[str] = []
@@ -120,14 +124,19 @@ async def run_chat_turn(
         fc_response_parts = []
         rejected_queries: list[dict] = []
         for fc in function_calls:
-            result_str, plots = await asyncio.to_thread(
-                execute_function_call,
-                fc.name,
-                fc.args or {},
-                client,
-                model,
-                namespace=namespace,
-            )
+            if isinstance(sandbox, SandboxSession):
+                result_str, plots = await execute_function_call_async(
+                    fc.name, fc.args or {}, client, model, sandbox
+                )
+            else:
+                result_str, plots = await asyncio.to_thread(
+                    execute_function_call,
+                    fc.name,
+                    fc.args or {},
+                    client,
+                    model,
+                    namespace=sandbox,
+                )
             logger.debug(f"  {fc.name} result: {result_str[:500]}")
             result_data = json.loads(result_str)
             all_plots.extend(plots)

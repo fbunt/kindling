@@ -26,6 +26,19 @@ def main():
         choices=["debug", "info", "warning", "error"],
         help="Logging level (default: info)",
     )
+    parser.add_argument(
+        "--sandbox",
+        default="inprocess",
+        choices=["inprocess", "container"],
+        help="Query execution backend (default: inprocess). 'container' uses a "
+        "rootless Podman worker pool and requires a built kindling-worker image.",
+    )
+    parser.add_argument(
+        "--pool-size",
+        type=int,
+        default=None,
+        help="Warm sandbox containers to keep ready (container mode; default: 2)",
+    )
 
     args = parser.parse_args()
 
@@ -34,6 +47,9 @@ def main():
         sys.exit(1)
 
     os.environ["KINDLING_LOG_LEVEL"] = args.log_level
+    os.environ["KINDLING_SANDBOX"] = args.sandbox
+    if args.pool_size is not None:
+        os.environ["KINDLING_POOL_SIZE"] = str(args.pool_size)
 
     from app.query_engine import configure
 

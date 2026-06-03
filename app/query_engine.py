@@ -1,6 +1,7 @@
 import ast
 import logging
 import math
+import os
 import threading
 import time
 from pathlib import Path
@@ -26,19 +27,35 @@ _zombie_threads: list[threading.Thread] = []
 logger = logging.getLogger(__name__)
 
 LF: pl.LazyFrame | None = None
+RESOLVED_PARQUET_PATH: Path | None = None
 _SCHEMA = None
 _SCHEMA_INFO: dict[str, str] | None = None
 
 
+def _build_lazyframe(path: Path | str) -> pl.LazyFrame:
+    """Build the dataset LazyFrame from a parquet path.
+
+    The sandbox worker (app/sandbox/worker.py) MUST reproduce this expression
+    verbatim — any divergence in the scan/drop changes query semantics relative
+    to what the eval suite validates.
+    """
+    return pl.scan_parquet(path).drop("__null_dask_index__")
+
+
 def configure(parquet_path: Path | str | None = None) -> None:
     """Initialize the dataset from a parquet file. Safe to call multiple times."""
-    global LF, _SCHEMA, _SCHEMA_INFO
+    global LF, RESOLVED_PARQUET_PATH, _SCHEMA, _SCHEMA_INFO
     if LF is not None:
         return
     path = Path(parquet_path) if parquet_path else DEFAULT_PARQUET_PATH
     if not path.exists():
         raise FileNotFoundError(f"Parquet file not found: {path}")
-    LF = pl.scan_parquet(path).drop("__null_dask_index__")
+    RESOLVED_PARQUET_PATH = path.resolve()
+    # Expose the resolved path so the sandbox pool can bind-mount it even when
+    # the app is started via uvicorn's string-import, where configure() may run
+    # again with no argument in a fresh process.
+    os.environ["KINDLING_PARQUET_PATH_HOST"] = str(RESOLVED_PARQUET_PATH)
+    LF = _build_lazyframe(path)
     _SCHEMA = LF.collect_schema()
     _SCHEMA_INFO = {name: str(dtype) for name, dtype in _SCHEMA.items()}
 

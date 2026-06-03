@@ -1,0 +1,215 @@
+"""In-container sandbox worker.
+
+Runs INSIDE a locked-down Podman container. Speaks newline-delimited JSON over
+stdin/stdout to the host pool (app/sandbox/pool.py). Holds a persistent Polars
+namespace (a "kernel") so variables defined in one run_query call survive across
+calls within a single chat turn — mirroring the in-process semantics of
+app/query_engine.py.
+
+This module must NOT import anything from the `app` package: the container image
+only ships this file plus polars/numpy/matplotlib/seaborn. Where logic is
+duplicated from app/query_engine.py it is annotated so the two stay in sync.
+"""
+
+import base64
+import io
+import json
+import math
+import os
+import sys
+import tempfile
+import threading
+
+# Point matplotlib at a config/cache dir this process actually owns. Under
+# --read-only the root fs is immutable and any image-baked dir under /tmp gets
+# copied into the tmpfs root-owned (unwritable by the non-root runner), so we
+# carve out a fresh writable dir before importing matplotlib (read on import).
+os.environ["MPLCONFIGDIR"] = tempfile.mkdtemp(prefix="mpl-")
+
+import matplotlib  # noqa: E402
+
+matplotlib.use("Agg")
+matplotlib.rcParams["figure.figsize"] = (10, 6)
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+import polars as pl  # noqa: E402
+import seaborn as sns  # noqa: E402
+from matplotlib.patches import Patch  # noqa: E402
+
+MAX_ROWS = 100
+QUERY_TIMEOUT = 480  # seconds — soft timeout; preserves the kernel on expiry
+
+# Mirror of app.query_engine._RESTRICTED_BUILTINS. The host already runs
+# validate_code before dispatch, so imports never reach here; we still restrict
+# builtins to keep namespace semantics identical to the in-process path.
+_RESTRICTED_BUILTINS = {
+    "True": True,
+    "False": False,
+    "None": None,
+    "abs": abs,
+    "all": all,
+    "any": any,
+    "bool": bool,
+    "dict": dict,
+    "divmod": divmod,
+    "enumerate": enumerate,
+    "filter": filter,
+    "float": float,
+    "hasattr": hasattr,
+    "int": int,
+    "iter": iter,
+    "len": len,
+    "list": list,
+    "locals": locals,
+    "map": map,
+    "max": max,
+    "min": min,
+    "next": next,
+    "pow": pow,
+    "print": lambda *a, **kw: None,
+    "range": range,
+    "reversed": reversed,
+    "round": round,
+    "set": set,
+    "slice": slice,
+    "sorted": sorted,
+    "str": str,
+    "sum": sum,
+    "tuple": tuple,
+    "zip": zip,
+}
+
+
+def _build_lazyframe(path):
+    """Reproduce app.query_engine._build_lazyframe VERBATIM.
+
+    Any divergence from the host expression changes query semantics relative to
+    what the eval suite validates.
+    """
+    return pl.scan_parquet(path).drop("__null_dask_index__")
+
+
+_PARQUET_PATH = os.environ["KINDLING_PARQUET_PATH"]
+LF = _build_lazyframe(_PARQUET_PATH)
+
+
+def build_namespace() -> dict:
+    """Create the persistent execution namespace (mirror create_namespace)."""
+    return {
+        "__builtins__": _RESTRICTED_BUILTINS,
+        "pl": pl,
+        "np": np,
+        "math": math,
+        "lf": LF.clone(),
+        "plt": plt,
+        "sns": sns,
+        "Patch": Patch,
+    }
+
+
+def _capture_plots() -> list[str]:
+    """Encode every open matplotlib figure as a base64 PNG and close it.
+
+    Mirrors app/query_engine.py plot capture (bbox_inches/dpi) but returns bytes
+    over the protocol instead of writing files; the host materializes them.
+    """
+    out = []
+    for fig_num in plt.get_fignums():
+        fig = plt.figure(fig_num)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight", dpi=150)
+        plt.close(fig)
+        out.append(base64.b64encode(buf.getvalue()).decode("ascii"))
+    return out
+
+
+def handle_run_query(code: str, namespace: dict) -> dict:
+    """Execute already-validated query code. Mirrors execute_query() minus the
+    host-side validate_code (the host validates before dispatch)."""
+    namespace.pop("result", None)
+
+    result_box = [None]
+
+    def _run():
+        try:
+            # Single dict so globals == locals: nested scopes (lambdas,
+            # comprehensions, def'd functions) resolve free vars through globals.
+            exec(code, namespace)
+        except Exception as e:
+            result_box[0] = {"error": f"Execution error: {type(e).__name__}: {e}"}
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=QUERY_TIMEOUT)
+    if t.is_alive():
+        # Soft timeout: abandon the query but keep the kernel. The leaked daemon
+        # thread dies when the host kills this container at turn end.
+        plt.close("all")
+        return {"error": f"Query timed out (exceeded {QUERY_TIMEOUT} seconds)"}
+    if result_box[0] is not None:
+        plt.close("all")
+        return result_box[0]
+
+    plots = _capture_plots()
+    result = namespace.get("result")
+    if result is None and not plots:
+        return {"error": "No result produced. Code must assign to `result`."}
+
+    try:
+        output: dict = {}
+        if result is not None:
+            if isinstance(result, pl.LazyFrame):
+                result = result.collect()
+            if isinstance(result, pl.DataFrame):
+                total_rows = len(result)
+                if total_rows > MAX_ROWS:
+                    result = result.head(MAX_ROWS)
+                output["data"] = result.to_dicts()
+                output["total_rows"] = total_rows
+                output["truncated"] = total_rows > MAX_ROWS
+            else:
+                output["data"] = str(result)
+        if plots:
+            output["plots"] = plots  # base64 PNG strings; host materializes
+            if "data" not in output:
+                output["data"] = "Plot(s) generated successfully."
+        return output
+    except Exception as e:
+        return {"error": f"Result processing error: {e}"}
+
+
+def main() -> None:
+    # The protocol owns fd 1. Capture a private handle to the real stdout, then
+    # redirect Python-level stdout to stderr so stray user/library writes can't
+    # corrupt the JSON stream. (`print` is already a no-op in the namespace; this
+    # guards everything else that targets sys.stdout.)
+    proto = os.fdopen(os.dup(1), "w", buffering=1)
+    sys.stdout = sys.stderr
+
+    namespace = build_namespace()
+
+    def reply(obj: dict) -> None:
+        proto.write(json.dumps(obj, default=str))
+        proto.write("\n")
+        proto.flush()
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+        except json.JSONDecodeError:
+            reply({"error": "malformed request"})
+            continue
+        op = req.get("op")
+        if op == "ping":
+            reply({"op": "pong"})
+        elif op == "run_query":
+            reply(handle_run_query(req.get("code", ""), namespace))
+        else:
+            reply({"error": f"unknown op: {op!r}"})
+
+
+if __name__ == "__main__":
+    main()
