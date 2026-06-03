@@ -9,6 +9,7 @@ skipped unless `--run-sandbox` is passed AND podman + the worker image exist:
 """
 
 import base64
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -189,6 +190,43 @@ async def test_plot_is_returned_as_png(pool, tmp_path, monkeypatch):
         fs = tmp_path / url.split("/")[-1].split("?")[0]
         assert fs.exists()
         assert fs.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    finally:
+        pool.release_session(session)
+
+
+@pytest.mark.sandbox_container
+@requires_container
+async def test_dispatch_strips_allowed_imports(pool):
+    """Goes through execute_function_call_async — the real path — which must
+    validate and strip allowed imports before the code reaches the worker (the
+    worker has no __import__, so an un-stripped import would hard-fail)."""
+    from app.tools import execute_function_call_async
+
+    session = await pool.acquire_session()
+    try:
+        code = "import polars as pl\nresult = lf.head(2).collect()"
+        result_str, _ = await execute_function_call_async(
+            "run_query", {"code": code}, None, "", session
+        )
+        result = json.loads(result_str)
+        assert "error" not in result, result
+        assert len(result["data"]) == 2
+    finally:
+        pool.release_session(session)
+
+
+@pytest.mark.sandbox_container
+@requires_container
+async def test_dispatch_rejects_disallowed_code(pool):
+    from app.tools import execute_function_call_async
+
+    session = await pool.acquire_session()
+    try:
+        result_str, _ = await execute_function_call_async(
+            "run_query", {"code": "import os\nresult = 1"}, None, "", session
+        )
+        result = json.loads(result_str)
+        assert "error" in result  # rejected host-side, never reaches the worker
     finally:
         pool.release_session(session)
 
