@@ -39,9 +39,25 @@ from matplotlib.patches import Patch  # noqa: E402
 MAX_ROWS = 100
 QUERY_TIMEOUT = 480  # seconds — soft timeout; preserves the kernel on expiry
 
-# Mirror of app.query_engine._RESTRICTED_BUILTINS. The host already runs
-# validate_code before dispatch, so imports never reach here; we still restrict
-# builtins to keep namespace semantics identical to the in-process path.
+# Mirror of app.query_engine's restricted import. The host strips EXPLICIT
+# imports before dispatch, but numpy/polars/matplotlib lazily import their own
+# submodules at runtime (e.g. ndarray.mean() imports numpy._core._methods), and
+# those resolve __import__ through THIS namespace's builtins — so __import__ must
+# be present (and constrained to the allowed libraries), exactly as in-process.
+_IMPORTABLE_PREFIXES = ("numpy.", "polars.", "math.", "matplotlib.", "seaborn.")
+_real_import = (
+    __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+)
+
+
+def _restricted_import(name, *args, **kwargs):
+    if any(name == p[:-1] or name.startswith(p) for p in _IMPORTABLE_PREFIXES):
+        return _real_import(name, *args, **kwargs)
+    raise ImportError(f"Import of '{name}' is not allowed")
+
+
+# Mirror of app.query_engine._RESTRICTED_BUILTINS, to keep namespace semantics
+# identical to the in-process path.
 _RESTRICTED_BUILTINS = {
     "True": True,
     "False": False,
@@ -77,6 +93,7 @@ _RESTRICTED_BUILTINS = {
     "sum": sum,
     "tuple": tuple,
     "zip": zip,
+    "__import__": _restricted_import,
 }
 
 

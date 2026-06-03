@@ -177,6 +177,23 @@ async def test_sessions_are_isolated(pool):
 
 @pytest.mark.sandbox_container
 @requires_container
+async def test_numpy_method_lazy_import_works(pool):
+    """numpy ndarray methods (.mean(), etc.) lazily import numpy submodules at
+    runtime, resolving __import__ through the exec namespace's builtins — which
+    must therefore include a (restricted) __import__, like the in-process path."""
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query(
+            "arr = lf.head(5).collect()['area_m2'].to_numpy()\n"
+            "result = [float(arr.mean()), float(arr.std())]"
+        )
+        assert "error" not in out, out
+    finally:
+        pool.release_session(session)
+
+
+@pytest.mark.sandbox_container
+@requires_container
 async def test_plot_is_returned_as_png(pool, tmp_path, monkeypatch):
     import app.sandbox.pool as pool_mod
 
