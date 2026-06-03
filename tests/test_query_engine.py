@@ -439,18 +439,29 @@ class TestSharedNamespace:
         out2 = execute_query("result = len(fires)", ns)
         assert out2["data"] == "5"
 
-    def test_result_cleared_between_calls(self):
+    def test_call_without_result_assignment_errors(self):
         ns = create_namespace()
         execute_query("result = 'first'", ns)
         out = execute_query("x = 1", ns)
         assert "error" in out
         assert "No result" in out["error"]
+        # the previous result is still readable by a later call
+        out2 = execute_query("result = result", ns)
+        assert out2["data"] == "first"
 
-    def test_result_not_accessible_from_previous_call(self):
+    def test_result_accessible_from_previous_call(self):
         ns = create_namespace()
         execute_query("result = 'first'", ns)
-        out = execute_query("result = result", ns)
-        assert "error" in out
+        out = execute_query("result = result + ' second'", ns)
+        assert out["data"] == "first second"
+
+    def test_result_persists_and_can_be_transformed(self):
+        ns = create_namespace()
+        out1 = execute_query("result = lf.head(10).collect()", ns)
+        assert len(out1["data"]) == 10
+        # the full (untruncated) result persists; transform it in the next call
+        out2 = execute_query("result = result.head(3)", ns)
+        assert len(out2["data"]) == 3
 
     def test_separate_namespaces_are_isolated(self):
         ns1 = create_namespace()

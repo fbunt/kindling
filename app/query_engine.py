@@ -339,18 +339,41 @@ _RESTRICTED_BUILTINS = {
 }
 
 
-def create_namespace() -> dict:
+class _Namespace(dict):
+    """Execution namespace that records whether `result` was (re)assigned during
+    the current run_query call.
+
+    `result` persists across calls within a turn (so a later query can read or
+    transform the previous result), so we can no longer use its mere presence to
+    decide whether THIS call produced an output. Tracking assignment via
+    __setitem__ — which CPython invokes for top-level `result = ...` when the dict
+    is a subclass — distinguishes "produced a result this call" from "left the
+    previous result in place"."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.result_assigned = False
+
+    def __setitem__(self, key, value):
+        if key == "result":
+            self.result_assigned = True
+        super().__setitem__(key, value)
+
+
+def create_namespace() -> _Namespace:
     """Create a fresh execution namespace for a turn."""
-    return {
-        "__builtins__": _RESTRICTED_BUILTINS,
-        "pl": pl,
-        "np": np,
-        "math": math,
-        "lf": LF.clone(),
-        "plt": plt,
-        "sns": sns,
-        "Patch": Patch,
-    }
+    return _Namespace(
+        {
+            "__builtins__": _RESTRICTED_BUILTINS,
+            "pl": pl,
+            "np": np,
+            "math": math,
+            "lf": LF.clone(),
+            "plt": plt,
+            "sns": sns,
+            "Patch": Patch,
+        }
+    )
 
 
 def execute_query(code: str, namespace: dict | None = None) -> dict:
@@ -363,7 +386,9 @@ def execute_query(code: str, namespace: dict | None = None) -> dict:
 
     if namespace is None:
         namespace = create_namespace()
-    namespace.pop("result", None)
+    # Keep any prior `result` in the namespace so this call can read/transform it;
+    # reset the assignment flag so we can tell whether THIS call produced output.
+    namespace.result_assigned = False
 
     # Check for and clean up zombie threads from previous timed-out queries
     still_alive = [t for t in _zombie_threads if t.is_alive()]
@@ -408,7 +433,9 @@ def execute_query(code: str, namespace: dict | None = None) -> dict:
         plt.close(fig)
         plot_urls.append(f"/plots/{filename}?t={int(time.time())}")
 
-    result = namespace.get("result")
+    # Only treat `result` as this call's output if the call actually assigned it;
+    # otherwise it's a leftover from a previous call in the turn.
+    result = namespace.get("result") if namespace.result_assigned else None
     if result is None and not plot_urls:
         return {"error": "No result produced. Code must assign to `result`."}
 

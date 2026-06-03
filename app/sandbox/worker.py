@@ -93,18 +93,34 @@ _PARQUET_PATH = os.environ["KINDLING_PARQUET_PATH"]
 LF = _build_lazyframe(_PARQUET_PATH)
 
 
-def build_namespace() -> dict:
+class _Namespace(dict):
+    """Mirror of app.query_engine._Namespace: tracks whether `result` was
+    (re)assigned this call so `result` can persist across calls within a turn."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.result_assigned = False
+
+    def __setitem__(self, key, value):
+        if key == "result":
+            self.result_assigned = True
+        super().__setitem__(key, value)
+
+
+def build_namespace() -> _Namespace:
     """Create the persistent execution namespace (mirror create_namespace)."""
-    return {
-        "__builtins__": _RESTRICTED_BUILTINS,
-        "pl": pl,
-        "np": np,
-        "math": math,
-        "lf": LF.clone(),
-        "plt": plt,
-        "sns": sns,
-        "Patch": Patch,
-    }
+    return _Namespace(
+        {
+            "__builtins__": _RESTRICTED_BUILTINS,
+            "pl": pl,
+            "np": np,
+            "math": math,
+            "lf": LF.clone(),
+            "plt": plt,
+            "sns": sns,
+            "Patch": Patch,
+        }
+    )
 
 
 def _capture_plots() -> list[str]:
@@ -126,7 +142,8 @@ def _capture_plots() -> list[str]:
 def handle_run_query(code: str, namespace: dict) -> dict:
     """Execute already-validated query code. Mirrors execute_query() minus the
     host-side validate_code (the host validates before dispatch)."""
-    namespace.pop("result", None)
+    # Keep any prior `result` readable; reset the flag to detect this call's output.
+    namespace.result_assigned = False
 
     result_box = [None]
 
@@ -151,7 +168,8 @@ def handle_run_query(code: str, namespace: dict) -> dict:
         return result_box[0]
 
     plots = _capture_plots()
-    result = namespace.get("result")
+    # Only this call's freshly-assigned result counts as output.
+    result = namespace.get("result") if namespace.result_assigned else None
     if result is None and not plots:
         return {"error": "No result produced. Code must assign to `result`."}
 

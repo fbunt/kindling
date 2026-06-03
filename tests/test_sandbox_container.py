@@ -146,6 +146,21 @@ async def test_namespace_persists_within_session(pool):
 
 @pytest.mark.sandbox_container
 @requires_container
+async def test_result_persists_across_queries_in_session(pool):
+    session = await pool.acquire_session()
+    try:
+        out1 = await session.run_query("result = lf.head(4).collect()")
+        assert "error" not in out1, out1
+        assert len(out1["data"]) == 4
+        out2 = await session.run_query("result = result.head(2)")
+        assert "error" not in out2, out2
+        assert len(out2["data"]) == 2
+    finally:
+        pool.release_session(session)
+
+
+@pytest.mark.sandbox_container
+@requires_container
 async def test_sessions_are_isolated(pool):
     s1 = await pool.acquire_session()
     s2 = await pool.acquire_session()

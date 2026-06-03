@@ -85,7 +85,7 @@ The dataset has 745M rows. Filter or `group_by` before sorting. Cap exploratory 
 
 ## Namespace persistence
 
-Variables defined in one `run_query` call persist across calls within the same response — build intermediates across calls (e.g. `fires = lf.filter(...).collect()`) and reuse them later. `result` is reset each call, so use other names for intermediates. Each call still assigns to `result` or produces a plot.
+Variables defined in one `run_query` call persist across calls within the same response — build intermediates across calls (e.g. `fires = lf.filter(...).collect()`) and reuse them later. `result` also persists, so a later call can read or transform the previous `result` (e.g. `result = result.group_by("year").agg(...)`). Each call must still assign to `result` (or produce a plot) to return output for that call.
 
 ## Response shape
 
