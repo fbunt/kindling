@@ -91,10 +91,35 @@ def run_dir(request) -> Path:
 
 
 @pytest.fixture
-def run_turn(genai_client, run_dir):
+async def sandbox_pool():
+    """In container mode (KINDLING_SANDBOX=container), a started pool against the
+    eval sample so evals exercise the real container path; otherwise None.
+
+    Function-scoped so the pool lives on the same event loop as the test (its
+    worker subprocess transports are bound to that loop)."""
+    if os.environ.get("KINDLING_SANDBOX") != "container":
+        yield None
+        return
+    from app.sandbox.pool import SandboxPool, podman_available
+
+    if not podman_available():
+        pytest.skip("KINDLING_SANDBOX=container but podman is unavailable")
+    pool = SandboxPool(_SAMPLE, size=1, max_total=2)
+    await pool.start()
+    try:
+        yield pool
+    finally:
+        await pool.drain()
+
+
+@pytest.fixture
+def run_turn(genai_client, run_dir, sandbox_pool):
     """Returns an async callable that runs one chat turn, dumps a JSON trace,
     and returns (result, trial_path) so the caller can append judge verdicts
     or other per-trial metadata to the same file via _append_trial_fields.
+
+    Routes through the container pool when one is active (parity testing),
+    otherwise through the in-process namespace.
     """
     model = os.environ.get("KINDLING_EVAL_MODEL", "gemini-3.1-pro-preview")
 
@@ -106,13 +131,20 @@ def run_turn(genai_client, run_dir):
             system_instruction=SYSTEM_INSTRUCTION,
             tools=[FIRE_DATA_TOOLS],
         )
-        namespace = create_namespace()
+        if sandbox_pool is not None:
+            sandbox = await sandbox_pool.acquire_session()
+        else:
+            sandbox = create_namespace()
         result = None
-        async for ev in run_chat_turn(
-            genai_client, model, contents, config, namespace, max_rounds=15
-        ):
-            if isinstance(ev, DoneEvent):
-                result = ev.result
+        try:
+            async for ev in run_chat_turn(
+                genai_client, model, contents, config, sandbox, max_rounds=15
+            ):
+                if isinstance(ev, DoneEvent):
+                    result = ev.result
+        finally:
+            if sandbox_pool is not None:
+                sandbox_pool.release_session(sandbox)
         assert result is not None, "chat turn ended without DoneEvent"
 
         trace = {
