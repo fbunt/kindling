@@ -58,8 +58,9 @@ LF = _build_lazyframe(_PARQUET_PATH)
 
 
 class _Namespace(dict):
-    """Mirror of app.query_engine._Namespace: tracks whether `result` was
-    (re)assigned this call so `result` can persist across calls within a turn."""
+    """Tracks whether `result` was (re)assigned during the current call so
+    `result` can persist (be readable) across calls within a turn while we still
+    detect whether THIS call produced an output."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -109,8 +110,8 @@ def _capture_plots() -> list[str]:
 
 
 def handle_run_query(code: str, namespace: dict) -> dict:
-    """Execute already-validated query code. Mirrors execute_query() minus the
-    host-side validate_code (the host validates before dispatch)."""
+    """Execute query code with full builtins. No validation here — the container
+    is the security boundary."""
     # Keep any prior `result` readable; reset the flag to detect this call's output.
     namespace.result_assigned = False
 

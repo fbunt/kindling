@@ -119,8 +119,7 @@ def materialize_plots(b64_pngs: list[str], turn_id: str) -> list[str]:
     """Decode base64 PNGs from the worker to disk; return /plots URLs.
 
     Filenames are prefixed with the turn id (not a shared counter) so concurrent
-    turns can't collide. Returns the same URL shape execute_query produces, so
-    tools.py plot-naming is unchanged.
+    turns can't collide. Returns the worker's plot URLs for tools.py to name.
     """
     urls = []
     for i, b64 in enumerate(b64_pngs):

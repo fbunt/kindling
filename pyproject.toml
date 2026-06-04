@@ -31,7 +31,6 @@ dev = [
 asyncio_mode = "auto"
 markers = [
     "model_eval: model-behavior eval test (skipped unless --run-evals is passed)",
-    "sandbox_container: container-sandbox test (skipped unless --run-sandbox is passed)",
 ]
 
 [build-system]

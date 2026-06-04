@@ -28,29 +28,11 @@ def _ensure_sample() -> Path | None:
 
 @pytest.fixture(scope="session", autouse=True)
 def _configure_query_engine():
-    """Configure the in-process query engine with a sampled parquet so the
-    LF-dependent unit tests can run. configure() is idempotent, so this is a
+    """Configure the dataset module with a sampled parquet so get_dataset_info
+    tests can read schema/sample rows. configure() is idempotent, so this is a
     no-op if a more specific fixture (e.g. the evals suite) already ran."""
     sample = _ensure_sample()
     if sample is not None:
         from app.query_engine import configure
 
         configure(sample)
-
-
-def pytest_addoption(parser):
-    parser.addoption(
-        "--run-sandbox",
-        action="store_true",
-        default=False,
-        help="Run container-sandbox tests (needs podman + a built worker image).",
-    )
-
-
-def pytest_collection_modifyitems(config, items):
-    if config.getoption("--run-sandbox"):
-        return
-    skip_sandbox = pytest.mark.skip(reason="needs --run-sandbox")
-    for item in items:
-        if "sandbox_container" in item.keywords:
-            item.add_marker(skip_sandbox)

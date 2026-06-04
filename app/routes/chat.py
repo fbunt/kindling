@@ -17,8 +17,7 @@ from app.chat_loop import (  # noqa: E402
     ThinkingEvent,
     run_chat_turn,
 )
-from app.query_engine import create_namespace  # noqa: E402
-from app.sandbox.pool import SandboxBusy, SandboxSession  # noqa: E402
+from app.sandbox.pool import SandboxBusy  # noqa: E402
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION  # noqa: E402
 
 router = APIRouter()
@@ -108,19 +107,21 @@ async def chat(
     )
 
     async def event_stream():
-        # The pool is set on app.state only in container sandbox mode (main.py
-        # lifespan). Its presence is the single source of truth for which path
-        # to use; otherwise fall back to the in-process namespace.
+        # Query execution always runs in a container; the pool is started at app
+        # startup (main.py lifespan) and fails fast if podman is unavailable.
         pool = getattr(request.app.state, "sandbox_pool", None)
-        sandbox = None
+        session = None
+        if pool is None:
+            yield _sse("error", {"detail": "Sandbox unavailable (pool not started)."})
+            return
         try:
-            sandbox = await pool.acquire_session() if pool else create_namespace()
+            session = await pool.acquire_session()
             async for ev in run_chat_turn(
                 client,
                 model,
                 contents,
                 config,
-                sandbox,
+                session,
                 max_rounds=MAX_TOOL_ROUNDS,
                 on_disconnect=request.is_disconnected,
             ):
@@ -147,8 +148,8 @@ async def chat(
         finally:
             # Always retire the container (kill + background refill), even on
             # client disconnect or mid-turn exception.
-            if pool is not None and isinstance(sandbox, SandboxSession):
-                pool.release_session(sandbox)
+            if session is not None:
+                pool.release_session(session)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

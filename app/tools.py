@@ -7,12 +7,7 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-from app.query_engine import (  # noqa: E402
-    ValidationError,
-    execute_query,
-    get_dataset_info,
-    validate_code,
-)
+from app.query_engine import get_dataset_info  # noqa: E402
 
 SYSTEM_INSTRUCTION = """\
 You are a data analyst assistant for the MTBS (Monitoring Trends in Burn Severity) fire dataset: ~745 million rows of 30m-pixel fire data covering the United States, 1984–2022.
@@ -185,34 +180,6 @@ def _unique_display_name(name: str) -> str:
     return unique
 
 
-def execute_function_call(
-    name: str,
-    args: dict,
-    client: genai.Client,
-    model: str,
-    namespace: dict | None = None,
-) -> tuple[str, list[dict]]:
-    """Dispatch a function call from Gemini. Returns (json_result, plots_list)."""
-    logger.info(f"Function call: {name}({json.dumps(args, default=str)[:200]})")
-    plots = []
-    if name == "get_dataset_info":
-        result = get_dataset_info()
-    elif name == "run_query":
-        result = execute_query(args["code"], namespace)
-        # Generate display names for any plots
-        if "plots" in result:
-            code = args.get("code", "")
-            for url in result["plots"]:
-                raw_name = generate_plot_name(code, client) or _plot_fallback(url)
-                plots.append(_plot_entry(url, _unique_display_name(raw_name)))
-            result["plots"] = plots
-    elif name == "web_search":
-        result = _web_search(args["query"], client, model)
-    else:
-        result = {"error": f"Unknown function: {name}"}
-    return json.dumps(result, default=str), plots
-
-
 def _plot_fallback(url: str) -> str:
     """Derive a fallback display name from a plot URL."""
     return url.split("/")[-1].split("?")[0].replace(".png", "")
@@ -244,23 +211,18 @@ async def execute_function_call_async(
     if name == "get_dataset_info":
         result = await asyncio.to_thread(get_dataset_info)
     elif name == "run_query":
-        # The worker does not validate (the container is the security boundary),
-        # so the host must validate AND strip allowed imports here — exactly as
-        # the in-process execute_query does — before the code reaches the worker.
-        try:
-            code = validate_code(args["code"])
-        except ValidationError as e:
-            logger.warning(f"Validation rejected code: {e}\n{args.get('code', '')}")
-            result = {"error": str(e)}
-        else:
-            result = await session.run_query(code)
-            if "plots" in result:
-                for url in result["plots"]:
-                    raw_name = (
-                        await asyncio.to_thread(generate_plot_name, code, client)
-                    ) or _plot_fallback(url)
-                    plots.append(_plot_entry(url, _unique_display_name(raw_name)))
-                result["plots"] = plots
+        # No AST/blocklist filtering: the container is the security boundary, so
+        # arbitrary code runs as-is inside it. (A code-judge layer is added on top
+        # in execute_function_call_async's caller chain — see app/guards.py.)
+        code = args["code"]
+        result = await session.run_query(code)
+        if "plots" in result:
+            for url in result["plots"]:
+                raw_name = (
+                    await asyncio.to_thread(generate_plot_name, code, client)
+                ) or _plot_fallback(url)
+                plots.append(_plot_entry(url, _unique_display_name(raw_name)))
+            result["plots"] = plots
     elif name == "web_search":
         result = await asyncio.to_thread(_web_search, args["query"], client, model)
     else:

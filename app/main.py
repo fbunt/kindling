@@ -30,38 +30,34 @@ configure()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start/drain the sandbox container pool when KINDLING_SANDBOX=container."""
-    pool = None
-    if os.environ.get("KINDLING_SANDBOX") == "container":
-        from app.sandbox.pool import SandboxPool, podman_available
+    """Start/drain the sandbox container pool. Query execution is container-only,
+    so podman is required — startup fails fast without it."""
+    from app.sandbox.pool import SandboxPool, podman_available
 
-        if not podman_available():
-            raise RuntimeError(
-                "KINDLING_SANDBOX=container but the `podman` binary is not on PATH."
-            )
-        # Re-derive the parquet path from the env var configure() exported, not
-        # from any module global that an import-time configure() may have set to
-        # the default.
-        parquet = os.environ.get("KINDLING_PARQUET_PATH_HOST")
-        if not parquet:
-            raise RuntimeError("Parquet path unknown; was configure() called?")
-        pool = SandboxPool(
-            parquet,
-            size=int(os.environ.get("KINDLING_POOL_SIZE", "2")),
-            max_total=int(os.environ.get("KINDLING_SANDBOX_MAX_TOTAL", "3")),
-            image=os.environ.get("KINDLING_SANDBOX_IMAGE", "kindling-worker:latest"),
-            memory=os.environ.get("KINDLING_SANDBOX_MEM", "110g"),
+    if not podman_available():
+        raise RuntimeError(
+            "Query execution runs in Podman containers, but the `podman` binary "
+            "is not on PATH. Install podman and build the kindling-worker image."
         )
-        await pool.start()
-        logger.info("Sandbox: container pool active (parquet=%s)", parquet)
-    else:
-        logger.info("Sandbox: in-process execution")
+    # Re-derive the parquet path from the env var configure() exported, not from
+    # a module global that an import-time configure() may have set to the default.
+    parquet = os.environ.get("KINDLING_PARQUET_PATH_HOST")
+    if not parquet:
+        raise RuntimeError("Parquet path unknown; was configure() called?")
+    pool = SandboxPool(
+        parquet,
+        size=int(os.environ.get("KINDLING_POOL_SIZE", "2")),
+        max_total=int(os.environ.get("KINDLING_SANDBOX_MAX_TOTAL", "3")),
+        image=os.environ.get("KINDLING_SANDBOX_IMAGE", "kindling-worker:latest"),
+        memory=os.environ.get("KINDLING_SANDBOX_MEM", "110g"),
+    )
+    await pool.start()
+    logger.info("Sandbox: container pool active (parquet=%s)", parquet)
     app.state.sandbox_pool = pool
     try:
         yield
     finally:
-        if pool is not None:
-            await pool.drain()
+        await pool.drain()
 
 
 app = FastAPI(lifespan=lifespan)

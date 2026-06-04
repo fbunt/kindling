@@ -1,11 +1,12 @@
 """Sandbox container tests.
 
-The pure-unit tests (argv construction, plot materialization) always run. The
-tests that actually spawn a Podman worker are marked `sandbox_container` and are
-skipped unless `--run-sandbox` is passed AND podman + the worker image exist:
+Query execution is container-only, so these are the primary execution-semantics
+tests. The pure-unit tests (argv construction, plot materialization) always run;
+the rest spawn a Podman worker and skip only if podman + the worker image are
+absent. Build the image first:
 
     podman build -t kindling-worker:latest -f Containerfile .
-    uv run pytest tests/test_sandbox_container.py --run-sandbox -v
+    uv run pytest tests/test_sandbox_container.py -v
 """
 
 import base64
@@ -119,7 +120,6 @@ async def pool(tiny_parquet) -> SandboxPool:
         await p.drain()
 
 
-@pytest.mark.sandbox_container
 @requires_container
 async def test_basic_query(pool):
     session = await pool.acquire_session()
@@ -132,7 +132,6 @@ async def test_basic_query(pool):
         pool.release_session(session)
 
 
-@pytest.mark.sandbox_container
 @requires_container
 async def test_namespace_persists_within_session(pool):
     session = await pool.acquire_session()
@@ -145,7 +144,6 @@ async def test_namespace_persists_within_session(pool):
         pool.release_session(session)
 
 
-@pytest.mark.sandbox_container
 @requires_container
 async def test_result_persists_across_queries_in_session(pool):
     session = await pool.acquire_session()
@@ -160,7 +158,6 @@ async def test_result_persists_across_queries_in_session(pool):
         pool.release_session(session)
 
 
-@pytest.mark.sandbox_container
 @requires_container
 async def test_sessions_are_isolated(pool):
     s1 = await pool.acquire_session()
@@ -175,12 +172,10 @@ async def test_sessions_are_isolated(pool):
         pool.release_session(s2)
 
 
-@pytest.mark.sandbox_container
 @requires_container
 async def test_numpy_method_lazy_import_works(pool):
     """numpy ndarray methods (.mean(), etc.) lazily import numpy submodules at
-    runtime, resolving __import__ through the exec namespace's builtins — which
-    must therefore include a (restricted) __import__, like the in-process path."""
+    runtime; full builtins make that work in the worker."""
     session = await pool.acquire_session()
     try:
         out = await session.run_query(
@@ -192,7 +187,6 @@ async def test_numpy_method_lazy_import_works(pool):
         pool.release_session(session)
 
 
-@pytest.mark.sandbox_container
 @requires_container
 async def test_plot_is_returned_as_png(pool, tmp_path, monkeypatch):
     import app.sandbox.pool as pool_mod
@@ -211,12 +205,10 @@ async def test_plot_is_returned_as_png(pool, tmp_path, monkeypatch):
         pool.release_session(session)
 
 
-@pytest.mark.sandbox_container
 @requires_container
-async def test_dispatch_strips_allowed_imports(pool):
-    """Goes through execute_function_call_async — the real path — which must
-    validate and strip allowed imports before the code reaches the worker (the
-    worker has no __import__, so an un-stripped import would hard-fail)."""
+async def test_dispatch_runs_explicit_imports(pool):
+    """Through the real dispatch path: explicit imports now just work (full
+    builtins, no AST stripping). The import statement is harmless and runs."""
     from app.tools import execute_function_call_async
 
     session = await pool.acquire_session()
@@ -232,23 +224,52 @@ async def test_dispatch_strips_allowed_imports(pool):
         pool.release_session(session)
 
 
-@pytest.mark.sandbox_container
 @requires_container
-async def test_dispatch_rejects_disallowed_code(pool):
-    from app.tools import execute_function_call_async
-
+async def test_arbitrary_stdlib_import_is_allowed_in_box(pool):
+    """No AST blocklist: `import os` runs (it's harmless in the container)."""
     session = await pool.acquire_session()
     try:
-        result_str, _ = await execute_function_call_async(
-            "run_query", {"code": "import os\nresult = 1"}, None, "", session
-        )
-        result = json.loads(result_str)
-        assert "error" in result  # rejected host-side, never reaches the worker
+        out = await session.run_query("import os\nresult = [os.getpid() > 0]")
+        assert "error" not in out, out
+        assert out["data"] == "[True]"
     finally:
         pool.release_session(session)
 
 
-@pytest.mark.sandbox_container
+@requires_container
+async def test_result_truncated_to_max_rows(pool):
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query("result = pl.DataFrame({'x': list(range(250))})")
+        assert out["total_rows"] == 250
+        assert out["truncated"] is True
+        assert len(out["data"]) == 100  # MAX_ROWS
+    finally:
+        pool.release_session(session)
+
+
+@requires_container
+async def test_runtime_error_is_surfaced(pool):
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query("result = 1 / 0")
+        assert "error" in out
+        assert "ZeroDivisionError" in out["error"]
+    finally:
+        pool.release_session(session)
+
+
+@requires_container
+async def test_no_result_assigned_errors(pool):
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query("x = 1")
+        assert "error" in out
+        assert "No result" in out["error"]
+    finally:
+        pool.release_session(session)
+
+
 @requires_container
 async def test_wedged_query_surfaces_worker_dead(pool):
     session = await pool.acquire_session()

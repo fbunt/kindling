@@ -10,7 +10,7 @@ from google import genai
 from google.genai import types
 
 from app.chat_loop import DoneEvent, run_chat_turn
-from app.query_engine import configure, create_namespace
+from app.query_engine import configure
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION
 
 load_dotenv()
@@ -92,18 +92,15 @@ def run_dir(request) -> Path:
 
 @pytest.fixture
 async def sandbox_pool():
-    """In container mode (KINDLING_SANDBOX=container), a started pool against the
-    eval sample so evals exercise the real container path; otherwise None.
+    """A started container pool against the eval sample. Query execution is
+    container-only, so podman is required; skip the eval if it's unavailable.
 
     Function-scoped so the pool lives on the same event loop as the test (its
     worker subprocess transports are bound to that loop)."""
-    if os.environ.get("KINDLING_SANDBOX") != "container":
-        yield None
-        return
     from app.sandbox.pool import SandboxPool, podman_available
 
     if not podman_available():
-        pytest.skip("KINDLING_SANDBOX=container but podman is unavailable")
+        pytest.skip("podman unavailable (query execution is container-only)")
     pool = SandboxPool(_SAMPLE, size=1, max_total=2)
     await pool.start()
     try:
@@ -118,8 +115,7 @@ def run_turn(genai_client, run_dir, sandbox_pool):
     and returns (result, trial_path) so the caller can append judge verdicts
     or other per-trial metadata to the same file via _append_trial_fields.
 
-    Routes through the container pool when one is active (parity testing),
-    otherwise through the in-process namespace.
+    Each turn runs in a fresh container worker.
     """
     model = os.environ.get("KINDLING_EVAL_MODEL", "gemini-3.1-pro-preview")
 
@@ -131,10 +127,7 @@ def run_turn(genai_client, run_dir, sandbox_pool):
             system_instruction=SYSTEM_INSTRUCTION,
             tools=[FIRE_DATA_TOOLS],
         )
-        if sandbox_pool is not None:
-            sandbox = await sandbox_pool.acquire_session()
-        else:
-            sandbox = create_namespace()
+        sandbox = await sandbox_pool.acquire_session()
         result = None
         try:
             async for ev in run_chat_turn(
@@ -143,8 +136,7 @@ def run_turn(genai_client, run_dir, sandbox_pool):
                 if isinstance(ev, DoneEvent):
                     result = ev.result
         finally:
-            if sandbox_pool is not None:
-                sandbox_pool.release_session(sandbox)
+            sandbox_pool.release_session(sandbox)
         assert result is not None, "chat turn ended without DoneEvent"
 
         trace = {
