@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import logging
@@ -17,6 +18,7 @@ from app.chat_loop import (  # noqa: E402
     ThinkingEvent,
     run_chat_turn,
 )
+from app.guards import guard_prompt  # noqa: E402
 from app.sandbox.pool import SandboxBusy  # noqa: E402
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION  # noqa: E402
 
@@ -107,6 +109,17 @@ async def chat(
     )
 
     async def event_stream():
+        # Prompt-guard (defense-in-depth): screen the user message for injection/
+        # abuse before doing any work. Fails open on judge error.
+        allowed, reason = await asyncio.to_thread(guard_prompt, message, client)
+        if not allowed:
+            logger.warning("prompt-guard blocked message: %s | %.80r", reason, message)
+            yield _sse(
+                "error",
+                {"detail": "This request was blocked by a safety check."},
+            )
+            return
+
         # Query execution always runs in a container; the pool is started at app
         # startup (main.py lifespan) and fails fast if podman is unavailable.
         pool = getattr(request.app.state, "sandbox_pool", None)
