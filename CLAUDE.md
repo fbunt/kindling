@@ -28,6 +28,12 @@ socket — it does not nest a runtime. The host enforces cgroup limits; the work
 container stays the sole security boundary.
 
 ```bash
+scripts/run.sh --build     # build both images, enable the socket, run (one shot)
+scripts/run.sh             # run against data/mtbs_pix_data.parquet (images prebuilt)
+scripts/run.sh /abs/x.parquet   # run against another dataset
+#   env: KINDLING_SANDBOX_MEM, KINDLING_POOL_SIZE, GEMINI_API_KEY, KINDLING_PORT
+
+# equivalent Make targets:
 make build                 # build both images (RUNTIME=docker to use Docker)
 make socket                # one-time: enable the rootless podman user socket
 make run                   # run the app; PARQUET defaults to data/mtbs_pix_data.parquet
