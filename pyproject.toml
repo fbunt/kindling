@@ -11,9 +11,21 @@ dependencies = [
     "python-dotenv",
     "python-multipart",
     "polars>=1.38.1",
+    "pyarrow",
+]
+
+# Plotting/analysis libs are used ONLY inside the worker container (the host/app
+# server never imports them). The worker image installs pinned versions directly
+# (see Containerfile); this group is for a full local dev env if wanted.
+[project.optional-dependencies]
+worker = [
     "matplotlib",
     "seaborn",
-    "pyarrow",
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "tabulate",
 ]
 
 [project.scripts]

@@ -1,0 +1,18 @@
+# Keep the build context (and image) lean — none of this is needed at runtime.
+.git/
+.venv/
+.eval-runs/
+plots/
+kindling.egg-info/
+__pycache__/
+*.pyc
+data/
+*.parquet
+tests/
+.claude/
+reviews.txt
+Containerfile
+Containerfile.app
+compose.yaml
+deploy/
+Makefile

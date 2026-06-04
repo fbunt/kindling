@@ -17,6 +17,7 @@ import os
 import shutil
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -164,6 +165,7 @@ class Worker:
     proc: asyncio.subprocess.Process
     runtime: str = "podman"
     stderr_task: "asyncio.Task | None" = None
+    stderr_tail: deque = field(default_factory=lambda: deque(maxlen=20))
 
     async def _read_frame(self) -> dict:
         """Read one JSON frame, skipping any non-JSON noise on the pipe."""
@@ -233,7 +235,13 @@ class SandboxSession:
         try:
             result = await self.worker.run_query(code, self.pool.hard_timeout)
         except WorkerDead as e:
-            logger.warning("sandbox worker %s died mid-turn: %s", self.worker.name, e)
+            tail = "\n".join(self.worker.stderr_tail)
+            logger.warning(
+                "sandbox worker %s died mid-turn: %s%s",
+                self.worker.name,
+                e,
+                f"\n--- worker stderr tail ---\n{tail}" if tail else "",
+            )
             return {"error": _WORKER_DEAD_MSG}
         if result.get("plots"):
             result["plots"] = materialize_plots(result["plots"], self.turn_id)
@@ -256,8 +264,15 @@ class SandboxPool:
         pids: int = 128,
         max_threads: int = 4,
         runtime: str | None = None,
+        worker_parquet_path: str | None = None,
     ) -> None:
         self.parquet_path = str(Path(parquet_path).resolve())
+        # Host path bind-mounted into workers. When the app itself runs in a
+        # container (Option A), workers are siblings on the HOST runtime, so their
+        # mount source is a host path that differs from the app's own view — and
+        # must NOT be resolved against the app container's filesystem. Defaults to
+        # the app's path (correct when app and workers share one filesystem).
+        self.worker_parquet_path = worker_parquet_path or self.parquet_path
         self.runtime = runtime or detect_runtime()
         self.size = size
         self.image = image
@@ -363,7 +378,7 @@ class SandboxPool:
                 self.runtime,
                 image=self.image,
                 name=name,
-                host_parquet_path=self.parquet_path,
+                host_parquet_path=self.worker_parquet_path,
                 in_container_path=self.in_container_path,
                 memory=self.memory,
                 cpus=self.cpus,
@@ -411,16 +426,17 @@ class SandboxPool:
             await self._spawn_into_ready()
 
     async def _drain_stderr(self, worker: Worker) -> None:
+        # Worker stderr carries tracebacks + library chatter from user code. Keep
+        # it at DEBUG (noisy on normal runs), but retain a tail so a WorkerDead
+        # failure can surface the last lines at WARNING (see SandboxSession).
         try:
             while True:
                 line = await worker.proc.stderr.readline()
                 if not line:
                     return
-                logger.debug(
-                    "sandbox %s: %s",
-                    worker.name,
-                    line.decode(errors="replace").rstrip(),
-                )
+                text = line.decode(errors="replace").rstrip()
+                worker.stderr_tail.append(text)
+                logger.debug("sandbox %s: %s", worker.name, text)
         except Exception:  # noqa: BLE001
             return
 
@@ -448,8 +464,11 @@ class SandboxPool:
                 "none",
                 "--memory",
                 "256m",
-                self.image,
+                # The worker image's ENTRYPOINT is the kernel; override it to run
+                # a plain shell for the probe.
+                "--entrypoint",
                 "sh",
+                self.image,
                 "-c",
                 "cat /sys/fs/cgroup/memory.max",
             )

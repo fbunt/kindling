@@ -51,6 +51,10 @@ async def lifespan(app: FastAPI):
         max_total=int(os.environ.get("KINDLING_SANDBOX_MAX_TOTAL", "3")),
         image=os.environ.get("KINDLING_SANDBOX_IMAGE", "kindling-worker:latest"),
         memory=os.environ.get("KINDLING_SANDBOX_MEM", "110g"),
+        # When the app runs in a container, workers are siblings on the host
+        # runtime; this is the HOST path to bind-mount into them (differs from the
+        # app's own `parquet` view). Unset → same filesystem, use `parquet`.
+        worker_parquet_path=os.environ.get("KINDLING_WORKER_PARQUET_PATH"),
     )
     await pool.start()
     logger.info("Sandbox: container pool active (parquet=%s)", parquet)

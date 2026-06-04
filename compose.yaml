@@ -1,0 +1,28 @@
+# Dev: kindling app container that spawns sibling worker containers via the host's
+# rootless Podman socket. `podman compose up --build` (or `docker compose`).
+#
+# Prereqs:
+#   - host socket:  systemctl --user enable --now podman.socket
+#   - worker image in the host store:  make build-worker   (or: podman build -t kindling-worker:latest .)
+#   - KINDLING_PARQUET set to the ABSOLUTE host path of the parquet
+#   - GEMINI_API_KEY (optional; can also log in via the UI)
+services:
+  kindling:
+    image: kindling-app:latest
+    build:
+      context: .
+      dockerfile: Containerfile.app
+    command: ["kindling", "/data/dataset.parquet", "--host", "0.0.0.0"]
+    ports:
+      - "8000:8000"
+    security_opt:
+      - label=disable      # SELinux: allow mounting the runtime socket
+    volumes:
+      - ${XDG_RUNTIME_DIR}/podman/podman.sock:/run/podman/podman.sock
+      - ${KINDLING_PARQUET:?set KINDLING_PARQUET to the absolute host parquet path}:/data/dataset.parquet:ro
+    environment:
+      CONTAINER_HOST: unix:///run/podman/podman.sock
+      # HOST path the sibling workers bind-mount (must match the volume source).
+      KINDLING_WORKER_PARQUET_PATH: ${KINDLING_PARQUET}
+      KINDLING_SANDBOX_IMAGE: kindling-worker:latest
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}

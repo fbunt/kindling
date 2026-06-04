@@ -15,6 +15,35 @@ uv run uvicorn app.main:app --reload       # Run dev server with default dataset
 uv add <package>                           # Add a dependency
 ```
 
+Worker-only analysis libs (matplotlib/seaborn/numpy/pandas/scipy/scikit-learn/tabulate)
+live in `[project.optional-dependencies] worker` — the host/app never import them
+(the worker image pins them directly). `uv sync --extra worker` for a full local env.
+
+## Running in a container (Option A)
+
+Two images: **`kindling-app`** (the FastAPI orchestrator, `Containerfile.app`) and
+**`kindling-worker`** (query executor, `Containerfile`). The app runs in a container
+and spawns worker containers as **siblings on the host runtime** via a mounted
+socket — it does not nest a runtime. The host enforces cgroup limits; the worker
+container stays the sole security boundary.
+
+```bash
+make build                 # build both images (RUNTIME=docker to use Docker)
+make socket                # one-time: enable the rootless podman user socket
+make run                   # run the app; PARQUET defaults to data/mtbs_pix_data.parquet
+make logs                  # podman logs -f kindling
+# or: KINDLING_PARQUET=/abs/host/path.parquet podman compose up --build
+# prod: deploy/kindling.container (Quadlet) on Fedora CoreOS / a podman GCP VM
+```
+
+Key wiring (see `compose.yaml` / `deploy/kindling.container` / `Makefile`):
+- mount the host runtime socket + `CONTAINER_HOST=unix:///run/podman/podman.sock`.
+- mount the parquet for the app's schema reads **and** set
+  `KINDLING_WORKER_PARQUET_PATH` to the **host** path workers bind-mount (these
+  differ once the app is containerized — the app's view ≠ the host path).
+- `--security-opt label=disable` (SELinux) to mount the socket.
+- The worker image must exist in the **host** image store (workers run there).
+
 ## Architecture
 
 - **Backend**: FastAPI (Python)

@@ -1,0 +1,34 @@
+# Quadlet unit (rootless user service) — the production form for Fedora CoreOS /
+# Silverblue / a podman-equipped GCP VM. Install to:
+#   ~/.config/containers/systemd/kindling.container
+# then:  systemctl --user daemon-reload && systemctl --user start kindling
+#
+# Prereqs on the host:
+#   - systemctl --user enable --now podman.socket
+#   - the worker image in the user's image store (podman build -t kindling-worker:latest .)
+#   - the app image (podman build -t kindling-app:latest -f Containerfile.app .)
+#   - podman secret create kindling-gemini-key <file-with-key>   (or drop the Secret line)
+#   - edit the parquet paths below to the real host path
+[Unit]
+Description=kindling natural-language query app
+After=network-online.target
+
+[Container]
+Image=kindling-app:latest
+Exec=kindling /data/dataset.parquet --host 0.0.0.0
+PublishPort=8000:8000
+# %t = the user's XDG_RUNTIME_DIR (where the rootless podman socket lives).
+Volume=%t/podman/podman.sock:/run/podman/podman.sock
+Volume=/srv/kindling/data/mtbs.parquet:/data/dataset.parquet:ro
+Environment=CONTAINER_HOST=unix:///run/podman/podman.sock
+Environment=KINDLING_WORKER_PARQUET_PATH=/srv/kindling/data/mtbs.parquet
+Environment=KINDLING_SANDBOX_IMAGE=kindling-worker:latest
+Environment=PYTHONUNBUFFERED=1
+Secret=kindling-gemini-key,type=env,target=GEMINI_API_KEY
+SecurityLabelDisable=true
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

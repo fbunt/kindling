@@ -41,6 +41,27 @@ def test_detect_runtime_none_raises(monkeypatch):
         detect_runtime()
 
 
+# --- worker parquet path decoupling (Option A: app in a container) ---
+
+
+def test_worker_parquet_path_is_separate_and_unresolved():
+    # The app reads its own (resolved) view; sibling workers mount the HOST path
+    # verbatim (it need not exist in the app container, so it isn't resolved).
+    pool = SandboxPool(
+        "/tmp/fake.parquet",
+        runtime="podman",
+        worker_parquet_path="/host/real.parquet",
+    )
+    assert pool.parquet_path == "/tmp/fake.parquet"
+    assert pool.worker_parquet_path == "/host/real.parquet"
+
+
+def test_worker_parquet_path_defaults_to_app_path():
+    # No override → app and workers share one filesystem (non-container case).
+    pool = SandboxPool("/tmp/fake.parquet", runtime="podman")
+    assert pool.worker_parquet_path == pool.parquet_path
+
+
 class FakeWorker:
     def __init__(self, name: str):
         self.name = name
