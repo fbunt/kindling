@@ -26,9 +26,13 @@ uv add <package>                           # Add a dependency
 ```
 app/
 ├── cli.py               # `kindling` CLI entry point (argparse, starts uvicorn)
-├── main.py              # FastAPI app, middleware, static file serving
-├── query_engine.py      # Sandboxed query execution (AST validation, restricted builtins, timeout)
+├── main.py              # FastAPI app, lifespan (starts the sandbox pool), static files
+├── query_engine.py      # Dataset config + schema/sample reads (get_dataset_info). No execution.
+├── guards.py            # LLM defense-in-depth: prompt-guard + code-judge (flash-lite, fail-open)
 ├── tools.py             # Gemini tool definitions (run_query, get_dataset_info, web_search) + system instruction
+├── sandbox/
+│   ├── worker.py        # In-container kernel: runs query code with full builtins (JSONL over stdin/stdout)
+│   └── pool.py          # Host-side warm pool of Podman workers; per-turn checkout/kill/refill
 ├── routes/
 │   ├── auth.py          # POST /api/auth, GET /api/auth/status, POST /api/auth/logout
 │   └── chat.py          # POST /api/chat - SSE stream of Gemini responses + tool execution
@@ -45,5 +49,6 @@ app/
 - **Model selector**: Header dropdown populated from available Gemini models.
 - **Image upload**: Images sent as multipart form data, base64-encoded in history for context.
 - **Google Search grounding**: Available to the model via a `web_search` tool.
-- **Query sandbox**: User queries run in a daemon thread with restricted `__builtins__`, AST validation (blocks imports, file I/O, dunder access), and an 8-minute timeout. The namespace persists across `run_query` calls within a single response turn.
-- **SSE streaming**: Chat endpoint streams events to the frontend: `status` (thinking/running_query), `rejected` (failed queries with error reason), `done` (final response + plots), `error`.
+- **Query sandbox (container-only)**: Query code runs ONLY inside locked-down rootless Podman containers, never in the server process. The container is the security boundary (`--network none`, `--read-only`, `--cap-drop ALL`, non-root, memory/pids limits, parquet mounted `:ro`, ephemeral per turn), so code runs with FULL Python builtins and any image library (polars, numpy, pandas, scipy, scikit-learn, matplotlib, seaborn). There is no AST/blocklist filtering. A warm pool keeps containers ready; each chat turn checks one out, then it's killed and a fresh one spawned in the background. The namespace (including `result`) persists across `run_query` calls within a turn. **podman is required** — startup fails fast without it; build the image with `podman build -t kindling-worker:latest -f Containerfile .`.
+- **LLM guards (defense-in-depth, not the boundary)**: a flash-lite **prompt-guard** screens user messages for injection/abuse at the chat endpoint, and a flash-lite **code-judge** reviews generated code before execution. Both block on a clear-malicious verdict and **fail open** on judge error (the container contains the code regardless).
+- **SSE streaming**: Chat endpoint streams events to the frontend: `status` (thinking/running_query), `rejected` (failed/blocked queries with error reason), `done` (final response + plots), `error`.
