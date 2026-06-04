@@ -184,12 +184,21 @@ class Worker:
                 )
 
     async def request(self, payload: dict, timeout: float) -> dict:
+        # If the container already exited (e.g. OOM-killed by a prior heavy query
+        # in this turn), writing to its stdin would raise; surface WorkerDead.
+        if self.proc.returncode is not None:
+            raise WorkerDead(f"worker already exited (rc={self.proc.returncode})")
         try:
             self.proc.stdin.write((json.dumps(payload) + "\n").encode())
             await self.proc.stdin.drain()
             return await asyncio.wait_for(self._read_frame(), timeout)
-        except (TimeoutError, WorkerDead, BrokenPipeError, ConnectionResetError) as e:
+        except (TimeoutError, WorkerDead) as e:
             raise WorkerDead(str(e) or type(e).__name__) from e
+        except (BrokenPipeError, ConnectionResetError, RuntimeError, ValueError) as e:
+            # Writing/draining a closed pipe of a dead worker. uvloop raises a
+            # plain RuntimeError ("handler is closed"); asyncio raises
+            # ConnectionResetError/ValueError. All mean the worker is gone.
+            raise WorkerDead(f"worker pipe closed: {type(e).__name__}: {e}") from e
 
     async def ping(self, timeout: float = _PING_TIMEOUT) -> None:
         resp = await self.request({"op": "ping"}, timeout)

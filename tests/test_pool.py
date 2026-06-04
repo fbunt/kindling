@@ -10,7 +10,13 @@ import asyncio
 import pytest
 
 import app.sandbox.pool as pool_mod
-from app.sandbox.pool import SandboxBusy, SandboxPool, detect_runtime
+from app.sandbox.pool import (
+    SandboxBusy,
+    SandboxPool,
+    Worker,
+    WorkerDead,
+    detect_runtime,
+)
 
 # --- runtime detection (no runtime installed needed) ---
 
@@ -60,6 +66,37 @@ def test_worker_parquet_path_defaults_to_app_path():
     # No override → app and workers share one filesystem (non-container case).
     pool = SandboxPool("/tmp/fake.parquet", runtime="podman")
     assert pool.worker_parquet_path == pool.parquet_path
+
+
+# --- Worker.request: a dead/closed worker must surface WorkerDead, not crash ---
+
+
+async def test_request_raises_workerdead_when_proc_exited():
+    class FakeProc:
+        returncode = 137  # OOM-killed
+        stdin = None
+
+    w = Worker(name="w", proc=FakeProc())
+    with pytest.raises(WorkerDead):
+        await w.request({"op": "ping"}, timeout=1)
+
+
+async def test_request_maps_closed_transport_to_workerdead():
+    class FakeStdin:
+        def write(self, _data):
+            # what uvloop raises writing to a dead worker's closed transport
+            raise RuntimeError("unable to perform operation; the handler is closed")
+
+        async def drain(self):
+            pass
+
+    class FakeProc:
+        returncode = None  # not yet reaped, but the pipe is gone
+        stdin = FakeStdin()
+
+    w = Worker(name="w", proc=FakeProc())
+    with pytest.raises(WorkerDead):
+        await w.request({"op": "run_query", "code": "x"}, timeout=1)
 
 
 class FakeWorker:
