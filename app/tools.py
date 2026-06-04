@@ -7,6 +7,7 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
+from app.guards import judge_code  # noqa: E402
 from app.query_engine import get_dataset_info  # noqa: E402
 
 SYSTEM_INSTRUCTION = """\
@@ -211,18 +212,23 @@ async def execute_function_call_async(
     if name == "get_dataset_info":
         result = await asyncio.to_thread(get_dataset_info)
     elif name == "run_query":
-        # No AST/blocklist filtering: the container is the security boundary, so
-        # arbitrary code runs as-is inside it. (A code-judge layer is added on top
-        # in execute_function_call_async's caller chain — see app/guards.py.)
+        # No AST/blocklist filtering — the container is the security boundary.
+        # The code-judge (app/guards.py) is a defense-in-depth filter on top:
+        # it blocks clearly-malicious code, fails open otherwise.
         code = args["code"]
-        result = await session.run_query(code)
-        if "plots" in result:
-            for url in result["plots"]:
-                raw_name = (
-                    await asyncio.to_thread(generate_plot_name, code, client)
-                ) or _plot_fallback(url)
-                plots.append(_plot_entry(url, _unique_display_name(raw_name)))
-            result["plots"] = plots
+        allow, reason = await asyncio.to_thread(judge_code, code, client)
+        if not allow:
+            logger.warning("code-judge blocked query: %s\n%s", reason, code)
+            result = {"error": f"Query blocked by safety review: {reason}"}
+        else:
+            result = await session.run_query(code)
+            if "plots" in result:
+                for url in result["plots"]:
+                    raw_name = (
+                        await asyncio.to_thread(generate_plot_name, code, client)
+                    ) or _plot_fallback(url)
+                    plots.append(_plot_entry(url, _unique_display_name(raw_name)))
+                result["plots"] = plots
     elif name == "web_search":
         result = await asyncio.to_thread(_web_search, args["query"], client, model)
     else:
