@@ -180,6 +180,15 @@ class Worker:
             await self.proc.wait()
         except ProcessLookupError:
             pass
+        # Close the subprocess transport while the loop is alive (idempotent;
+        # subsumes the stdin/stdout/stderr pipes). Otherwise its __del__ runs at
+        # GC after the loop closes and emits "Event loop is closed".
+        try:
+            transport = getattr(self.proc, "_transport", None)
+            if transport is not None:
+                transport.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @dataclass
@@ -230,6 +239,7 @@ class SandboxPool:
         self._ready: asyncio.Queue[Worker] = asyncio.Queue()
         self._sema = asyncio.BoundedSemaphore(max_total)
         self._closing = False
+        self._inflight: set[asyncio.Task] = set()  # in-flight discard/refill tasks
 
     async def start(self) -> None:
         await self._reap_orphans()
@@ -244,11 +254,18 @@ class SandboxPool:
         return SandboxSession(worker=worker, pool=self)
 
     def release_session(self, session: SandboxSession) -> None:
-        # Fire-and-forget so the turn's finally never blocks on a cold start.
-        asyncio.create_task(self._discard_and_refill(session.worker))
+        # Fire-and-forget so the turn's finally never blocks on a cold start, but
+        # track the task so drain() can wait for it (no leaked container on shutdown).
+        task = asyncio.create_task(self._discard_and_refill(session.worker))
+        self._inflight.add(task)
+        task.add_done_callback(self._inflight.discard)
 
     async def drain(self) -> None:
         self._closing = True
+        # Wait for in-flight discard/refill tasks so their workers are killed and
+        # no refill spawns a container after we've "drained" (they see _closing).
+        if self._inflight:
+            await asyncio.gather(*self._inflight, return_exceptions=True)
         workers = []
         while not self._ready.empty():
             workers.append(self._ready.get_nowait())
@@ -266,7 +283,17 @@ class SandboxPool:
             raise SandboxBusy("no sandbox worker available") from e
 
     async def _spawn(self) -> Worker:
+        # Bound total live containers; release the permit only on failure (a live
+        # worker holds its permit until _retire releases it). _launch_worker is a
+        # seam tests fake to exercise this logic without real podman.
         await self._sema.acquire()
+        try:
+            return await self._launch_worker()
+        except BaseException:
+            self._sema.release()
+            raise
+
+    async def _launch_worker(self) -> Worker:
         proc = None
         name = f"{_NAME_PREFIX}{uuid.uuid4().hex[:12]}"
         try:
@@ -298,7 +325,6 @@ class SandboxPool:
                 except ProcessLookupError:
                     pass
                 await _podman("rm", "-f", name)
-            self._sema.release()
             raise
 
     async def _spawn_into_ready(self) -> None:

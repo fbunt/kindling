@@ -32,6 +32,14 @@ asyncio_mode = "auto"
 markers = [
     "model_eval: model-behavior eval test (skipped unless --run-evals is passed)",
 ]
+filterwarnings = [
+    # Benign asyncio/pytest teardown artifact: subprocess transports (worker procs
+    # and the short-lived `podman` helper procs) GC'd after a per-test event loop
+    # closes, surfacing as "Event loop is closed" unraisables. Worker.kill closes
+    # its transport and drain() awaits in-flight refills to minimize these; this
+    # backstops residual GC-timing noise from the helper subprocesses.
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
 
 [build-system]
 requires = ["setuptools"]
