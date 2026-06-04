@@ -1,14 +1,17 @@
 """In-container sandbox worker.
 
 Runs INSIDE a locked-down Podman container. Speaks newline-delimited JSON over
-stdin/stdout to the host pool (app/sandbox/pool.py). Holds a persistent Polars
+stdin/stdout to the host pool (app/sandbox/pool.py). Holds a persistent
 namespace (a "kernel") so variables defined in one run_query call survive across
-calls within a single chat turn — mirroring the in-process semantics of
-app/query_engine.py.
+calls within a single chat turn.
+
+The container is the security boundary (--network none, --read-only, --cap-drop
+ALL, non-root, ephemeral, no secrets), so the code runs with FULL Python
+builtins and unrestricted imports — any library in the image is available. There
+is no AST/blocklist filtering here; safety comes from the box, not from the code.
 
 This module must NOT import anything from the `app` package: the container image
-only ships this file plus polars/numpy/matplotlib/seaborn. Where logic is
-duplicated from app/query_engine.py it is annotated so the two stay in sync.
+only ships this file plus the scientific-python stack.
 """
 
 import base64
@@ -32,69 +35,13 @@ matplotlib.use("Agg")
 matplotlib.rcParams["figure.figsize"] = (10, 6)
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 import polars as pl  # noqa: E402
 import seaborn as sns  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
 MAX_ROWS = 100
 QUERY_TIMEOUT = 480  # seconds — soft timeout; preserves the kernel on expiry
-
-# Mirror of app.query_engine's restricted import. The host strips EXPLICIT
-# imports before dispatch, but numpy/polars/matplotlib lazily import their own
-# submodules at runtime (e.g. ndarray.mean() imports numpy._core._methods), and
-# those resolve __import__ through THIS namespace's builtins — so __import__ must
-# be present (and constrained to the allowed libraries), exactly as in-process.
-_IMPORTABLE_PREFIXES = ("numpy.", "polars.", "math.", "matplotlib.", "seaborn.")
-_real_import = (
-    __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
-)
-
-
-def _restricted_import(name, *args, **kwargs):
-    if any(name == p[:-1] or name.startswith(p) for p in _IMPORTABLE_PREFIXES):
-        return _real_import(name, *args, **kwargs)
-    raise ImportError(f"Import of '{name}' is not allowed")
-
-
-# Mirror of app.query_engine._RESTRICTED_BUILTINS, to keep namespace semantics
-# identical to the in-process path.
-_RESTRICTED_BUILTINS = {
-    "True": True,
-    "False": False,
-    "None": None,
-    "abs": abs,
-    "all": all,
-    "any": any,
-    "bool": bool,
-    "dict": dict,
-    "divmod": divmod,
-    "enumerate": enumerate,
-    "filter": filter,
-    "float": float,
-    "hasattr": hasattr,
-    "int": int,
-    "iter": iter,
-    "len": len,
-    "list": list,
-    "locals": locals,
-    "map": map,
-    "max": max,
-    "min": min,
-    "next": next,
-    "pow": pow,
-    "print": lambda *a, **kw: None,
-    "range": range,
-    "reversed": reversed,
-    "round": round,
-    "set": set,
-    "slice": slice,
-    "sorted": sorted,
-    "str": str,
-    "sum": sum,
-    "tuple": tuple,
-    "zip": zip,
-    "__import__": _restricted_import,
-}
 
 
 def _build_lazyframe(path):
@@ -125,12 +72,17 @@ class _Namespace(dict):
 
 
 def build_namespace() -> _Namespace:
-    """Create the persistent execution namespace (mirror create_namespace)."""
+    """Create the persistent execution namespace.
+
+    No "__builtins__" key is set, so exec() injects the FULL builtins — the
+    container is the boundary, not a restricted builtins table. scipy/sklearn and
+    any other image library are importable on demand; the common objects below
+    are preloaded for convenience."""
     return _Namespace(
         {
-            "__builtins__": _RESTRICTED_BUILTINS,
             "pl": pl,
             "np": np,
+            "pd": pd,
             "math": math,
             "lf": LF.clone(),
             "plt": plt,

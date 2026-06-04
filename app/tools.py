@@ -33,9 +33,11 @@ Before filtering or labeling by these columns, consult `get_dataset_info` for th
 
 Write Polars code operating on a LazyFrame named `lf`. The code must assign the final value to `result` (unless the call only produces a plot).
 
-Available objects (pre-loaded; imports unnecessary): `pl`, `np`, `math`, `lf`, `plt`, `sns`, `Patch` (matplotlib.patches.Patch, for legend handles).
+Available objects (pre-loaded; imports unnecessary): `pl` (polars), `np` (numpy), `pd` (pandas), `math`, `lf`, `plt`, `sns`, `Patch` (matplotlib.patches.Patch, for legend handles).
 
-If you do include imports, only these are accepted: `import numpy as np`, `import polars as pl`, `import math`, `import matplotlib.pyplot as plt`, `import seaborn as sns`, `from matplotlib import pyplot as plt`. Anything else is rejected.
+You may import any installed library on demand — the scientific-python stack is available, including `scipy` (e.g. `import scipy.stats as stats`) and `scikit-learn` (e.g. `from sklearn.cluster import KMeans`). Use them for statistics, modeling, and analysis the dataframe APIs don't cover.
+
+pandas (`pd`) is for SMALL results only: do the heavy filtering/aggregation in Polars first, then `.to_pandas()` on the reduced frame. Never convert the full 745M-row dataset to pandas — it will run out of memory.
 
 Examples:
 - `result = lf.select("year", "Incid_Name", "area_m2").head(10)`

@@ -1,9 +1,10 @@
 # Sandbox worker image for kindling query execution.
 # Build: podman build -t kindling-worker:latest -f Containerfile .
 #
-# Versions are pinned VERBATIM from uv.lock so in-container query semantics match
-# what the eval suite validates. Python is pinned to the host venv's patch version
-# (3.12.13) so to_dicts() float/repr formatting matches the in-process path.
+# polars/numpy/matplotlib/seaborn/pyarrow are pinned from uv.lock so core query
+# semantics match the host's schema reads. pandas/scipy/scikit-learn are the
+# model's extra analysis toolkit (container-only — the host never executes
+# queries). Python is pinned to the host venv patch version (3.12.13).
 FROM python:3.12.13-slim
 
 RUN pip install --no-cache-dir \
@@ -11,7 +12,10 @@ RUN pip install --no-cache-dir \
         numpy==2.4.2 \
         matplotlib==3.10.8 \
         seaborn==0.13.2 \
-        pyarrow==23.0.1
+        pyarrow==23.0.1 \
+        pandas==3.0.3 \
+        scipy==1.17.1 \
+        scikit-learn==1.9.0
 
 ENV MPLBACKEND=Agg \
     XDG_CACHE_HOME=/tmp \
