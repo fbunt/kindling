@@ -76,13 +76,17 @@ def build_run_argv(
     host_parquet_path: str,
     in_container_path: str,
     memory: str,
-    cpus: str,
+    cpus: str | None,
     pids: int,
-    max_threads: int,
+    max_threads: int | None,
 ) -> list[str]:
     """Construct the hardened `run` argv for one worker. Identical across podman
     and docker except `--userns=keep-id`, which is podman-only (rootless UID
-    mapping; docker has no equivalent)."""
+    mapping; docker has no equivalent).
+
+    cpus=None  -> no CPU cap; the worker uses all host cores.
+    max_threads=None -> POLARS_MAX_THREADS unset; polars/BLAS auto-detect cores.
+    """
     argv = [
         runtime,
         "run",
@@ -99,8 +103,6 @@ def build_run_argv(
         memory,
         "--memory-swap",
         memory,
-        "--cpus",
-        cpus,
         "--pids-limit",
         str(pids),
         "--cap-drop",
@@ -108,6 +110,8 @@ def build_run_argv(
         "--security-opt",
         "no-new-privileges",
     ]
+    if cpus:
+        argv += ["--cpus", cpus]
     if runtime == "podman":
         argv.append("--userns=keep-id")
     argv += [
@@ -116,10 +120,10 @@ def build_run_argv(
         f"{host_parquet_path}:{in_container_path}:ro,z",
         "-e",
         f"KINDLING_PARQUET_PATH={in_container_path}",
-        "-e",
-        f"POLARS_MAX_THREADS={max_threads}",
-        image,
     ]
+    if max_threads:
+        argv += ["-e", f"POLARS_MAX_THREADS={max_threads}"]
+    argv.append(image)
     return argv
 
 
@@ -269,9 +273,9 @@ class SandboxPool:
         hard_timeout: float = 510.0,
         checkout_timeout: float = 120.0,
         memory: str = "110g",
-        cpus: str = "1.0",
+        cpus: str | None = None,  # None → no CPU cap (worker uses all host cores)
         pids: int = 128,
-        max_threads: int = 4,
+        max_threads: int | None = None,  # None → polars/BLAS auto-detect cores
         runtime: str | None = None,
         worker_parquet_path: str | None = None,
     ) -> None:

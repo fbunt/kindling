@@ -55,12 +55,34 @@ def test_build_run_argv_hardening(runtime):
     assert "--pids-limit 128" in joined
     assert "/data/real.parquet:/data/dataset.parquet:ro,z" in joined
     assert "KINDLING_PARQUET_PATH=/data/dataset.parquet" in argv
+    # A CPU cap was requested → it and the coupled polars thread count appear.
+    assert "--cpus 1.0" in joined
     assert "POLARS_MAX_THREADS=4" in argv
     # --userns=keep-id is podman-only (rootless UID mapping).
     if runtime == "podman":
         assert "--userns=keep-id" in argv
     else:
         assert "--userns=keep-id" not in argv
+
+
+def test_build_run_argv_all_cores_when_unlimited():
+    # cpus=None / max_threads=None → no CPU cap and no POLARS_MAX_THREADS, so the
+    # worker uses all host cores (polars/BLAS auto-detect).
+    argv = build_run_argv(
+        "podman",
+        image=IMAGE,
+        name="w",
+        host_parquet_path="/data/real.parquet",
+        in_container_path="/data/dataset.parquet",
+        memory="110g",
+        cpus=None,
+        pids=128,
+        max_threads=None,
+    )
+    assert "--cpus" not in argv
+    assert not any(a.startswith("POLARS_MAX_THREADS=") for a in argv)
+    # still hardened
+    assert "--network" in argv and "--read-only" in argv and "--cap-drop" in argv
 
 
 def test_materialize_plots_roundtrip(tmp_path, monkeypatch):

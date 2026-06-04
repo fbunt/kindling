@@ -21,8 +21,10 @@ RUN pip install --no-cache-dir \
 ENV MPLBACKEND=Agg \
     XDG_CACHE_HOME=/tmp \
     POLARS_TEMP_DIR=/tmp \
-    POLARS_MAX_THREADS=4 \
     PYTHONUNBUFFERED=1
+# POLARS_MAX_THREADS is intentionally NOT pinned here: the pool passes it via -e
+# only when a CPU cap is configured (KINDLING_SANDBOX_CPUS); otherwise polars
+# auto-detects and uses all host cores.
 
 # Pre-compile stdlib/site so first-query latency under the read-only root
 # filesystem stays low. (matplotlib's MPLCONFIGDIR is chosen at runtime by the

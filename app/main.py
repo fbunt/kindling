@@ -45,12 +45,19 @@ async def lifespan(app: FastAPI):
     parquet = os.environ.get("KINDLING_PARQUET_PATH_HOST")
     if not parquet:
         raise RuntimeError("Parquet path unknown; was configure() called?")
+    # Default: no CPU cap → workers use all host cores (polars/BLAS auto-detect).
+    # Set KINDLING_SANDBOX_CPUS=N to cap; the polars thread count is coupled to N
+    # so it doesn't over- or under-subscribe the allotted cores.
+    cpus = os.environ.get("KINDLING_SANDBOX_CPUS") or None
+    max_threads = max(1, int(float(cpus))) if cpus else None
     pool = SandboxPool(
         parquet,
         size=int(os.environ.get("KINDLING_POOL_SIZE", "2")),
         max_total=int(os.environ.get("KINDLING_SANDBOX_MAX_TOTAL", "3")),
         image=os.environ.get("KINDLING_SANDBOX_IMAGE", "kindling-worker:latest"),
         memory=os.environ.get("KINDLING_SANDBOX_MEM", "110g"),
+        cpus=cpus,
+        max_threads=max_threads,
         # When the app runs in a container, workers are siblings on the host
         # runtime; this is the HOST path to bind-mount into them (differs from the
         # app's own `parquet` view). Unset → same filesystem, use `parquet`.
