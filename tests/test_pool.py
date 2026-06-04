@@ -10,7 +10,35 @@ import asyncio
 import pytest
 
 import app.sandbox.pool as pool_mod
-from app.sandbox.pool import SandboxBusy, SandboxPool
+from app.sandbox.pool import SandboxBusy, SandboxPool, detect_runtime
+
+# --- runtime detection (no runtime installed needed) ---
+
+
+def test_detect_runtime_honors_env(monkeypatch):
+    monkeypatch.setenv("KINDLING_CONTAINER_RUNTIME", "docker")
+    assert detect_runtime() == "docker"
+
+
+def test_detect_runtime_prefers_podman(monkeypatch):
+    monkeypatch.delenv("KINDLING_CONTAINER_RUNTIME", raising=False)
+    monkeypatch.setattr(pool_mod.shutil, "which", lambda x: f"/usr/bin/{x}")
+    assert detect_runtime() == "podman"
+
+
+def test_detect_runtime_falls_back_to_docker(monkeypatch):
+    monkeypatch.delenv("KINDLING_CONTAINER_RUNTIME", raising=False)
+    monkeypatch.setattr(
+        pool_mod.shutil, "which", lambda x: "/usr/bin/docker" if x == "docker" else None
+    )
+    assert detect_runtime() == "docker"
+
+
+def test_detect_runtime_none_raises(monkeypatch):
+    monkeypatch.delenv("KINDLING_CONTAINER_RUNTIME", raising=False)
+    monkeypatch.setattr(pool_mod.shutil, "which", lambda _x: None)
+    with pytest.raises(RuntimeError):
+        detect_runtime()
 
 
 class FakeWorker:
@@ -24,7 +52,11 @@ class FakeWorker:
 
 
 def make_pool(monkeypatch, **kw):
-    """A pool whose container launch + podman teardown probes are faked."""
+    """A pool whose container launch + runtime teardown probes are faked.
+
+    runtime is pinned so detect_runtime() isn't invoked (these run without any
+    container runtime installed)."""
+    kw.setdefault("runtime", "podman")
     pool = SandboxPool("/tmp/fake.parquet", **kw)
     created: list[FakeWorker] = []
     counter = {"n": 0}
@@ -105,16 +137,16 @@ async def test_spawn_failure_releases_semaphore(monkeypatch):
 async def test_reap_orphans_removes_listed(monkeypatch):
     calls = []
 
-    async def fake_capture(*_a):
+    async def fake_capture(_runtime, *_a):
         return "id1 id2\n"
 
-    async def fake_podman(*args):
+    async def fake_cli(_runtime, *args):
         calls.append(args)
         return 0
 
-    monkeypatch.setattr(pool_mod, "_podman_capture", fake_capture)
-    monkeypatch.setattr(pool_mod, "_podman", fake_podman)
-    pool = SandboxPool("/tmp/fake.parquet")
+    monkeypatch.setattr(pool_mod, "_cli_capture", fake_capture)
+    monkeypatch.setattr(pool_mod, "_cli", fake_cli)
+    pool = SandboxPool("/tmp/fake.parquet", runtime="podman")
     await pool._reap_orphans()
     assert ("rm", "-f", "id1", "id2") in calls
 

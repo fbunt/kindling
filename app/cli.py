@@ -30,8 +30,8 @@ def main():
         "--pool-size",
         type=int,
         default=None,
-        help="Warm sandbox containers to keep ready (default: 2). Requires "
-        "podman and a built kindling-worker image.",
+        help="Warm sandbox containers to keep ready (default: 2). Requires a "
+        "container runtime (podman or docker) and a built kindling-worker image.",
     )
 
     args = parser.parse_args()

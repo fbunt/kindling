@@ -13,6 +13,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import shutil
 import time
 import uuid
@@ -40,11 +41,34 @@ class SandboxBusy(Exception):
     """No worker became available within the checkout timeout."""
 
 
-def podman_available() -> bool:
-    return shutil.which("podman") is not None
+_RUNTIMES = ("podman", "docker")
 
 
-def build_podman_argv(
+def detect_runtime() -> str:
+    """Pick a container runtime: KINDLING_CONTAINER_RUNTIME if set, else the first
+    of podman/docker on PATH (podman preferred — stronger rootless default)."""
+    explicit = os.environ.get("KINDLING_CONTAINER_RUNTIME")
+    if explicit:
+        return explicit
+    for rt in _RUNTIMES:
+        if shutil.which(rt):
+            return rt
+    raise RuntimeError(
+        "No container runtime found. Install podman or docker, or set "
+        "KINDLING_CONTAINER_RUNTIME."
+    )
+
+
+def runtime_available() -> bool:
+    """True if a usable container runtime is available."""
+    explicit = os.environ.get("KINDLING_CONTAINER_RUNTIME")
+    if explicit:
+        return shutil.which(explicit) is not None
+    return any(shutil.which(rt) for rt in _RUNTIMES)
+
+
+def build_run_argv(
+    runtime: str,
     *,
     image: str,
     name: str,
@@ -55,9 +79,11 @@ def build_podman_argv(
     pids: int,
     max_threads: int,
 ) -> list[str]:
-    """Construct the hardened rootless `podman run` argv for one worker."""
-    return [
-        "podman",
+    """Construct the hardened `run` argv for one worker. Identical across podman
+    and docker except `--userns=keep-id`, which is podman-only (rootless UID
+    mapping; docker has no equivalent)."""
+    argv = [
+        runtime,
         "run",
         "--rm",
         "-i",
@@ -80,9 +106,11 @@ def build_podman_argv(
         "ALL",
         "--security-opt",
         "no-new-privileges",
-        "--userns=keep-id",
-        # :ro,z relabels for SELinux (Fedora host). If the mount source can't be
-        # relabeled, swap for `--security-opt label=disable`.
+    ]
+    if runtime == "podman":
+        argv.append("--userns=keep-id")
+    argv += [
+        # :ro,z relabels for SELinux (no-op off SELinux on both runtimes).
         "-v",
         f"{host_parquet_path}:{in_container_path}:ro,z",
         "-e",
@@ -91,11 +119,12 @@ def build_podman_argv(
         f"POLARS_MAX_THREADS={max_threads}",
         image,
     ]
+    return argv
 
 
-async def _podman(*args: str) -> int:
+async def _cli(runtime: str, *args: str) -> int:
     proc = await asyncio.create_subprocess_exec(
-        "podman",
+        runtime,
         *args,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -104,9 +133,9 @@ async def _podman(*args: str) -> int:
     return proc.returncode
 
 
-async def _podman_capture(*args: str) -> str:
+async def _cli_capture(runtime: str, *args: str) -> str:
     proc = await asyncio.create_subprocess_exec(
-        "podman",
+        runtime,
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
@@ -133,6 +162,7 @@ def materialize_plots(b64_pngs: list[str], turn_id: str) -> list[str]:
 class Worker:
     name: str
     proc: asyncio.subprocess.Process
+    runtime: str = "podman"
     stderr_task: "asyncio.Task | None" = None
 
     async def _read_frame(self) -> dict:
@@ -171,7 +201,7 @@ class Worker:
         if self.stderr_task is not None:
             self.stderr_task.cancel()
         try:
-            await _podman("kill", self.name)
+            await _cli(self.runtime, "kill", self.name)
         except Exception:  # noqa: BLE001 — best-effort teardown
             pass
         try:
@@ -225,8 +255,10 @@ class SandboxPool:
         cpus: str = "1.0",
         pids: int = 128,
         max_threads: int = 4,
+        runtime: str | None = None,
     ) -> None:
         self.parquet_path = str(Path(parquet_path).resolve())
+        self.runtime = runtime or detect_runtime()
         self.size = size
         self.image = image
         self.in_container_path = in_container_path
@@ -242,12 +274,42 @@ class SandboxPool:
         self._inflight: set[asyncio.Task] = set()  # in-flight discard/refill tasks
 
     async def start(self) -> None:
+        await self._log_runtime()
         await self._reap_orphans()
         await self._probe_limits()
         await asyncio.gather(*(self._spawn_into_ready() for _ in range(self.size)))
         logger.info(
             "sandbox pool ready: %d/%d warm workers", self._ready.qsize(), self.size
         )
+
+    async def _log_runtime(self) -> None:
+        """Log the runtime and warn if it looks rootful (weaker boundary).
+
+        rootless (podman, or docker rootless): a container escape lands on an
+        unprivileged user. Rootful docker maps container-root to host-root, so the
+        same flags are a weaker wall. Best-effort — never blocks startup."""
+        rootless = None
+        try:
+            if self.runtime == "podman":
+                out = await _cli_capture(
+                    self.runtime, "info", "--format", "{{.Host.Security.Rootless}}"
+                )
+                rootless = out.strip().lower() == "true"
+            else:  # docker
+                out = await _cli_capture(
+                    self.runtime, "info", "--format", "{{.SecurityOptions}}"
+                )
+                rootless = "rootless" in out.lower()
+        except Exception:  # noqa: BLE001 — diagnostics only
+            logger.debug("could not determine runtime rootless mode", exc_info=True)
+        logger.info("sandbox runtime: %s (rootless=%s)", self.runtime, rootless)
+        if rootless is False:
+            logger.warning(
+                "sandbox runtime %s appears rootful: a container escape maps to "
+                "host root, weakening the sandbox boundary. Prefer rootless "
+                "podman, or rootless/userns-remap docker.",
+                self.runtime,
+            )
 
     async def acquire_session(self) -> SandboxSession:
         worker = await self._checkout()
@@ -297,7 +359,8 @@ class SandboxPool:
         proc = None
         name = f"{_NAME_PREFIX}{uuid.uuid4().hex[:12]}"
         try:
-            argv = build_podman_argv(
+            argv = build_run_argv(
+                self.runtime,
                 image=self.image,
                 name=name,
                 host_parquet_path=self.parquet_path,
@@ -314,7 +377,7 @@ class SandboxPool:
                 stderr=asyncio.subprocess.PIPE,
                 limit=_STREAM_LIMIT,
             )
-            worker = Worker(name=name, proc=proc)
+            worker = Worker(name=name, proc=proc, runtime=self.runtime)
             worker.stderr_task = asyncio.create_task(self._drain_stderr(worker))
             await worker.ping()
             return worker
@@ -324,7 +387,7 @@ class SandboxPool:
                     proc.kill()
                 except ProcessLookupError:
                     pass
-                await _podman("rm", "-f", name)
+                await _cli(self.runtime, "rm", "-f", name)
             raise
 
     async def _spawn_into_ready(self) -> None:
@@ -364,18 +427,21 @@ class SandboxPool:
     async def _reap_orphans(self) -> None:
         """Remove worker containers leaked by a prior hard-killed server."""
         try:
-            out = await _podman_capture("ps", "-aq", "--filter", f"name={_NAME_PREFIX}")
+            out = await _cli_capture(
+                self.runtime, "ps", "-aq", "--filter", f"name={_NAME_PREFIX}"
+            )
             ids = out.split()
             if ids:
                 logger.warning("sandbox: reaping %d orphaned container(s)", len(ids))
-                await _podman("rm", "-f", *ids)
+                await _cli(self.runtime, "rm", "-f", *ids)
         except Exception:  # noqa: BLE001
             logger.debug("sandbox: orphan reap failed", exc_info=True)
 
     async def _probe_limits(self) -> None:
         """Warn (don't fail) if cgroup memory limits aren't enforced here."""
         try:
-            out = await _podman_capture(
+            out = await _cli_capture(
+                self.runtime,
                 "run",
                 "--rm",
                 "--network",

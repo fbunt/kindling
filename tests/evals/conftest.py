@@ -97,10 +97,10 @@ async def sandbox_pool():
 
     Function-scoped so the pool lives on the same event loop as the test (its
     worker subprocess transports are bound to that loop)."""
-    from app.sandbox.pool import SandboxPool, podman_available
+    from app.sandbox.pool import SandboxPool, runtime_available
 
-    if not podman_available():
-        pytest.skip("podman unavailable (query execution is container-only)")
+    if not runtime_available():
+        pytest.skip("no container runtime (query execution is container-only)")
     pool = SandboxPool(_SAMPLE, size=1, max_total=2)
     await pool.start()
     try:

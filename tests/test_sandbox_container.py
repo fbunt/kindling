@@ -20,7 +20,8 @@ import pytest
 
 from app.sandbox.pool import (
     SandboxPool,
-    build_podman_argv,
+    build_run_argv,
+    detect_runtime,
     materialize_plots,
 )
 
@@ -30,8 +31,10 @@ IMAGE = "kindling-worker:latest"
 # --- pure unit tests (no podman required) ---
 
 
-def test_build_podman_argv_hardening():
-    argv = build_podman_argv(
+@pytest.mark.parametrize("runtime", ["podman", "docker"])
+def test_build_run_argv_hardening(runtime):
+    argv = build_run_argv(
+        runtime,
         image=IMAGE,
         name="kindling-worker-test",
         host_parquet_path="/data/real.parquet",
@@ -41,6 +44,7 @@ def test_build_podman_argv_hardening():
         pids=128,
         max_threads=4,
     )
+    assert argv[0] == runtime
     joined = " ".join(argv)
     assert "--network none" in joined
     assert "--read-only" in joined
@@ -52,6 +56,11 @@ def test_build_podman_argv_hardening():
     assert "/data/real.parquet:/data/dataset.parquet:ro,z" in joined
     assert "KINDLING_PARQUET_PATH=/data/dataset.parquet" in argv
     assert "POLARS_MAX_THREADS=4" in argv
+    # --userns=keep-id is podman-only (rootless UID mapping).
+    if runtime == "podman":
+        assert "--userns=keep-id" in argv
+    else:
+        assert "--userns=keep-id" not in argv
 
 
 def test_materialize_plots_roundtrip(tmp_path, monkeypatch):
@@ -77,11 +86,15 @@ def test_materialize_plots_roundtrip(tmp_path, monkeypatch):
 
 
 def _container_available() -> bool:
-    if shutil.which("podman") is None:
+    try:
+        runtime = detect_runtime()
+    except RuntimeError:
+        return False
+    if shutil.which(runtime) is None:
         return False
     return (
         subprocess.run(
-            ["podman", "image", "exists", IMAGE], capture_output=True
+            [runtime, "image", "inspect", IMAGE], capture_output=True
         ).returncode
         == 0
     )

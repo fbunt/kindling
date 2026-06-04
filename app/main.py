@@ -31,13 +31,14 @@ configure()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start/drain the sandbox container pool. Query execution is container-only,
-    so podman is required — startup fails fast without it."""
-    from app.sandbox.pool import SandboxPool, podman_available
+    so a container runtime (podman or docker) is required — fails fast without."""
+    from app.sandbox.pool import SandboxPool, runtime_available
 
-    if not podman_available():
+    if not runtime_available():
         raise RuntimeError(
-            "Query execution runs in Podman containers, but the `podman` binary "
-            "is not on PATH. Install podman and build the kindling-worker image."
+            "Query execution runs in containers, but no container runtime was "
+            "found. Install podman or docker (or set KINDLING_CONTAINER_RUNTIME) "
+            "and build the kindling-worker image."
         )
     # Re-derive the parquet path from the env var configure() exported, not from
     # a module global that an import-time configure() may have set to the default.
