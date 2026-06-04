@@ -69,10 +69,12 @@ def test_worker_parquet_path_defaults_to_app_path():
 
 
 def test_pool_defaults_to_all_cores():
-    # No cap → workers use all host cores (no --cpus, polars auto-detects).
+    # No cap → workers use all host cores (no --cpus, polars auto-detects); the
+    # pid cap is generous (all-cores workloads run many threads).
     pool = SandboxPool("/tmp/fake.parquet", runtime="podman")
     assert pool.cpus is None
     assert pool.max_threads is None
+    assert pool.pids == 8192
 
 
 # --- Worker.request: a dead/closed worker must surface WorkerDead, not crash ---

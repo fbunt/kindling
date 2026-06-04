@@ -85,6 +85,21 @@ def test_build_run_argv_all_cores_when_unlimited():
     assert "--network" in argv and "--read-only" in argv and "--cap-drop" in argv
 
 
+def test_build_run_argv_omits_pids_limit_when_none():
+    argv = build_run_argv(
+        "podman",
+        image=IMAGE,
+        name="w",
+        host_parquet_path="/p",
+        in_container_path="/data/dataset.parquet",
+        memory="110g",
+        cpus=None,
+        pids=None,
+        max_threads=None,
+    )
+    assert "--pids-limit" not in argv
+
+
 def test_materialize_plots_roundtrip(tmp_path, monkeypatch):
     import app.sandbox.pool as pool_mod
 

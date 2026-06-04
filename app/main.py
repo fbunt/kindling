@@ -50,6 +50,15 @@ async def lifespan(app: FastAPI):
     # so it doesn't over- or under-subscribe the allotted cores.
     cpus = os.environ.get("KINDLING_SANDBOX_CPUS") or None
     max_threads = max(1, int(float(cpus))) if cpus else None
+    # pid cap: generous default (all-cores workers run many threads); "0"/"none"
+    # disables it. Bounds a runaway fork bomb without starving legit ML threads.
+    pids_env = os.environ.get("KINDLING_SANDBOX_PIDS")
+    if pids_env is None:
+        pids = 8192
+    elif pids_env.strip().lower() in ("0", "none", "unlimited"):
+        pids = None
+    else:
+        pids = int(pids_env)
     pool = SandboxPool(
         parquet,
         size=int(os.environ.get("KINDLING_POOL_SIZE", "2")),
@@ -57,6 +66,7 @@ async def lifespan(app: FastAPI):
         image=os.environ.get("KINDLING_SANDBOX_IMAGE", "kindling-worker:latest"),
         memory=os.environ.get("KINDLING_SANDBOX_MEM", "110g"),
         cpus=cpus,
+        pids=pids,
         max_threads=max_threads,
         # When the app runs in a container, workers are siblings on the host
         # runtime; this is the HOST path to bind-mount into them (differs from the

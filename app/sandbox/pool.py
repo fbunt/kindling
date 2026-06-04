@@ -77,7 +77,7 @@ def build_run_argv(
     in_container_path: str,
     memory: str,
     cpus: str | None,
-    pids: int,
+    pids: int | None,
     max_threads: int | None,
 ) -> list[str]:
     """Construct the hardened `run` argv for one worker. Identical across podman
@@ -103,13 +103,13 @@ def build_run_argv(
         memory,
         "--memory-swap",
         memory,
-        "--pids-limit",
-        str(pids),
         "--cap-drop",
         "ALL",
         "--security-opt",
         "no-new-privileges",
     ]
+    if pids:
+        argv += ["--pids-limit", str(pids)]
     if cpus:
         argv += ["--cpus", cpus]
     if runtime == "podman":
@@ -274,7 +274,10 @@ class SandboxPool:
         checkout_timeout: float = 120.0,
         memory: str = "110g",
         cpus: str | None = None,  # None → no CPU cap (worker uses all host cores)
-        pids: int = 128,
+        # All-cores workers run many threads (polars rayon + OpenBLAS + sklearn
+        # OpenMP, each ~core-count), so the pid cap must be generous; it still
+        # bounds a runaway fork bomb. None → no cap.
+        pids: int | None = 8192,
         max_threads: int | None = None,  # None → polars/BLAS auto-detect cores
         runtime: str | None = None,
         worker_parquet_path: str | None = None,
