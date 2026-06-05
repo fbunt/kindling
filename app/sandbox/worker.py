@@ -17,7 +17,6 @@ only ships this file plus the scientific-python stack.
 import base64
 import io
 import json
-import math
 import os
 import sys
 import tempfile
@@ -34,11 +33,7 @@ import matplotlib  # noqa: E402
 matplotlib.use("Agg")
 matplotlib.rcParams["figure.figsize"] = (10, 6)
 import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
 import polars as pl  # noqa: E402
-import seaborn as sns  # noqa: E402
-from matplotlib.patches import Patch  # noqa: E402
 
 MAX_ROWS = 100
 QUERY_TIMEOUT = 480  # seconds — soft timeout; preserves the kernel on expiry
@@ -76,19 +71,15 @@ def build_namespace() -> _Namespace:
     """Create the persistent execution namespace.
 
     No "__builtins__" key is set, so exec() injects the FULL builtins — the
-    container is the boundary, not a restricted builtins table. scipy/sklearn and
-    any other image library are importable on demand; the common objects below
-    are preloaded for convenience."""
+    container is the boundary, not a restricted builtins table. Only two names are
+    preloaded: `lf` (the bound LazyFrame, which can't be imported) and `pl`
+    (polars, used in every query). Every other library in the image — numpy,
+    pandas, matplotlib, seaborn, scipy, scikit-learn, xgboost — is importable on
+    demand; the model imports what it uses."""
     return _Namespace(
         {
             "pl": pl,
-            "np": np,
-            "pd": pd,
-            "math": math,
             "lf": LF.clone(),
-            "plt": plt,
-            "sns": sns,
-            "Patch": Patch,
         }
     )
 

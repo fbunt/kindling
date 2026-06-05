@@ -260,7 +260,9 @@ async def test_plot_is_returned_as_png(pool, tmp_path, monkeypatch):
     monkeypatch.setattr(pool_mod, "PLOTS_DIR", tmp_path)
     session = await pool.acquire_session()
     try:
-        out = await session.run_query("plt.figure()\nplt.plot([1, 2, 3])")
+        out = await session.run_query(
+            "import matplotlib.pyplot as plt\nplt.figure()\nplt.plot([1, 2, 3])"
+        )
         assert "error" not in out, out
         assert out["plots"], "expected at least one plot URL"
         url = out["plots"][0]

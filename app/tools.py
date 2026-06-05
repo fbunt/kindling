@@ -29,11 +29,11 @@ Before filtering or labeling by these columns, consult `get_dataset_info` for th
 
 Write Polars code operating on a LazyFrame named `lf`. The code must assign the final value to `result` (unless the call only produces a plot).
 
-Available objects (pre-loaded; imports unnecessary): `pl` (polars), `np` (numpy), `pd` (pandas), `math`, `lf`, `plt`, `sns`, `Patch` (matplotlib.patches.Patch, for legend handles).
+Two names are preloaded, no import needed: `lf` (the LazyFrame) and `pl` (polars). Import anything else you use.
 
-You may import any installed library on demand — the scientific-python stack is available, including `scipy` (e.g. `import scipy.stats as stats`), `scikit-learn` (e.g. `from sklearn.cluster import KMeans`), and `xgboost` (e.g. `import xgboost as xgb`). Use them for statistics, modeling, and analysis the dataframe APIs don't cover.
+The full scientific-python stack is installed — import what you need: `numpy`, `pandas`, `math`, `matplotlib.pyplot` (and `matplotlib.patches` for legend handles), `seaborn`, `scipy` (e.g. `import scipy.stats as stats`), `scikit-learn` (e.g. `from sklearn.cluster import KMeans`), and `xgboost` (e.g. `import xgboost as xgb`). Use them for statistics, modeling, plotting, and analysis the dataframe APIs don't cover.
 
-pandas (`pd`) is for SMALL results only: do the heavy filtering/aggregation in Polars first, then `.to_pandas()` on the reduced frame. Never convert the full 745M-row dataset to pandas — it will run out of memory.
+pandas is for SMALL results only: do the heavy filtering/aggregation in Polars first, then `.to_pandas()` on the reduced frame. Never convert the full 745M-row dataset to pandas — it will run out of memory.
 
 Examples:
 - `result = lf.select("year", "Incid_Name", "area_m2").head(10)`
@@ -42,7 +42,7 @@ Examples:
 
 ## Plots
 
-Plots are auto-captured. Just build the figure — skip `plt.savefig()` and `plt.show()`. Reference returned URLs with markdown image syntax: `![description](url)`. Plot-only calls don't need to assign to `result`. Generated plot images are returned to you in conversation history for review.
+Plots are auto-captured. Import matplotlib (`import matplotlib.pyplot as plt`) and just build the figure — skip `plt.savefig()` and `plt.show()`. Reference returned URLs with markdown image syntax: `![description](url)`. Plot-only calls don't need to assign to `result`. Generated plot images are returned to you in conversation history for review.
 
 ## Dataset statistics
 
@@ -113,7 +113,7 @@ FIRE_DATA_TOOLS = types.Tool(
                 properties={
                     "code": types.Schema(
                         type="STRING",
-                        description="Polars Python code to execute. Must assign to `result`. Has access to `lf` (LazyFrame) and `pl` (polars).",
+                        description="Polars Python code to execute. Must assign to `result`. Has `lf` (LazyFrame) and `pl` (polars) preloaded; import any other library you need.",
                     ),
                 },
                 required=["code"],
