@@ -31,7 +31,7 @@ Write Polars code operating on a LazyFrame named `lf`. The code must assign the 
 
 Available objects (pre-loaded; imports unnecessary): `pl` (polars), `np` (numpy), `pd` (pandas), `math`, `lf`, `plt`, `sns`, `Patch` (matplotlib.patches.Patch, for legend handles).
 
-You may import any installed library on demand — the scientific-python stack is available, including `scipy` (e.g. `import scipy.stats as stats`) and `scikit-learn` (e.g. `from sklearn.cluster import KMeans`). Use them for statistics, modeling, and analysis the dataframe APIs don't cover.
+You may import any installed library on demand — the scientific-python stack is available, including `scipy` (e.g. `import scipy.stats as stats`), `scikit-learn` (e.g. `from sklearn.cluster import KMeans`), and `xgboost` (e.g. `import xgboost as xgb`). Use them for statistics, modeling, and analysis the dataframe APIs don't cover.
 
 pandas (`pd`) is for SMALL results only: do the heavy filtering/aggregation in Polars first, then `.to_pandas()` on the reduced frame. Never convert the full 745M-row dataset to pandas — it will run out of memory.
 

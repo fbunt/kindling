@@ -26,6 +26,7 @@ worker = [
     "scipy",
     "scikit-learn",
     "tabulate",
+    "xgboost",
 ]
 
 [project.scripts]

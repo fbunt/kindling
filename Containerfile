@@ -16,7 +16,8 @@ RUN pip install --no-cache-dir \
         pandas==3.0.3 \
         scipy==1.17.1 \
         scikit-learn==1.9.0 \
-        tabulate==0.9.0
+        tabulate==0.9.0 \
+        xgboost==3.2.0
 
 ENV MPLBACKEND=Agg \
     XDG_CACHE_HOME=/tmp \

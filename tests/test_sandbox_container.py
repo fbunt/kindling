@@ -238,6 +238,22 @@ async def test_numpy_method_lazy_import_works(pool):
 
 
 @requires_container
+async def test_xgboost_available(pool):
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query(
+            "import xgboost as xgb, numpy as np\n"
+            "X = np.random.rand(200, 4); y = np.random.randint(0, 2, 200)\n"
+            "m = xgb.XGBClassifier(n_estimators=10, tree_method='hist').fit(X, y)\n"
+            "result = [int(m.predict(X[:3]).shape[0])]"
+        )
+        assert "error" not in out, out
+        assert out["data"] == "[3]"
+    finally:
+        pool.release_session(session)
+
+
+@requires_container
 async def test_plot_is_returned_as_png(pool, tmp_path, monkeypatch):
     import app.sandbox.pool as pool_mod
 
