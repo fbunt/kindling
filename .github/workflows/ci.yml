@@ -23,7 +23,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --frozen
+      - run: uv sync --locked
       - run: uv run ruff check app/ tests/
       # Unit tests pass via the synthetic-schema fixture (no dataset on CI);
       # container tests auto-skip without an image, evals without --run-evals.
