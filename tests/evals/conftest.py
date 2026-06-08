@@ -10,6 +10,7 @@ from google import genai
 from google.genai import types
 
 from app.chat_loop import DoneEvent, run_chat_turn
+from app.genai_client import make_client
 from app.query_engine import configure
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION
 
@@ -65,7 +66,9 @@ def api_key() -> str:
 
 @pytest.fixture(scope="session")
 def genai_client(api_key) -> genai.Client:
-    return genai.Client(api_key=api_key)
+    # Build the client the way the app does so evals honor KINDLING_USE_VERTEX
+    # (a Vertex express key fails against the Developer API, and vice versa).
+    return make_client(api_key)
 
 
 @pytest.fixture(scope="session", autouse=True)
