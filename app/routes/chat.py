@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from google import genai
 from google.genai import types
 from starlette.responses import StreamingResponse
 
@@ -18,6 +17,7 @@ from app.chat_loop import (  # noqa: E402
     ThinkingEvent,
     run_chat_turn,
 )
+from app.genai_client import make_client  # noqa: E402
 from app.guards import guard_prompt  # noqa: E402
 from app.sandbox.pool import SandboxBusy  # noqa: E402
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION  # noqa: E402
@@ -45,7 +45,7 @@ async def chat(
 
     history_list = json.loads(history)
 
-    client = genai.Client(api_key=api_key)
+    client = make_client(api_key)
 
     contents = []
     for msg in history_list:

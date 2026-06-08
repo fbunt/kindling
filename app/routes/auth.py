@@ -1,10 +1,27 @@
 import os
 
 from fastapi import APIRouter, Request
-from google import genai
+from google.genai import types
 from pydantic import BaseModel
 
+from app.genai_client import make_client
+
 router = APIRouter()
+
+# Validate keys with a tiny generation, NOT models.list(): under Vertex express
+# mode list() rejects API keys with 401 UNAUTHENTICATED, but generate_content
+# works (and works on the Developer API too). flash-lite keeps it cheap.
+_VALIDATION_MODEL = "gemini-3.1-flash-lite-preview"
+
+
+def _validate_key(api_key: str) -> None:
+    """Raise if the key can't make a real call (auth/quota/etc.)."""
+    client = make_client(api_key)
+    client.models.generate_content(
+        model=_VALIDATION_MODEL,
+        contents="ping",
+        config=types.GenerateContentConfig(max_output_tokens=16),
+    )
 
 
 class AuthRequest(BaseModel):
@@ -14,9 +31,7 @@ class AuthRequest(BaseModel):
 @router.post("/auth")
 async def authenticate(req: AuthRequest, request: Request):
     try:
-        client = genai.Client(api_key=req.api_key)
-        # Validate key with a lightweight call
-        next(iter(client.models.list()))
+        _validate_key(req.api_key)
     except Exception as e:
         return {"ok": False, "error": f"Invalid API key: {e}"}
 
@@ -35,8 +50,7 @@ async def auth_status(request: Request):
         return {"authenticated": False}
 
     try:
-        client = genai.Client(api_key=api_key)
-        next(iter(client.models.list()))
+        _validate_key(api_key)
     except Exception:
         return {"authenticated": False}
     return {"authenticated": True}

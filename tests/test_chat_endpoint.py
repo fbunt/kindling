@@ -49,8 +49,9 @@ def _gen_returning(events):
 def _build_app(monkeypatch):
     from app.routes import auth, chat
 
-    # No real genai anywhere (auth + chat share the genai module object).
-    monkeypatch.setattr("app.routes.chat.genai.Client", MagicMock())
+    # No real genai anywhere. Both auth + chat build clients via the shared
+    # factory (app.genai_client.make_client), so patching its genai covers both.
+    monkeypatch.setattr("app.genai_client.genai.Client", MagicMock())
     app = FastAPI()
     app.add_middleware(SessionMiddleware, secret_key="test")
     app.include_router(auth.router, prefix="/api")
