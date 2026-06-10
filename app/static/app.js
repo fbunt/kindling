@@ -52,6 +52,25 @@ messagesDiv.addEventListener("click", (e) => {
     if (img) openLightbox(img.src);
 });
 
+// marked's GFM strikethrough matches a single "~", so prose like
+// "~20k pixels ... ~5k fires" renders struck-through. Require real "~~...~~".
+// Returning undefined (not false) suppresses the match without falling back
+// to marked's built-in single-tilde tokenizer.
+marked.use({
+    tokenizer: {
+        del(src) {
+            const match = /^~~(?=\S)([\s\S]*?\S)~~/.exec(src);
+            if (!match) return undefined;
+            return {
+                type: "del",
+                raw: match[0],
+                text: match[1],
+                tokens: this.lexer.inlineTokens(match[1]),
+            };
+        },
+    },
+});
+
 function showLogin() {
     loginView.hidden = false;
     chatView.hidden = true;
