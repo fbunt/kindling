@@ -19,6 +19,7 @@ from app.chat_loop import (  # noqa: E402
 )
 from app.genai_client import make_client  # noqa: E402
 from app.guards import guard_prompt  # noqa: E402
+from app.keystore import get_key  # noqa: E402
 from app.sandbox.pool import SandboxBusy  # noqa: E402
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION  # noqa: E402
 
@@ -39,7 +40,7 @@ async def chat(
     history: str = Form("[]"),
     image: UploadFile | None = File(None),  # noqa: B008
 ):
-    api_key = request.session.get("api_key")
+    api_key = get_key(request.session.get("token"))
     if not api_key:
         raise HTTPException(status_code=401, detail="Not authenticated")
 

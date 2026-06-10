@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from fastapi import APIRouter, Request
@@ -5,6 +6,7 @@ from google.genai import types
 from pydantic import BaseModel
 
 from app.genai_client import make_client
+from app.keystore import drop_key, get_key, put_key
 
 router = APIRouter()
 
@@ -31,26 +33,29 @@ class AuthRequest(BaseModel):
 @router.post("/auth")
 async def authenticate(req: AuthRequest, request: Request):
     try:
-        _validate_key(req.api_key)
+        # to_thread: a sync Gemini round-trip here would stall the event loop
+        # (and every concurrent SSE stream) for the network call's duration.
+        await asyncio.to_thread(_validate_key, req.api_key)
     except Exception as e:
         return {"ok": False, "error": f"Invalid API key: {e}"}
 
-    request.session["api_key"] = req.api_key
+    drop_key(request.session.get("token"))
+    request.session["token"] = put_key(req.api_key)
     return {"ok": True}
 
 
 @router.get("/auth/status")
 async def auth_status(request: Request):
-    api_key = request.session.get("api_key")
+    api_key = get_key(request.session.get("token"))
     if not api_key:
         env_key = os.environ.get("GEMINI_API_KEY")
         if env_key:
-            request.session["api_key"] = env_key
+            request.session["token"] = put_key(env_key)
             return {"authenticated": True}
         return {"authenticated": False}
 
     try:
-        _validate_key(api_key)
+        await asyncio.to_thread(_validate_key, api_key)
     except Exception:
         return {"authenticated": False}
     return {"authenticated": True}
@@ -58,5 +63,6 @@ async def auth_status(request: Request):
 
 @router.post("/auth/logout")
 async def logout(request: Request):
+    drop_key(request.session.get("token"))
     request.session.clear()
     return {"ok": True}

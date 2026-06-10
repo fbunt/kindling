@@ -68,7 +68,9 @@ function addMessage(role, content, imageDataUrl) {
     const div = document.createElement("div");
     div.className = `message ${role}`;
     if (role === "assistant") {
-        div.innerHTML = marked.parse(content);
+        // Sanitize: model output incorporates web_search content, so rendered
+        // markdown is untrusted — strip scripts/event handlers before insertion.
+        div.innerHTML = DOMPurify.sanitize(marked.parse(content));
         div.querySelectorAll("pre code").forEach(el => hljs.highlightElement(el));
         div.querySelectorAll("pre").forEach(pre => {
             pre.style.position = "relative";

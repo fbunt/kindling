@@ -79,7 +79,8 @@ app/
 
 ### Key Design Decisions
 
-- **Session-based API key**: Gemini API key stored server-side in session (in-memory, not persisted). Supports `GEMINI_API_KEY` env var via `.env` file.
+- **Session-based API key**: Gemini API key stored server-side in an in-memory token store (`app/keystore.py`); the session cookie carries only an opaque token (Starlette sessions are signed but unencrypted client-side cookies, so the key itself must never go in one). Supports `GEMINI_API_KEY` env var via `.env` file.
+- **Backend selector (`app/genai_client.py`)**: `make_client()` builds every genai client; `KINDLING_USE_VERTEX=true` routes to Vertex AI express mode (`aiplatform.googleapis.com`, `AQ.…` key), else the Gemini Developer API (`generativelanguage.googleapis.com`, `AIza…` key). Key validation uses `generate_content`, not `models.list()` (unsupported under Vertex express mode).
 - **Conversation history**: Maintained client-side and sent with each request.
 - **Model selector**: Header dropdown populated from available Gemini models.
 - **Image upload**: Images sent as multipart form data, base64-encoded in history for context.
