@@ -10,6 +10,7 @@
 #   KINDLING_SANDBOX_MEM   per-worker memory cap (image default: 110g)
 #   KINDLING_POOL_SIZE     warm workers to keep ready (default: 2)
 #   GEMINI_API_KEY         Gemini key (otherwise log in via the web UI)
+#   KINDLING_USE_VERTEX    'true' -> Vertex AI express mode (else Developer API)
 #   KINDLING_PORT          host port (default: 8000)
 #   KINDLING_NAME          container name (default: kindling)
 set -euo pipefail
@@ -55,21 +56,26 @@ done
 
 podman rm -f "$NAME" >/dev/null 2>&1 || true
 
-# If GEMINI_API_KEY isn't already in the environment, read it from .env (repo
-# root). Targeted extraction (not `source`) so arbitrary .env content can't run.
-if [[ -z "${GEMINI_API_KEY:-}" && -f .env ]]; then
-  line="$(grep -E '^[[:space:]]*(export[[:space:]]+)?GEMINI_API_KEY[[:space:]]*=' .env | tail -1 || true)"
-  if [[ -n "$line" ]]; then
-    val="${line#*=}"                                  # value after the first =
-    val="${val%$'\r'}"                                # strip trailing CR
-    val="${val#"${val%%[![:space:]]*}"}"             # ltrim
-    val="${val%"${val##*[![:space:]]}"}"             # rtrim
-    val="${val%\"}"; val="${val#\"}"                  # strip surrounding "
-    val="${val%\'}"; val="${val#\'}"                  # strip surrounding '
-    export GEMINI_API_KEY="$val"
-    echo ">> loaded GEMINI_API_KEY from .env"
-  fi
-fi
+# Read a var from the environment, falling back to .env (repo root). Targeted
+# extraction (not `source`) so arbitrary .env content can't execute.
+load_from_dotenv() {
+  local name="$1" line val
+  [[ -n "${!name:-}" ]] && return 0                   # already set in the env
+  [[ -f .env ]] || return 0
+  line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?${name}[[:space:]]*=" .env | tail -1 || true)"
+  [[ -n "$line" ]] || return 0
+  val="${line#*=}"                                    # value after the first =
+  val="${val%$'\r'}"                                  # strip trailing CR
+  val="${val#"${val%%[![:space:]]*}"}"               # ltrim
+  val="${val%"${val##*[![:space:]]}"}"               # rtrim
+  val="${val%\"}"; val="${val#\"}"                    # strip surrounding "
+  val="${val%\'}"; val="${val#\'}"                    # strip surrounding '
+  export "$name=$val"
+  echo ">> loaded ${name} from .env"
+}
+
+load_from_dotenv GEMINI_API_KEY
+load_from_dotenv KINDLING_USE_VERTEX
 [[ -z "${GEMINI_API_KEY:-}" ]] && echo ">> no GEMINI_API_KEY (set it or log in via the UI)"
 
 # Forward optional tuning env only when set.
@@ -77,6 +83,7 @@ extra=()
 [[ -n "${KINDLING_SANDBOX_MEM:-}" ]] && extra+=(-e "KINDLING_SANDBOX_MEM=${KINDLING_SANDBOX_MEM}")
 [[ -n "${KINDLING_POOL_SIZE:-}" ]]   && extra+=(-e "KINDLING_POOL_SIZE=${KINDLING_POOL_SIZE}")
 [[ -n "${GEMINI_API_KEY:-}" ]]       && extra+=(-e "GEMINI_API_KEY=${GEMINI_API_KEY}")
+[[ -n "${KINDLING_USE_VERTEX:-}" ]]  && extra+=(-e "KINDLING_USE_VERTEX=${KINDLING_USE_VERTEX}")
 
 echo ">> starting $NAME  (parquet=$PARQUET)"
 podman run -d --name "$NAME" -p "${PORT}:8000" \

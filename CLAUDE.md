@@ -31,7 +31,7 @@ container stays the sole security boundary.
 scripts/run.sh --build     # build both images, enable the socket, run (one shot)
 scripts/run.sh             # run against data/mtbs_pix_data.parquet (images prebuilt)
 scripts/run.sh /abs/x.parquet   # run against another dataset
-#   env: KINDLING_SANDBOX_MEM, KINDLING_POOL_SIZE, GEMINI_API_KEY, KINDLING_PORT
+#   env: KINDLING_SANDBOX_MEM, KINDLING_POOL_SIZE, GEMINI_API_KEY, KINDLING_USE_VERTEX, KINDLING_PORT
 
 # equivalent Make targets:
 make build                 # build both images (RUNTIME=docker to use Docker)
@@ -49,6 +49,9 @@ Key wiring (see `compose.yaml` / `deploy/kindling.container` / `Makefile`):
   differ once the app is containerized — the app's view ≠ the host path).
 - `--security-opt label=disable` (SELinux) to mount the socket.
 - The worker image must exist in the **host** image store (workers run there).
+- forward `KINDLING_USE_VERTEX` into the **app** container if using Vertex — the
+  app reads `.env` only via `uv run`, not in the container, so the launch tooling
+  must pass it through (a Vertex `AQ.…` key in Developer-API mode 403s).
 
 ## Architecture
 

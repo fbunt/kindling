@@ -26,3 +26,6 @@ services:
       KINDLING_WORKER_PARQUET_PATH: ${KINDLING_PARQUET}
       KINDLING_SANDBOX_IMAGE: kindling-worker:latest
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # 'true' -> Vertex AI express mode (else Gemini Developer API). compose
+      # reads this from .env in the project dir.
+      KINDLING_USE_VERTEX: ${KINDLING_USE_VERTEX:-}

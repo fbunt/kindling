@@ -25,6 +25,7 @@ run:      ## run the app; workers spawn as siblings on the host runtime
 	  -e KINDLING_WORKER_PARQUET_PATH=$(PARQUET) \
 	  -e KINDLING_SANDBOX_IMAGE=$(IMAGE_WORKER) \
 	  -e GEMINI_API_KEY=$(GEMINI_API_KEY) \
+	  -e KINDLING_USE_VERTEX=$(KINDLING_USE_VERTEX) \
 	  -e PYTHONUNBUFFERED=1 \
 	  --security-opt label=disable \
 	  $(IMAGE_APP) kindling /data/dataset.parquet --host 0.0.0.0

@@ -23,6 +23,9 @@ Volume=/srv/kindling/data/mtbs.parquet:/data/dataset.parquet:ro
 Environment=CONTAINER_HOST=unix:///run/podman/podman.sock
 Environment=KINDLING_WORKER_PARQUET_PATH=/srv/kindling/data/mtbs.parquet
 Environment=KINDLING_SANDBOX_IMAGE=kindling-worker:latest
+# 'true' -> Vertex AI express mode (the AQ.… key only works on Vertex); unset
+# for the Gemini Developer API. Must match the kind of key in the secret below.
+Environment=KINDLING_USE_VERTEX=true
 Environment=PYTHONUNBUFFERED=1
 Secret=kindling-gemini-key,type=env,target=GEMINI_API_KEY
 SecurityLabelDisable=true
