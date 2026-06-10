@@ -77,7 +77,7 @@ app/
 └── static/
     ├── index.html       # Single-page app: login + chat views
     ├── style.css
-    └── app.js           # Frontend logic: auth, chat, image upload, model selector
+    └── app.js           # Frontend logic: auth, chat, image upload, plot gallery
 ```
 
 ### Key Design Decisions
@@ -85,7 +85,7 @@ app/
 - **Session-based API key**: Gemini API key stored server-side in an in-memory token store (`app/keystore.py`); the session cookie carries only an opaque token (Starlette sessions are signed but unencrypted client-side cookies, so the key itself must never go in one). Supports `GEMINI_API_KEY` env var via `.env` file.
 - **Backend selector (`app/genai_client.py`)**: `make_client()` builds every genai client; `KINDLING_USE_VERTEX=true` routes to Vertex AI express mode (`aiplatform.googleapis.com`, `AQ.…` key), else the Gemini Developer API (`generativelanguage.googleapis.com`, `AIza…` key). Key validation uses `generate_content`, not `models.list()` (unsupported under Vertex express mode).
 - **Conversation history**: Maintained client-side and sent with each request.
-- **Model selector**: Header dropdown populated from available Gemini models.
+- **Model**: Fixed model set in `app/static/app.js` (`const MODEL`), shown as a header badge. (The former dropdown relied on `models.list()`, which Vertex express mode doesn't support with API keys.)
 - **Image upload**: Images sent as multipart form data, base64-encoded in history for context.
 - **Google Search grounding**: Available to the model via a `web_search` tool.
 - **Query sandbox (container-only)**: Query code runs ONLY inside locked-down containers, never in the server process. The container is the security boundary (`--network none`, `--read-only`, `--cap-drop ALL`, non-root, memory/pids limits, parquet mounted `:ro`, ephemeral per turn), so code runs with FULL Python builtins and any image library (polars, numpy, pandas, scipy, scikit-learn, matplotlib, seaborn). By default workers get **all host cores** (no `--cpus` cap; polars/BLAS auto-detect) — set `KINDLING_SANDBOX_CPUS=N` to cap, which also pins `POLARS_MAX_THREADS=N` so threads don't over/under-subscribe. Memory cap is `KINDLING_SANDBOX_MEM` (default 110g). There is no AST/blocklist filtering. A warm pool keeps containers ready; each chat turn checks one out, then it's killed and a fresh one spawned in the background. The namespace (including `result`) persists across `run_query` calls within a turn. **A container runtime is required** — startup fails fast without one. The runtime is auto-detected (podman preferred, then docker) and overridable via `KINDLING_CONTAINER_RUNTIME`. Rootless Podman is recommended; Docker works but prefer rootless/userns-remap (rootful Docker maps container-root→host-root, a weaker boundary — the app logs a warning). Build the image with `podman build -t kindling-worker:latest -f Containerfile .` (or `docker build`).

@@ -159,9 +159,8 @@ def handle_run_query(code: str, namespace: dict) -> dict:
 
 def main() -> None:
     # The protocol owns fd 1. Capture a private handle to the real stdout, then
-    # redirect Python-level stdout to stderr so stray user/library writes can't
-    # corrupt the JSON stream. (`print` is already a no-op in the namespace; this
-    # guards everything else that targets sys.stdout.)
+    # redirect Python-level stdout to stderr so stray user/library writes —
+    # including `print` in query code — can't corrupt the JSON stream.
     proto = os.fdopen(os.dup(1), "w", buffering=1)
     sys.stdout = sys.stderr
 
