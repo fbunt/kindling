@@ -46,19 +46,17 @@ async def authenticate(req: AuthRequest, request: Request):
 
 @router.get("/auth/status")
 async def auth_status(request: Request):
-    api_key = get_key(request.session.get("token"))
-    if not api_key:
-        env_key = os.environ.get("GEMINI_API_KEY")
-        if env_key:
-            request.session["token"] = put_key(env_key)
-            return {"authenticated": True}
-        return {"authenticated": False}
-
-    try:
-        await asyncio.to_thread(_validate_key, api_key)
-    except Exception:
-        return {"authenticated": False}
-    return {"authenticated": True}
+    # No re-validation here: the key was validated at login (POST /auth), the
+    # env-key path below never validated anyway, and a revoked key surfaces as
+    # an error on the next chat turn. Keeps page loads free of paid LLM calls
+    # and immune to transient quota/network failures logging the user out.
+    if get_key(request.session.get("token")):
+        return {"authenticated": True}
+    env_key = os.environ.get("GEMINI_API_KEY")
+    if env_key:
+        request.session["token"] = put_key(env_key)
+        return {"authenticated": True}
+    return {"authenticated": False}
 
 
 @router.post("/auth/logout")
