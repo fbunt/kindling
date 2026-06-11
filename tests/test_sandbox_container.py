@@ -11,6 +11,7 @@ absent. Build the image first:
 
 import base64
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -111,10 +112,11 @@ def test_materialize_plots_roundtrip(tmp_path, monkeypatch):
             "1f15c4890000000a49444154789c6360000002000154a24f9b0000000049454e44ae426082"
         )
     ).decode()
-    urls = materialize_plots([png], "abc123")
+    urls = materialize_plots([png])
     assert len(urls) == 1
-    assert urls[0].startswith("/plots/plot-abc123-000.png?t=")
-    written = tmp_path / "plot-abc123-000.png"
+    # Counter-based name; absolute value depends on test order, so match shape.
+    assert re.fullmatch(r"/plots/plot-\d{3,}\.png\?t=\d+", urls[0])
+    written = tmp_path / urls[0].removeprefix("/plots/").split("?")[0]
     assert written.exists()
     assert written.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 

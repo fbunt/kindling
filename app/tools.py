@@ -137,22 +137,6 @@ FIRE_DATA_TOOLS = types.Tool(
 )
 
 
-def generate_plot_name(code: str, client: genai.Client) -> str | None:
-    """Call flash-lite to generate a short kebab-case name for a plot."""
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview",
-            contents=f"Generate a short kebab-case filename (no extension, max 5 words) for a plot created by this code. Reply with ONLY the filename, nothing else:\n\n{code}",
-        )
-        name = response.text.strip().strip("`").strip()
-        # Sanitize: keep only lowercase alphanumeric and hyphens
-        name = "-".join(w for w in name.lower().split("-") if w.isalnum())
-        return name if name else None
-    except Exception as e:
-        logger.warning(f"generate_plot_name failed: {e}")
-        return None
-
-
 def _web_search(query: str, client: genai.Client, model: str) -> dict:
     """Perform a web search by calling Gemini with Google Search enabled."""
     response = client.models.generate_content(
@@ -165,24 +149,9 @@ def _web_search(query: str, client: genai.Client, model: str) -> dict:
     return {"result": response.text}
 
 
-_used_display_names: set[str] = set()
-
-
-def _unique_display_name(name: str) -> str:
-    """Append a numeric suffix if the display name has already been used."""
-    if name not in _used_display_names:
-        _used_display_names.add(name)
-        return name
-    n = 1
-    while f"{name}-{n:03d}" in _used_display_names:
-        n += 1
-    unique = f"{name}-{n:03d}"
-    _used_display_names.add(unique)
-    return unique
-
-
-def _plot_fallback(url: str) -> str:
-    """Derive a fallback display name from a plot URL."""
+def _plot_name(url: str) -> str:
+    """Display name = the filename stem (pool.py names files plot-NNN.png from
+    a process-global counter, so stems are already unique for the process)."""
     return url.split("/")[-1].split("?")[0].replace(".png", "")
 
 
@@ -202,10 +171,9 @@ async def execute_function_call_async(
 ) -> tuple[str, list[dict]]:
     """Async dispatch for the container sandbox path.
 
-    Only run_query crosses into the sandbox (awaited on the loop). Every blocking
-    Gemini call (generate_plot_name, web_search) and the local get_dataset_info
-    collect are pushed to threads so the event loop — and all concurrent SSE
-    streams — never stall.
+    Only run_query crosses into the sandbox (awaited on the loop). Blocking work
+    (the web_search Gemini call, the local get_dataset_info collect) is pushed
+    to threads so the event loop — and all concurrent SSE streams — never stall.
     """
     logger.info(f"Function call: {name}({json.dumps(args, default=str)[:200]})")
     plots: list[dict] = []
@@ -224,10 +192,7 @@ async def execute_function_call_async(
             result = await session.run_query(code)
             if "plots" in result:
                 for url in result["plots"]:
-                    raw_name = (
-                        await asyncio.to_thread(generate_plot_name, code, client)
-                    ) or _plot_fallback(url)
-                    plots.append(_plot_entry(url, _unique_display_name(raw_name)))
+                    plots.append(_plot_entry(url, _plot_name(url)))
                 result["plots"] = plots
     elif name == "web_search":
         result = await asyncio.to_thread(_web_search, args["query"], client, model)

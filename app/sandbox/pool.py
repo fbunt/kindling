@@ -11,6 +11,7 @@ See app/sandbox/worker.py for the in-container counterpart and the JSONL protoco
 
 import asyncio
 import base64
+import itertools
 import json
 import logging
 import os
@@ -149,15 +150,18 @@ async def _cli_capture(runtime: str, *args: str) -> str:
     return out.decode()
 
 
-def materialize_plots(b64_pngs: list[str], turn_id: str) -> list[str]:
-    """Decode base64 PNGs from the worker to disk; return /plots URLs.
+# Process-global plot counter: filenames double as display names (plot-000,
+# plot-001, ...). Unique for the process lifetime (single event loop; count()
+# is atomic), and main.py wipes plots/ at startup so a restart's repeated names
+# can't collide with stale files. The ?t= cache-buster covers the browser cache.
+_plot_counter = itertools.count()
 
-    Filenames are prefixed with the turn id (not a shared counter) so concurrent
-    turns can't collide. Returns the worker's plot URLs for tools.py to name.
-    """
+
+def materialize_plots(b64_pngs: list[str]) -> list[str]:
+    """Decode base64 PNGs from the worker to disk; return /plots URLs."""
     urls = []
-    for i, b64 in enumerate(b64_pngs):
-        name = f"plot-{turn_id}-{i:03d}.png"
+    for b64 in b64_pngs:
+        name = f"plot-{next(_plot_counter):03d}.png"
         (PLOTS_DIR / name).write_bytes(base64.b64decode(b64))
         urls.append(f"/plots/{name}?t={int(time.time())}")
     return urls
@@ -242,7 +246,6 @@ class SandboxSession:
 
     worker: Worker
     pool: "SandboxPool"
-    turn_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
 
     async def run_query(self, code: str) -> dict:
         try:
@@ -257,7 +260,7 @@ class SandboxSession:
             )
             return {"error": _WORKER_DEAD_MSG}
         if result.get("plots"):
-            result["plots"] = materialize_plots(result["plots"], self.turn_id)
+            result["plots"] = materialize_plots(result["plots"])
         return result
 
 

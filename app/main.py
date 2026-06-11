@@ -40,6 +40,13 @@ async def lifespan(app: FastAPI):
             "found. Install podman or docker (or set KINDLING_CONTAINER_RUNTIME) "
             "and build the kindling-worker image."
         )
+    # Fresh slate: plots from a prior process are unreachable (frontend state
+    # doesn't survive reload; history re-embeds plots as base64), so clear them.
+    stale = list(plots_dir.glob("*.png"))
+    for f in stale:
+        f.unlink(missing_ok=True)
+    if stale:
+        logger.info("Cleared %d stale plot(s) from %s", len(stale), plots_dir)
     # Re-derive the parquet path from the env var configure() exported, not from
     # a module global that an import-time configure() may have set to the default.
     parquet = os.environ.get("KINDLING_PARQUET_PATH_HOST")
