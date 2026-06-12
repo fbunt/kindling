@@ -47,7 +47,7 @@ def _gen_returning(events):
 
 
 def _build_app(monkeypatch):
-    from app.routes import auth, chat
+    from app.routes import auth, chat, plots
 
     # No real genai anywhere. Both auth + chat build clients via the shared
     # factory (app.genai_client.make_client), so patching its genai covers both.
@@ -56,6 +56,7 @@ def _build_app(monkeypatch):
     app.add_middleware(SessionMiddleware, secret_key="test")
     app.include_router(auth.router, prefix="/api")
     app.include_router(chat.router, prefix="/api")
+    app.include_router(plots.router)
     pool = FakePool()
     app.state.sandbox_pool = pool
     return app, pool
@@ -148,3 +149,38 @@ def test_session_released_on_midturn_exception(auth_client, monkeypatch):
     assert "event: error" in r.text
     assert pool.acquire_count == 1
     assert pool.release_count == 1  # finally always retires the container
+
+
+# --- /plots serving (session-gated, see app/routes/plots.py) ---
+
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+@pytest.fixture
+def plots_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.routes.plots.PLOTS_DIR", tmp_path)
+    (tmp_path / "plot-000.png").write_bytes(PNG_MAGIC + b"fake")
+    return tmp_path
+
+
+def test_plot_unauthenticated_401(monkeypatch, plots_dir):
+    app, _ = _build_app(monkeypatch)
+    client = TestClient(app)  # no session
+    assert client.get("/plots/plot-000.png").status_code == 401
+
+
+def test_plot_authenticated_serves_png(auth_client, plots_dir):
+    client, _ = auth_client
+    r = client.get("/plots/plot-000.png")
+    assert r.status_code == 200
+    assert r.content.startswith(PNG_MAGIC)
+    assert r.headers["content-type"] == "image/png"
+
+
+def test_plot_bad_names_404(auth_client, plots_dir):
+    client, _ = auth_client
+    assert client.get("/plots/evil.png").status_code == 404
+    assert client.get("/plots/plot-000.png.txt").status_code == 404
+    assert client.get("/plots/%2e%2e%2fsecret.png").status_code == 404
+    # well-formed name, no such file
+    assert client.get("/plots/plot-999.png").status_code == 404

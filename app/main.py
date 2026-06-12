@@ -2,7 +2,6 @@ import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -19,8 +18,8 @@ for _noisy in ("matplotlib.font_manager", "PIL", "httpx"):
 
 logger = logging.getLogger(__name__)
 
-from app.query_engine import configure  # noqa: E402
-from app.routes import auth, chat  # noqa: E402
+from app.query_engine import PLOTS_DIR, configure  # noqa: E402
+from app.routes import auth, chat, plots  # noqa: E402
 
 load_dotenv()
 
@@ -42,11 +41,11 @@ async def lifespan(app: FastAPI):
         )
     # Fresh slate: plots from a prior process are unreachable (frontend state
     # doesn't survive reload; history re-embeds plots as base64), so clear them.
-    stale = list(plots_dir.glob("*.png"))
+    stale = list(PLOTS_DIR.glob("*.png"))
     for f in stale:
         f.unlink(missing_ok=True)
     if stale:
-        logger.info("Cleared %d stale plot(s) from %s", len(stale), plots_dir)
+        logger.info("Cleared %d stale plot(s) from %s", len(stale), PLOTS_DIR)
     # Re-derive the parquet path from the env var configure() exported, not from
     # a module global that an import-time configure() may have set to the default.
     parquet = os.environ.get("KINDLING_PARQUET_PATH_HOST")
@@ -102,8 +101,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
+# Plots are session-gated (see routes/plots.py), not a public static mount.
+app.include_router(plots.router)
 
-plots_dir = Path("plots")
-plots_dir.mkdir(exist_ok=True)
-app.mount("/plots", StaticFiles(directory=str(plots_dir)), name="plots")
 app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
