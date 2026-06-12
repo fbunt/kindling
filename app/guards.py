@@ -5,6 +5,14 @@ probabilistic filters that reduce the rate of clearly-malicious code/prompts
 reaching the box, and produce logging signal. Both FAIL OPEN on error: if the
 judge model is unavailable we proceed, because the container already contains
 arbitrary code.
+
+Known limitation: the prompt-guard screens only the CURRENT user message.
+Conversation history is client-supplied and reaches the model unscreened (as
+do uploaded images), so the guard is trivially bypassed by a client that puts
+its payload in the history field. That's accepted: at one-VM-per-user the
+"attacker" is the authenticated user spending their own API key, and the
+container still contains whatever code results. Best-effort filter + logging
+signal, not a gate.
 """
 
 import json
