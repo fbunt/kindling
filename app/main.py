@@ -91,7 +91,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-app.add_middleware(SessionMiddleware, secret_key=secrets.token_hex(32))
+# Random default: restarts invalidate session cookies and multi-worker uvicorn
+# won't share sessions; set KINDLING_SESSION_SECRET to fix that. Surviving a
+# restart buys little today anyway — the keystore (app/keystore.py) is
+# in-memory, so an old cookie's token points at a dropped entry regardless.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.environ.get("KINDLING_SESSION_SECRET") or secrets.token_hex(32),
+)
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
