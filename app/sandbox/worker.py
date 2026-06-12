@@ -37,6 +37,42 @@ import polars as pl  # noqa: E402
 
 MAX_ROWS = 100
 QUERY_TIMEOUT = 480  # seconds — soft timeout; preserves the kernel on expiry
+# Hard cap on a serialized reply frame. The host reads frames with an 8MB
+# asyncio stream limit (pool._STREAM_LIMIT); a longer line raises there and
+# surfaces as a bogus "worker died" with a desynced pipe. Cap with margin and
+# degrade gracefully here instead. MAX_ROWS bounds rows, not cell width — wide
+# string cells or many base64 plot PNGs in one frame can still blow past it.
+MAX_REPLY_BYTES = 6 * 1024 * 1024
+
+
+def _too_large_error(size: int) -> dict:
+    return {
+        "error": (
+            f"Result too large to return (~{size // 1024}KB serialized, cap "
+            f"{MAX_REPLY_BYTES // 1024}KB). Return fewer/smaller rows or "
+            "fewer plots."
+        )
+    }
+
+
+def _fit_reply(output: dict) -> dict:
+    """Shrink an oversized run_query reply until it fits MAX_REPLY_BYTES.
+
+    Halves tabular rows first (marking truncation); if the frame is still too
+    big (huge cells, or plots dominating), replaces it with an actionable
+    error the model can react to."""
+    size = len(json.dumps(output, default=str))
+    while size > MAX_REPLY_BYTES and isinstance(output.get("data"), list):
+        rows = output["data"]
+        if len(rows) <= 1:
+            break
+        output["data"] = rows[: len(rows) // 2]
+        output["truncated"] = True
+        output["note"] = "rows truncated to fit the reply size cap"
+        size = len(json.dumps(output, default=str))
+    if size > MAX_REPLY_BYTES:
+        return _too_large_error(size)
+    return output
 
 
 def _build_lazyframe(path):
@@ -152,7 +188,7 @@ def handle_run_query(code: str, namespace: dict) -> dict:
             output["plots"] = plots  # base64 PNG strings; host materializes
             if "data" not in output:
                 output["data"] = "Plot(s) generated successfully."
-        return output
+        return _fit_reply(output)
     except Exception as e:
         return {"error": f"Result processing error: {e}"}
 
@@ -167,7 +203,13 @@ def main() -> None:
     namespace = build_namespace()
 
     def reply(obj: dict) -> None:
-        proto.write(json.dumps(obj, default=str))
+        frame = json.dumps(obj, default=str)
+        # Belt-and-braces: _fit_reply already bounds run_query output, but no
+        # frame may ever exceed the host's stream limit (it would desync the
+        # pipe), so guard every reply path.
+        if len(frame) > MAX_REPLY_BYTES:
+            frame = json.dumps(_too_large_error(len(frame)))
+        proto.write(frame)
         proto.write("\n")
         proto.flush()
 

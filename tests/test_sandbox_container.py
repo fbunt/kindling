@@ -203,6 +203,38 @@ async def test_basic_query(pool):
 
 
 @requires_container
+async def test_oversized_table_truncates_rows(pool):
+    # 80 rows x 200KB strings ≈ 16MB serialized — over the worker's 6MB reply
+    # cap (and the host's 8MB stream limit). Expect graceful row truncation,
+    # not a WorkerDead.
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query(
+            "result = pl.DataFrame({'s': ['x' * 200_000] * 80})"
+        )
+        assert "error" not in out, out
+        assert out["truncated"] is True
+        assert len(out["data"]) < 80
+    finally:
+        pool.release_session(session)
+
+
+@requires_container
+async def test_oversized_scalar_errors_but_session_survives(pool):
+    # A single 7MB string can't be row-truncated: expect the actionable
+    # too-large error, with the kernel alive and the pipe in sync after.
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query("result = 'y' * (7 * 1024 * 1024)")
+        assert "error" in out
+        assert "too large" in out["error"].lower()
+        follow_up = await session.run_query("result = 1 + 1")
+        assert follow_up["data"] == "2"
+    finally:
+        pool.release_session(session)
+
+
+@requires_container
 async def test_namespace_persists_within_session(pool):
     session = await pool.acquire_session()
     try:
