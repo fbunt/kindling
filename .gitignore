@@ -5,3 +5,4 @@ __pycache__/
 plots/
 .eval-runs/
 *.egg-info/
+.bench-runs/
