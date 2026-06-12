@@ -156,6 +156,21 @@ async def _cli_capture(runtime: str, *args: str) -> str:
 # can't collide with stale files. The ?t= cache-buster covers the browser cache.
 _plot_counter = itertools.count()
 
+# Disk cap for plots/ within one process (startup wipe only covers restarts).
+# At ~100KB-1MB per PNG this bounds the dir to ~0.05-0.5GB. A tab kept open
+# past the cap gets broken thumbnails for its oldest plots; the base64 copies
+# embedded in conversation history are unaffected.
+_MAX_PLOTS = 500
+
+
+def _prune_plots() -> None:
+    """Delete oldest plots beyond _MAX_PLOTS. Sorted by mtime, not name —
+    lexicographic order breaks at plot-1000 and stray files would crash a
+    numeric parse of the stem."""
+    files = sorted(PLOTS_DIR.glob("plot-*.png"), key=lambda p: p.stat().st_mtime)
+    for f in files[:-_MAX_PLOTS]:
+        f.unlink(missing_ok=True)
+
 
 def materialize_plots(b64_pngs: list[str]) -> list[str]:
     """Decode base64 PNGs from the worker to disk; return /plots URLs."""
@@ -164,6 +179,8 @@ def materialize_plots(b64_pngs: list[str]) -> list[str]:
         name = f"plot-{next(_plot_counter):03d}.png"
         (PLOTS_DIR / name).write_bytes(base64.b64decode(b64))
         urls.append(f"/plots/{name}?t={int(time.time())}")
+    if urls:
+        _prune_plots()
     return urls
 
 

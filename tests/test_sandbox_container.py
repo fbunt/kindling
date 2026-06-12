@@ -11,6 +11,7 @@ absent. Build the image first:
 
 import base64
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -119,6 +120,23 @@ def test_materialize_plots_roundtrip(tmp_path, monkeypatch):
     written = tmp_path / urls[0].removeprefix("/plots/").split("?")[0]
     assert written.exists()
     assert written.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_materialize_plots_prunes_oldest_beyond_cap(tmp_path, monkeypatch):
+    import app.sandbox.pool as pool_mod
+
+    monkeypatch.setattr(pool_mod, "PLOTS_DIR", tmp_path)
+    monkeypatch.setattr(pool_mod, "_MAX_PLOTS", 3)
+    # Pre-existing plots with increasing mtimes (oldest first).
+    for i, name in enumerate(["plot-900.png", "plot-901.png", "plot-902.png"]):
+        f = tmp_path / name
+        f.write_bytes(b"x")
+        os.utime(f, (1_700_000_000 + i, 1_700_000_000 + i))
+    png = base64.b64encode(b"fake").decode()
+    urls = materialize_plots([png])
+    new_name = urls[0].removeprefix("/plots/").split("?")[0]
+    survivors = sorted(p.name for p in tmp_path.glob("plot-*.png"))
+    assert survivors == sorted(["plot-901.png", "plot-902.png", new_name])
 
 
 # --- container tests (require podman + built image) ---
