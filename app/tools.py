@@ -82,6 +82,8 @@ Plots are auto-captured. Import matplotlib (`import matplotlib.pyplot as plt`) a
 
 The dataset has 745M rows. Filter or `group_by` before sorting. Cap exploratory results with `.head()` or `.limit()`. Keep operations lazy (`filter`, `group_by`, `agg`) and `.collect()` once at the end. For top/bottom N, aggregate or filter first, then sort the reduced result. Full-dataset scans or sorts will time out.
 
+If a computation times out or fails and you retry on a sample or subset of the data (e.g. `.sample(...)`, a row `.limit(...)`, or a filtered slice), the answer is based on partial data. Say so explicitly in your response — state that the result comes from a sample rather than the full dataset, and give the approximate number or fraction of rows used. Never present a sampled result as if it covered the whole dataset.
+
 ## Polars gotchas
 
 - To map numeric codes to string labels (changing dtype), use `replace_strict`, not `replace`. `replace` preserves the original column dtype and will try to cast the new string values back to the numeric type and fail. Example: `pl.col("eco1").replace_strict(eco1_map, return_dtype=pl.Utf8)`. `replace` is correct only when the new values match the existing dtype.
