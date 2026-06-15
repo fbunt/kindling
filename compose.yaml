@@ -25,6 +25,9 @@ services:
       # HOST path the sibling workers bind-mount (must match the volume source).
       KINDLING_WORKER_PARQUET_PATH: ${KINDLING_PARQUET}
       KINDLING_SANDBOX_IMAGE: kindling-worker:latest
+      # Single app instance per host here, so reap a crashed predecessor's
+      # leftover workers on start. Off in dev/pytest/bench (multiple instances).
+      KINDLING_REAP_ORPHANS: ${KINDLING_REAP_ORPHANS:-all}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       # 'true' -> Vertex AI express mode (else Gemini Developer API). compose
       # reads this from .env in the project dir.

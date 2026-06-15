@@ -65,6 +65,11 @@ async def lifespan(app: FastAPI):
         pids = None
     else:
         pids = int(pids_env)
+    # Reap leftover workers from a crashed predecessor on startup. Off by
+    # default so a dev server / pytest / bench run can't kill a running
+    # instance's warm workers (one shared host runtime); the launch tooling
+    # sets =all on single-instance deployments.
+    reap_all = os.environ.get("KINDLING_REAP_ORPHANS", "").strip().lower() == "all"
     pool = SandboxPool(
         parquet,
         size=int(os.environ.get("KINDLING_POOL_SIZE", "2")),
@@ -78,6 +83,7 @@ async def lifespan(app: FastAPI):
         # runtime; this is the HOST path to bind-mount into them (differs from the
         # app's own `parquet` view). Unset → same filesystem, use `parquet`.
         worker_parquet_path=os.environ.get("KINDLING_WORKER_PARQUET_PATH"),
+        reap_all=reap_all,
     )
     await pool.start()
     logger.info("Sandbox: container pool active (parquet=%s)", parquet)

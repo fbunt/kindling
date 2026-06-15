@@ -11,6 +11,8 @@
 #   KINDLING_POOL_SIZE     warm workers to keep ready (default: 2)
 #   GEMINI_API_KEY         Gemini key (otherwise log in via the web UI)
 #   KINDLING_USE_VERTEX    'true' -> Vertex AI express mode (else Developer API)
+#   KINDLING_REAP_ORPHANS  'all' -> reap leftover kindling-worker-* on start
+#                          (default: all; single-instance host)
 #   KINDLING_PORT          host port (default: 8000)
 #   KINDLING_NAME          container name (default: kindling)
 set -euo pipefail
@@ -92,6 +94,7 @@ podman run -d --name "$NAME" -p "${PORT}:8000" \
   -v "${PARQUET}:/data/dataset.parquet:ro" \
   -e KINDLING_WORKER_PARQUET_PATH="${PARQUET}" \
   -e KINDLING_SANDBOX_IMAGE="${WORKER_IMAGE}" \
+  -e "KINDLING_REAP_ORPHANS=${KINDLING_REAP_ORPHANS:-all}" \
   -e PYTHONUNBUFFERED=1 \
   "${extra[@]}" \
   --security-opt label=disable \

@@ -301,6 +301,11 @@ class SandboxPool:
         max_threads: int | None = None,  # None → polars/BLAS auto-detect cores
         runtime: str | None = None,
         worker_parquet_path: str | None = None,
+        # Default off: reaping the whole kindling-worker-* family on start would
+        # kill a peer instance's warm workers (one shared host runtime). Enable
+        # only on single-instance deployments to clear a crashed predecessor's
+        # leftovers. See _reap_orphans.
+        reap_all: bool = False,
     ) -> None:
         self.parquet_path = str(Path(parquet_path).resolve())
         # Host path bind-mounted into workers. When the app itself runs in a
@@ -310,6 +315,12 @@ class SandboxPool:
         # the app's path (correct when app and workers share one filesystem).
         self.worker_parquet_path = worker_parquet_path or self.parquet_path
         self.runtime = runtime or detect_runtime()
+        self.reap_all = reap_all
+        # Instance-scoped name prefix so `podman ps` shows which process owns a
+        # container and a default (no-reap) start can't touch a peer's workers.
+        # _NAME_PREFIX stays the shared family root that an opt-in reap sweeps.
+        self.instance_id = uuid.uuid4().hex[:8]
+        self.name_prefix = f"{_NAME_PREFIX}{self.instance_id}-"
         self.size = size
         self.image = image
         self.in_container_path = in_container_path
@@ -408,7 +419,7 @@ class SandboxPool:
 
     async def _launch_worker(self) -> Worker:
         proc = None
-        name = f"{_NAME_PREFIX}{uuid.uuid4().hex[:12]}"
+        name = f"{self.name_prefix}{uuid.uuid4().hex[:12]}"
         try:
             argv = build_run_argv(
                 self.runtime,
@@ -477,7 +488,18 @@ class SandboxPool:
             return
 
     async def _reap_orphans(self) -> None:
-        """Remove worker containers leaked by a prior hard-killed server."""
+        """Remove worker containers leaked by a prior hard-killed server.
+
+        Opt-in: only when reap_all is set (single-instance deploys). The filter
+        is the shared family root _NAME_PREFIX, so it sweeps a crashed
+        predecessor of any instance. Off by default because reaping the family
+        would also kill a concurrently-running peer's live warm workers."""
+        if not self.reap_all:
+            logger.debug(
+                "sandbox: orphan reap disabled; this instance manages %s* only",
+                self.name_prefix,
+            )
+            return
         try:
             out = await _cli_capture(
                 self.runtime, "ps", "-aq", "--filter", f"name={_NAME_PREFIX}"

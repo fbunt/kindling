@@ -24,6 +24,7 @@ run:      ## run the app; workers spawn as siblings on the host runtime
 	  -v $(PARQUET):/data/dataset.parquet:ro \
 	  -e KINDLING_WORKER_PARQUET_PATH=$(PARQUET) \
 	  -e KINDLING_SANDBOX_IMAGE=$(IMAGE_WORKER) \
+	  -e KINDLING_REAP_ORPHANS=all \
 	  -e GEMINI_API_KEY=$(GEMINI_API_KEY) \
 	  -e KINDLING_USE_VERTEX=$(KINDLING_USE_VERTEX) \
 	  -e PYTHONUNBUFFERED=1 \

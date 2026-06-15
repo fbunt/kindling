@@ -201,10 +201,12 @@ async def test_spawn_failure_releases_semaphore(monkeypatch):
         await asyncio.wait_for(pool._sema.acquire(), timeout=0.2)
 
 
-async def test_reap_orphans_removes_listed(monkeypatch):
+async def test_reap_orphans_removes_listed_when_enabled(monkeypatch):
+    capture_args = []
     calls = []
 
-    async def fake_capture(_runtime, *_a):
+    async def fake_capture(_runtime, *a):
+        capture_args.append(a)
         return "id1 id2\n"
 
     async def fake_cli(_runtime, *args):
@@ -213,9 +215,34 @@ async def test_reap_orphans_removes_listed(monkeypatch):
 
     monkeypatch.setattr(pool_mod, "_cli_capture", fake_capture)
     monkeypatch.setattr(pool_mod, "_cli", fake_cli)
-    pool = SandboxPool("/tmp/fake.parquet", runtime="podman")
+    pool = SandboxPool("/tmp/fake.parquet", runtime="podman", reap_all=True)
     await pool._reap_orphans()
     assert ("rm", "-f", "id1", "id2") in calls
+    # The ps filter is the shared family root, not this instance's prefix, so a
+    # crashed peer of any instance gets swept.
+    assert capture_args[0] == ("ps", "-aq", "--filter", f"name={pool_mod._NAME_PREFIX}")
+
+
+async def test_reap_orphans_disabled_by_default(monkeypatch):
+    calls = []
+
+    async def record(_runtime, *args):
+        calls.append(args)
+        return ""
+
+    monkeypatch.setattr(pool_mod, "_cli_capture", record)
+    monkeypatch.setattr(pool_mod, "_cli", record)
+    pool = SandboxPool("/tmp/fake.parquet", runtime="podman")  # reap_all defaults off
+    await pool._reap_orphans()
+    assert calls == []  # no ps, no rm — never touches a peer's workers
+
+
+def test_worker_names_are_instance_scoped(monkeypatch):
+    a = SandboxPool("/tmp/fake.parquet", runtime="podman")
+    b = SandboxPool("/tmp/fake.parquet", runtime="podman")
+    assert a.name_prefix != b.name_prefix
+    assert a.name_prefix.startswith(pool_mod._NAME_PREFIX)
+    assert b.name_prefix.startswith(pool_mod._NAME_PREFIX)
 
 
 async def test_drain_kills_ready_and_blocks_refill(monkeypatch):
