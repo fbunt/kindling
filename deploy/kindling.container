@@ -28,7 +28,7 @@ Environment=KINDLING_SANDBOX_IMAGE=kindling-worker:latest
 Environment=KINDLING_REAP_ORPHANS=all
 # 'true' -> Vertex AI express mode (the AQ.… key only works on Vertex); unset
 # for the Gemini Developer API. Must match the kind of key in the secret below.
-Environment=KINDLING_USE_VERTEX=true
+Environment=KINDLING_USE_VERTEX=false
 Environment=PYTHONUNBUFFERED=1
 Secret=kindling-gemini-key,type=env,target=GEMINI_API_KEY
 SecurityLabelDisable=true
