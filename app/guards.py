@@ -23,7 +23,7 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-JUDGE_MODEL = "gemini-3.1-flash-lite-preview"
+JUDGE_MODEL = "gemini-3.5-flash-lite"
 
 _CODE_JUDGE_INSTRUCTION = """\
 You review Python code before it runs in a sandboxed data-analysis tool.
