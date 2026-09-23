@@ -19,17 +19,17 @@ _Updated: 2026-09-22._
 
 ## TODO
 
-- **Run the paper benchmark in full.** Only a smoke run exists (`.bench-runs/smoke`: one question,
-  one trial, against the eval *sample* parquet) and the ground-truth cache holds two entries keyed to
-  that sample, not the full dataset. Steps: `python -m bench gt` on the full parquet (est. 30–90 min,
-  cached by parquet identity), then `python -m bench run` (25 questions × 3 trials, est. 5–9 h and
-  ~$20–60 of API), then hand-annotate `failure_mode` in the run's `triage.json` and re-run
-  `report`. Re-running `run` with the same `--run-dir` resumes. **blocked:** user's call on when to
-  spend the time/API budget.
-- **ICFFR short-paper revisions** (reviewer reports in the untracked `reviews.txt`): state up front
-  that results are proof-of-concept demonstrations, not validated performance; state the
-  sampling-fallback behaviour as a limitation (the model-side disclosure landed 2026-06-13, the paper
-  text still needs it); rename one of the duplicated "Usage Example: Query Adaptation" headings.
+- **Benchmark 3.8 Flash against 3.1 Pro on the bench harness.** Google's Pro line has stalled at
+  the 3.1 preview (Feb 2026; 3.5 Pro announced May 2026, repeatedly delayed) while Flash shipped
+  3.5–3.8; public coding/agentic benchmarks put 3.8 Flash at or above 3.1 Pro at ~1/3 the price.
+  Steps: `python -m bench gt` on the full parquet (est. 30–90 min, cached by parquet identity;
+  the two cached entries are keyed to the eval *sample* parquet, not the full one), then
+  `python -m bench run --model gemini-3.8-flash --run-dir ...` and the same with the default
+  `gemini-3.1-pro-preview`, then `grade`/`report` each. Re-running `run` with the same
+  `--run-dir` resumes. Switch `MODEL` in `app/static/app.js` (and `bench` default) if Flash wins.
+- **Remaining flash-lite pins.** `app/routes/auth.py` (`_VALIDATION_MODEL`) and
+  `tests/evals/judge.py` still pin `gemini-3.1-flash-lite-preview`; the guards moved to
+  `gemini-3.5-flash-lite` on 2026-09-22. Keep pins explicit (not `-latest`), see Recently done.
 - **gVisor (`runsc`) as the worker runtime** — recommended defense-in-depth now that there is no
   AST/blocklist layer (kernel-CVE isolation). **blocked:** not installed on current hosts.
 - **Image-borne prompt injection** — the prompt-guard screens text only; uploaded images (and
@@ -40,42 +40,29 @@ _Updated: 2026-09-22._
 
 ## Recently done
 
-- **2026-06-15 — Worker orphan-reaping made opt-in (`KINDLING_REAP_ORPHANS=all`).** Default-on
-  reaping of every `kindling-worker-*` container on startup killed the warm workers of any *other*
-  instance sharing the host runtime (dev server vs pytest vs `bench/`). Launch tooling
-  (run.sh/Makefile/compose/Quadlet) sets `=all` because those are single-instance-per-host.
-- **2026-06-13 — Model told to disclose sampling fallbacks.** Direct response to ICFFR reviewer 2:
-  when a query falls back to sampling after a failed full-data computation, the user must be told
-  the result is on partial data.
-- **2026-06-12 — Plots served through a session-gated route, not a public static mount; 500-file
-  cap; wipe on startup.** Plots are per-user output and the app is internet-facing on a VM, so an
-  unauthenticated `/plots/` listing was a leak. The cap bounds disk on long sessions.
-- **2026-06-12 — `KINDLING_SESSION_SECRET` for a stable session secret.** Without it the secret
-  is random per process, so every restart/redeploy logs everyone out. Optional; random remains the
-  default for dev.
-- **2026-06-12 — `bench/` benchmark harness committed.** 25 questions in four categories
-  (lookup/aggregation/trend/multistep), 3 trials each; scores executability, accuracy vs
-  reference-Polars ground truth, and per-category median latency. Memory instrumentation was
-  deliberately dropped as not worth the plumbing for a short paper. Not yet run in full (see TODO).
-- **2026-06-08 — `KINDLING_USE_VERTEX` toggle.** Vertex AI express mode uses `AQ.…` keys and a
-  different endpoint, and does not support `models.list()` with API keys — hence key validation
-  via `generate_content` and the fixed `MODEL` constant in `app.js` instead of a dropdown. Must be
-  forwarded into the app *container* (it reads `.env` only via `uv run`).
-- **2026-06-04/05 — App containerized (Option A) and CI added.** The app container spawns workers
-  as *siblings* via the mounted host runtime socket rather than nesting a runtime, so the host
-  kernel enforces cgroup limits and the worker container stays the sole boundary. CI runs
-  ruff + pytest (unit tests use a synthetic-schema fixture; container tests and evals auto-skip) and
-  pushes both images to GHCR on `main` and `v*` tags.
-- **2026-06-03 — Query execution made container-only; AST/blocklist filtering removed.** The
-  container (no network, read-only, cap-drop ALL, non-root, mem/pid limits) is the security
-  boundary, so the worker runs full Python builtins and any installed library. The two flash-lite
-  guards (prompt-guard, code-judge) are defense-in-depth and **fail open** by design.
+- **2026-09-22 — ICFFR short paper accepted; revisions done.** The paper is not stored in this
+  repo and the reviewer notes have been discarded. The `bench/` harness was built for its
+  evaluation section but was never run in full; it now serves model comparison (see TODO).
+- **2026-09-22 — Switched from Vertex AI express mode back to the Gemini Developer API (AI
+  Studio).** Vertex express has no prepaid-credit option. `KINDLING_USE_VERTEX=false` in `.env`
+  and the Quadlet. Note: AI Studio keys now also start with `AQ.`, so the key prefix no longer
+  tells the backends apart. A $0.07 Vertex charge appeared on the old key with nothing running
+  since June — check the usage date; if recent, treat the key as leaked and delete it.
+- **2026-09-22 — Guard model bumped to `gemini-3.5-flash-lite`; pins stay explicit.** Google
+  retired `gemini-2.5-flash-lite` for new accounts (404), prompting the bump. Decided against
+  `gemini-flash-lite-latest`: the guards are classifiers whose false-positive rate was tuned and
+  eval'd against a specific model, so a silent swap under an alias would change block rates
+  without a commit. Retirements fail loudly and the guards fail open, so deliberate bumps + a
+  guard-eval rerun is the cheaper discipline.
+- **2026-09-22 — Dataset symlink repointed.** The parquet moved to `mtbs/data/results/` on the
+  data mount; `data/mtbs_pix_data.parquet` (tracked) now follows it.
 
 ## Milestones
 
 - Durable decisions have graduated to `docs/decisions/` (deployment model, container as sole
   boundary, sibling workers); operational facts (env knobs, tests vs evals, bench cache
-  keying) now live in `CLAUDE.md`.
+  keying, plot serving, Vertex toggle, orphan reaping) live in `CLAUDE.md`. June 2026 entries
+  were compacted out on 2026-09-22; `git log` has the detail.
 
 ## Commands
 
