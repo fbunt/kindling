@@ -36,9 +36,6 @@ _Updated: 2026-09-22._
   signatures and the server rebuilds contents each turn, so switching mid-conversation is safe
   and useful (explore on Flash, escalate to Pro). Stamp each assistant history entry and message
   with the model that produced it so the badge doesn't misattribute earlier turns.
-- **Remaining flash-lite pins.** `app/routes/auth.py` (`_VALIDATION_MODEL`) and
-  `tests/evals/judge.py` still pin `gemini-3.1-flash-lite-preview`; the guards moved to
-  `gemini-3.5-flash-lite` on 2026-09-22. Keep pins explicit (not `-latest`), see Recently done.
 - **gVisor (`runsc`) as the worker runtime** — recommended defense-in-depth now that there is no
   AST/blocklist layer (kernel-CVE isolation). **blocked:** not installed on current hosts.
 - **Image-borne prompt injection** — the prompt-guard screens text only; uploaded images (and
@@ -57,7 +54,8 @@ _Updated: 2026-09-22._
   and the Quadlet. Note: AI Studio keys now also start with `AQ.`, so the key prefix no longer
   tells the backends apart. A $0.07 Vertex charge appeared on the old key with nothing running
   since June — check the usage date; if recent, treat the key as leaked and delete it.
-- **2026-09-22 — Guard model bumped to `gemini-3.5-flash-lite`; pins stay explicit.** Google
+- **2026-09-22 — All flash-lite pins (guards, auth validation, eval judge) moved to
+  `gemini-3.5-flash-lite`; pins stay explicit.** Full model-eval suite passed with the new judge. Google
   retired `gemini-2.5-flash-lite` for new accounts (404), prompting the bump. Decided against
   `gemini-flash-lite-latest`: the guards are classifiers whose false-positive rate was tuned and
   eval'd against a specific model, so a silent swap under an alias would change block rates
