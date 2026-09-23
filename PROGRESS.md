@@ -27,6 +27,15 @@ _Updated: 2026-09-22._
   `python -m bench run --model gemini-3.8-flash --run-dir ...` and the same with the default
   `gemini-3.1-pro-preview`, then `grade`/`report` each. Re-running `run` with the same
   `--run-dir` resumes. Switch `MODEL` in `app/static/app.js` (and `bench` default) if Flash wins.
+- **Model selector: `gemini-3.1-pro-preview` vs `gemini-3.8-flash`.** The UI hardcodes `MODEL` in
+  `app/static/app.js` (header badge); `POST /api/chat` already accepts a `model` form field. Add a
+  fixed two-option selector (not a live `models.list()` dropdown — that was removed in June for
+  Vertex and a fixed list is simpler and safer), send the choice with each request, and have the
+  backend allowlist the two names rather than trusting any client string. Do **not** lock the
+  choice once a chat starts: history is plain text+images with no function-call parts or thought
+  signatures and the server rebuilds contents each turn, so switching mid-conversation is safe
+  and useful (explore on Flash, escalate to Pro). Stamp each assistant history entry and message
+  with the model that produced it so the badge doesn't misattribute earlier turns.
 - **Remaining flash-lite pins.** `app/routes/auth.py` (`_VALIDATION_MODEL`) and
   `tests/evals/judge.py` still pin `gemini-3.1-flash-lite-preview`; the guards moved to
   `gemini-3.5-flash-lite` on 2026-09-22. Keep pins explicit (not `-latest`), see Recently done.

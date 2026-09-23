@@ -13,7 +13,7 @@ router = APIRouter()
 # Validate keys with a tiny generation, NOT models.list(): under Vertex express
 # mode list() rejects API keys with 401 UNAUTHENTICATED, but generate_content
 # works (and works on the Developer API too). flash-lite keeps it cheap.
-_VALIDATION_MODEL = "gemini-3.1-flash-lite-preview"
+_VALIDATION_MODEL = "gemini-3.5-flash-lite"
 
 
 def _validate_key(api_key: str) -> None:
