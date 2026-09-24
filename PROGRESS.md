@@ -23,7 +23,8 @@ _Updated: 2026-09-22._
   the 3.1 preview (Feb 2026; 3.5 Pro announced May 2026, repeatedly delayed) while Flash shipped
   3.5–3.8; public coding/agentic benchmarks put 3.8 Flash at or above 3.1 Pro at ~1/3 the price.
   Steps: `python -m bench gt` on the full parquet (est. 30–90 min, cached by parquet identity;
-  the two cached entries are keyed to the eval *sample* parquet, not the full one), then
+  of the two cached entries one is sample-keyed and one is the June full parquet, whose
+  mtime-based identity has likely changed since the 2026-09-22 symlink move — expect a recompute), then
   `python -m bench run --model gemini-3.8-flash --run-dir ...` and the same with the default
   `gemini-3.1-pro-preview`, then `grade`/`report` each. Re-running `run` with the same
   `--run-dir` resumes. Switch `MODEL` in `app/static/app.js` (and `bench` default) if Flash wins.
