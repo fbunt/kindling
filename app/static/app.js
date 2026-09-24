@@ -23,6 +23,25 @@ const lightboxImg = document.getElementById("lightbox-img");
 let history = [];
 let abortController = null;
 
+// History is text plus references: assistant entries carry plot {name, epoch}
+// refs (the server re-reads the PNGs from its plots/ dir), user entries carry
+// the upload as base64. The server only embeds image bytes for the last
+// IMAGE_WINDOW_TURNS user+assistant turns (HISTORY_IMAGE_WINDOW in chat.py) and
+// stubs older ones, so serializeHistory() drops upload bytes it would ignore.
+const IMAGE_WINDOW_TURNS = 2;
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+function serializeHistory() {
+    const cutoff = history.length - 2 * IMAGE_WINDOW_TURNS;
+    return JSON.stringify(history.map((entry, i) => {
+        if (entry.role === "user" && entry.image && i < cutoff) {
+            const { mime, name } = entry.image;
+            return { ...entry, image: { mime, name } };
+        }
+        return entry;
+    }));
+}
+
 // Model selection. The list and default come from GET /api/config (the server
 // allowlists the posted value); the choice persists across reloads. Not locked
 // once a chat starts: history is plain text+images (no function-call parts or
@@ -389,6 +408,11 @@ chatForm.addEventListener("submit", async (e) => {
     // Read image if attached
     const imageFile = imageInput.files[0] || null;
     let imageDataUrl = null;
+    if (imageFile && imageFile.size > MAX_UPLOAD_BYTES) {
+        addMessage("error", "Image is larger than 10 MB.");
+        clearImageInput();
+        return;
+    }
     if (imageFile) {
         imageDataUrl = await new Promise((resolve) => {
             const reader = new FileReader();
@@ -410,7 +434,7 @@ chatForm.addEventListener("submit", async (e) => {
     const formData = new FormData();
     formData.append("message", message);
     formData.append("model", selectedModel);
-    formData.append("history", JSON.stringify(history));
+    formData.append("history", serializeHistory());
     if (imageFile) {
         formData.append("image", imageFile);
     }
@@ -428,13 +452,21 @@ chatForm.addEventListener("submit", async (e) => {
             showLogin();
             return;
         }
-        if (res.status === 400) {
-            // Model allowlist rejection (JSON body, no SSE stream).
+        // Anything that is not an SSE stream is an error with a JSON detail
+        // (400 model/oversized form, 413/415 upload, 422 validation, 5xx).
+        // Without this the stream reader finds no events and the spinner
+        // never clears.
+        const ctype = res.headers.get("content-type") || "";
+        if (!res.ok || !ctype.startsWith("text/event-stream")) {
             thinkingDiv.remove();
-            let detail = "Request rejected.";
+            let detail = `Request failed (${res.status}).`;
             try {
                 const body = await res.json();
-                if (body && body.detail) detail = String(body.detail);
+                if (Array.isArray(body.detail)) {
+                    detail = body.detail.map(d => d.msg || JSON.stringify(d)).join("; ");
+                } else if (body && body.detail) {
+                    detail = String(body.detail);
+                }
             } catch (e) {
                 // non-JSON body: keep the generic message
             }
@@ -510,15 +542,19 @@ chatForm.addEventListener("submit", async (e) => {
                     const data = JSON.parse(dataStr);
                     if (data.response) {
                         const userEntry = { role: "user", content: message };
-                        if (data.image_info) {
-                            userEntry.image = data.image_info;
+                        if (imageFile) {
+                            userEntry.image = {
+                                mime: imageFile.type,
+                                name: imageFile.name,
+                                data: imageDataUrl.split(",")[1],
+                            };
                         }
                         history.push(userEntry);
                         // Stamp with the server's model, not the one we sent.
                         const turnModel = data.model || selectedModel;
                         const assistantEntry = { role: "assistant", content: data.response, model: turnModel };
-                        if (data.plot_images) {
-                            assistantEntry.plot_images = data.plot_images;
+                        if (data.plots) {
+                            assistantEntry.plots = data.plots.map(p => ({ name: p.name, epoch: p.epoch }));
                         }
                         history.push(assistantEntry);
                         addMessage("assistant", data.response, null, turnModel);

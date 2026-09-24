@@ -254,3 +254,459 @@ def test_plot_bad_names_404(auth_client, plots_dir):
     assert client.get("/plots/%2e%2e%2fsecret.png").status_code == 404
     # well-formed name, no such file
     assert client.get("/plots/plot-999.png").status_code == 404
+
+
+# --- history refs, caps, and manual form parsing (audit finding #4) ---
+
+JPEG_MAGIC = b"\xff\xd8\xff"
+SMALL_PNG = PNG_MAGIC + b"\x00" * 64
+
+
+def _b64(b: bytes) -> str:
+    import base64
+
+    return base64.b64encode(b).decode()
+
+
+@pytest.fixture
+def chat_plots_dir(tmp_path, monkeypatch):
+    """Where chat.py re-reads plots from (sibling of `plots_dir`, which patches
+    the /plots route)."""
+    monkeypatch.setattr("app.routes.chat.PLOTS_DIR", tmp_path)
+    return tmp_path
+
+
+@pytest.fixture
+def capture_turn(auth_client, monkeypatch):
+    """Authenticated client whose run_chat_turn records the `contents` it got
+    and yields a DoneEvent. Returns (client, pool, captured)."""
+    client, pool = auth_client
+    captured = {}
+
+    def fake_run(_client, model, contents, *_a, **_k):
+        captured["contents"] = contents
+        captured["model"] = model
+
+        async def gen():
+            yield DoneEvent(ChatTurnResult(text="ok"))
+
+        return gen()
+
+    monkeypatch.setattr("app.routes.chat.guard_prompt", lambda *_a: (True, ""))
+    monkeypatch.setattr("app.routes.chat.run_chat_turn", fake_run)
+    return client, pool, captured
+
+
+def _post(client, history, **extra):
+    import json
+
+    files = {"message": (None, "hi"), "history": (None, json.dumps(history))}
+    files.update(extra)
+    return client.post("/api/chat", files=files)
+
+
+def _texts(content):
+    return [p.text for p in content.parts if p.text is not None]
+
+
+def _inlines(content):
+    return [p.inline_data for p in content.parts if p.inline_data is not None]
+
+
+def _epoch():
+    from app.routes import chat
+
+    return chat.PLOT_EPOCH
+
+
+def test_oversized_history_part_returns_friendly_400(auth_client, monkeypatch):
+    client, pool = auth_client
+    monkeypatch.setattr("app.routes.chat._MAX_FORM_PART", 1024)
+    r = client.post(
+        "/api/chat", files={"message": (None, "hi"), "history": (None, "x" * 4096)}
+    )
+    assert r.status_code == 400
+    assert r.headers["content-type"].startswith("application/json")
+    assert "Conversation too large" in r.json()["detail"]
+    assert pool.acquire_count == 0
+
+
+def test_body_over_cap_returns_413(auth_client, monkeypatch):
+    client, pool = auth_client
+    monkeypatch.setattr("app.routes.chat._MAX_BODY", 100)
+    r = client.post("/api/chat", data={"message": "x" * 200})
+    assert r.status_code == 413
+    assert "detail" in r.json()
+    assert pool.acquire_count == 0
+
+
+@pytest.mark.parametrize(
+    "history",
+    ['[{"role":"user"}]', "not json", '[{"role":"tool","content":"x"}]', '{"a":1}'],
+)
+def test_malformed_history_returns_422(auth_client, history):
+    client, pool = auth_client
+    r = client.post("/api/chat", data={"message": "hi", "history": history})
+    assert r.status_code == 422
+    assert isinstance(r.json()["detail"], list)
+    assert pool.acquire_count == 0
+
+
+@pytest.mark.parametrize("message", ["", "   "])
+def test_empty_message_422(auth_client, message):
+    client, pool = auth_client
+    r = client.post("/api/chat", data={"message": message})
+    assert r.status_code == 422
+    assert pool.acquire_count == 0
+
+
+def test_missing_message_422(auth_client):
+    client, pool = auth_client
+    r = client.post("/api/chat", files={"history": (None, "[]")})
+    assert r.status_code == 422
+    assert r.json()["detail"][0]["loc"] == ["body", "message"]
+    # message sent as a file part
+    r = client.post("/api/chat", files={"message": ("m.txt", b"hi")})
+    assert r.status_code == 422
+    # history sent as a file part
+    r = client.post(
+        "/api/chat", files={"message": (None, "hi"), "history": ("h.json", b"[]")}
+    )
+    assert r.status_code == 422
+    assert pool.acquire_count == 0
+
+
+def test_history_truncated_to_cap(capture_turn, monkeypatch):
+    client, _, captured = capture_turn
+    monkeypatch.setattr("app.routes.chat._MAX_HISTORY_MSGS", 4)
+    history = []
+    for i in range(3):
+        history.append({"role": "user", "content": f"u{i}"})
+        history.append({"role": "assistant", "content": f"a{i}"})
+    r = _post(client, history)
+    assert r.status_code == 200 and "event: done" in r.text
+    contents = captured["contents"]
+    assert len(contents) == 5  # 4 kept + current message
+    assert _texts(contents[0]) == ["u1"]
+    assert contents[0].role == "user"
+    assert _texts(contents[-1]) == ["hi"]
+
+
+def test_history_truncation_keeps_whole_turns(capture_turn, monkeypatch):
+    client, _, captured = capture_turn
+    monkeypatch.setattr("app.routes.chat._MAX_HISTORY_MSGS", 3)
+    history = [
+        {"role": "user", "content": "u0"},
+        {"role": "assistant", "content": "a0"},
+        {"role": "user", "content": "u1"},
+        {"role": "assistant", "content": "a1"},
+    ]
+    _post(client, history)
+    contents = captured["contents"]
+    # cap 3 would keep [a0, u1, a1]; the leading assistant is dropped too.
+    assert [_texts(c)[0] for c in contents] == ["u1", "a1", "hi"]
+
+
+def test_plot_ref_reembedded_from_disk(capture_turn, chat_plots_dir):
+    client, pool, captured = capture_turn
+    png = PNG_MAGIC + b"real-bytes"
+    (chat_plots_dir / "plot-000.png").write_bytes(png)
+    history = [
+        {"role": "user", "content": "plot it"},
+        {
+            "role": "assistant",
+            "content": "here",
+            "plots": [{"name": "plot-000", "epoch": _epoch()}],
+        },
+    ]
+    r = _post(client, history)
+    assert r.status_code == 200 and "event: done" in r.text
+    assistant = captured["contents"][1]
+    assert assistant.role == "model"
+    assert _texts(assistant) == ["here", "[Generated plot: plot-000]"]
+    inl = _inlines(assistant)
+    assert len(inl) == 1
+    assert inl[0].data == png and inl[0].mime_type == "image/png"
+    assert pool.acquire_count == 1
+
+
+def test_plot_ref_missing_file_is_stub(capture_turn, chat_plots_dir):
+    client, _, captured = capture_turn
+    history = [
+        {"role": "user", "content": "plot it"},
+        {
+            "role": "assistant",
+            "content": "here",
+            "plots": [{"name": "plot-000", "epoch": _epoch()}],
+        },
+    ]
+    _post(client, history)
+    assistant = captured["contents"][1]
+    assert _texts(assistant) == [
+        "here",
+        "[Generated plot: plot-000 (image no longer available)]",
+    ]
+    assert _inlines(assistant) == []
+
+
+@pytest.mark.parametrize(
+    "ref", [{"name": "plot-000", "epoch": "dead"}, {"name": "plot-000"}]
+)
+def test_plot_ref_wrong_epoch_is_stub(capture_turn, chat_plots_dir, ref):
+    client, _, captured = capture_turn
+    (chat_plots_dir / "plot-000.png").write_bytes(SMALL_PNG)
+    history = [
+        {"role": "user", "content": "plot it"},
+        {"role": "assistant", "content": "here", "plots": [ref]},
+    ]
+    _post(client, history)
+    assistant = captured["contents"][1]
+    assert "(image no longer available)" in _texts(assistant)[1]
+    assert _inlines(assistant) == []
+
+
+def test_plot_ref_bad_name_is_stub_and_never_reads_disk(
+    capture_turn, chat_plots_dir, monkeypatch
+):
+    from pathlib import Path
+
+    client, _, captured = capture_turn
+    (chat_plots_dir / "plot-000.png").write_bytes(SMALL_PNG)
+    reads = []
+    real = Path.read_bytes
+    monkeypatch.setattr(
+        Path, "read_bytes", lambda self: reads.append(self) or real(self)
+    )
+    names = ["../../etc/passwd", "plot-000.png", "x", "plot-00", ""]
+    history = [
+        {"role": "user", "content": "plot it"},
+        {
+            "role": "assistant",
+            "content": "here",
+            "plots": [{"name": n, "epoch": _epoch()} for n in names],
+        },
+    ]
+    r = _post(client, history)
+    assert r.status_code == 200
+    assistant = captured["contents"][1]
+    stubs = _texts(assistant)[1:]
+    assert len(stubs) == len(names)
+    assert all("(image no longer available)" in s for s in stubs)
+    assert _inlines(assistant) == []
+    assert reads == []
+
+
+def test_images_outside_window_are_stubs(capture_turn, chat_plots_dir):
+    client, _, captured = capture_turn
+    history = []
+    for i in range(3):
+        (chat_plots_dir / f"plot-00{i}.png").write_bytes(PNG_MAGIC + bytes([i]))
+        history.append(
+            {
+                "role": "user",
+                "content": f"u{i}",
+                "image": {
+                    "mime": "image/png",
+                    "name": f"up{i}.png",
+                    "data": _b64(SMALL_PNG),
+                },
+            }
+        )
+        history.append(
+            {
+                "role": "assistant",
+                "content": f"a{i}",
+                "plots": [{"name": f"plot-00{i}", "epoch": _epoch()}],
+            }
+        )
+    _post(client, history)
+    contents = captured["contents"]
+    assert len(contents) == 7
+    # turn 1 (indices 0-1): elided
+    assert _inlines(contents[0]) == []
+    assert "[Attached image: up0.png (omitted from context)]" in _texts(contents[0])
+    assert _inlines(contents[1]) == []
+    assert _texts(contents[1]) == [
+        "a0",
+        "[Generated plot: plot-000 (image omitted from context)]",
+    ]
+    # turns 2-3: inline
+    for i in (2, 3, 4, 5):
+        assert len(_inlines(contents[i])) == 1, i
+    assert _inlines(contents[2])[0].data == SMALL_PNG
+    assert _inlines(contents[3])[0].data == PNG_MAGIC + bytes([1])
+    assert _texts(contents[5]) == ["a2", "[Generated plot: plot-002]"]
+
+
+def test_legacy_plot_images_key_accepted(capture_turn, chat_plots_dir):
+    client, pool, captured = capture_turn
+    (chat_plots_dir / "plot-000.png").write_bytes(SMALL_PNG)
+    history = [
+        {
+            "role": "user",
+            "content": "look",
+            "image": {"data": _b64(SMALL_PNG), "mime": "image/png"},
+        },
+        {
+            "role": "assistant",
+            "content": "here",
+            "plot_images": [
+                {"data": _b64(SMALL_PNG), "mime": "image/png", "name": "plot-000"}
+            ],
+        },
+    ]
+    r = _post(client, history)
+    assert r.status_code == 200 and "event: done" in r.text
+    user, assistant = captured["contents"][:2]
+    assert len(_inlines(user)) == 1 and _inlines(user)[0].data == SMALL_PNG
+    assert _texts(user) == ["look"]
+    assert _texts(assistant) == [
+        "here",
+        "[Generated plot: plot-000 (image no longer available)]",
+    ]
+    assert _inlines(assistant) == []
+    assert pool.acquire_count == 1
+
+
+@pytest.mark.parametrize(
+    "image, cap",
+    [
+        ({"mime": "image/png", "name": "a.png", "data": "!!not-base64!!"}, None),
+        (
+            {
+                "mime": "image/png",
+                "name": "a.png",
+                "data": _b64(JPEG_MAGIC + b"\x00" * 32),
+            },
+            None,
+        ),
+        (
+            {
+                "mime": "image/gif",
+                "name": "a.gif",
+                "data": _b64(b"GIF89a" + b"\x00" * 32),
+            },
+            None,
+        ),
+        (
+            {
+                "mime": "image/png",
+                "name": "a.png",
+                "data": _b64(PNG_MAGIC + b"\x00" * 192),
+            },
+            16,
+        ),
+        (
+            {"mime": "image/png", "name": "huge.png", "data": "A" * (14 * 1024 * 1024)},
+            None,
+        ),
+    ],
+)
+def test_history_image_invalid_is_stub_not_422(capture_turn, monkeypatch, image, cap):
+    client, pool, captured = capture_turn
+    if cap is not None:
+        monkeypatch.setattr("app.routes.chat._MAX_UPLOAD_BYTES", cap)
+    history = [
+        {"role": "user", "content": "look", "image": image},
+        {"role": "assistant", "content": "ok"},
+    ]
+    r = _post(client, history)
+    assert r.status_code == 200 and "event: done" in r.text
+    user = captured["contents"][0]
+    assert _inlines(user) == []
+    assert _texts(user) == ["look", f"[Attached image: {image['name']} (unavailable)]"]
+    assert pool.acquire_count == 1
+
+
+def test_upload_too_large_413(auth_client, monkeypatch):
+    client, pool = auth_client
+    monkeypatch.setattr("app.routes.chat._MAX_UPLOAD_BYTES", 16)
+    r = client.post(
+        "/api/chat",
+        files={"message": (None, "hi"), "image": ("a.png", SMALL_PNG, "image/png")},
+    )
+    assert r.status_code == 413
+    assert "detail" in r.json()
+    assert pool.acquire_count == 0
+
+
+def test_upload_bad_mime_415(auth_client):
+    client, pool = auth_client
+    r = client.post(
+        "/api/chat",
+        files={
+            "message": (None, "hi"),
+            "image": ("a.gif", b"GIF89a" + b"\x00" * 8, "image/gif"),
+        },
+    )
+    assert r.status_code == 415
+    assert pool.acquire_count == 0
+
+
+def test_upload_magic_mismatch_415(auth_client):
+    client, pool = auth_client
+    r = client.post(
+        "/api/chat",
+        files={
+            "message": (None, "hi"),
+            "image": ("a.png", JPEG_MAGIC + b"\x00" * 8, "image/png"),
+        },
+    )
+    assert r.status_code == 415
+    assert pool.acquire_count == 0
+
+
+def test_upload_ok_is_inlined_and_filename_sanitized(capture_turn):
+    client, pool, captured = capture_turn
+    bad_name = "evil\nname" + "x" * 300 + ".png"
+    r = client.post(
+        "/api/chat",
+        files={
+            "message": (None, "what is this"),
+            "image": (bad_name, SMALL_PNG, "image/png"),
+        },
+    )
+    assert r.status_code == 200 and "event: done" in r.text
+    current = captured["contents"][-1]
+    assert _inlines(current)[0].data == SMALL_PNG
+    text = _texts(current)[0]
+    label, rest = text.split("\n", 1)
+    assert rest == "what is this"
+    # httpx percent-encodes the newline in transit; either way the server
+    # produces a one-line label truncated to 100 chars.
+    assert "\n" not in label and label.startswith("[Attached image: evil")
+    assert label.endswith("]")
+    assert len(label) <= len("[Attached image: ]") + 100
+    assert pool.acquire_count == 1
+
+
+def test_done_payload_shape(auth_client, monkeypatch):
+    import json
+
+    client, _ = auth_client
+    result = ChatTurnResult(
+        text="t",
+        plots=[
+            {
+                "url": "/plots/plot-007.png?t=1",
+                "name": "plot-007",
+                "path": "plots/plot-007.png",
+            }
+        ],
+        queries_run=["q"],
+    )
+    monkeypatch.setattr("app.routes.chat.guard_prompt", lambda *_a: (True, ""))
+    monkeypatch.setattr(
+        "app.routes.chat.run_chat_turn", _gen_returning([DoneEvent(result)])
+    )
+    r = client.post("/api/chat", data={"message": "hi"})
+    done = next(
+        line
+        for line in r.text.split("\n")
+        if line.startswith("data: ") and '"response"' in line
+    )
+    payload = json.loads(done[len("data: ") :])
+    assert set(payload) == {"response", "model", "plots", "queries"}
+    assert payload["plots"][0]["epoch"] == _epoch()
+    assert payload["plots"][0]["name"] == "plot-007"
+    assert payload["model"] == DEFAULT_CHAT_MODEL

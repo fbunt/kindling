@@ -15,6 +15,7 @@ import itertools
 import json
 import logging
 import os
+import secrets
 import shutil
 import time
 import uuid
@@ -153,12 +154,19 @@ async def _cli_capture(runtime: str, *args: str) -> str:
 # plot-001, ...). Unique for the process lifetime (single event loop; count()
 # is atomic), and main.py wipes plots/ at startup so a restart's repeated names
 # can't collide with stale files. The ?t= cache-buster covers the browser cache.
+# PLOT_EPOCH lets chat.py refuse refs from a previous process.
 _plot_counter = itertools.count()
+
+# Identifies this process's plot namespace. History entries reference plots by
+# {name, epoch}; a ref from another process (a tab that re-logged in after a
+# restart) is refused because names restart at plot-000 and would otherwise
+# alias a different plot.
+PLOT_EPOCH = secrets.token_hex(4)
 
 # Disk cap for plots/ within one process (startup wipe only covers restarts).
 # At ~100KB-1MB per PNG this bounds the dir to ~0.05-0.5GB. A tab kept open
-# past the cap gets broken thumbnails for its oldest plots; the base64 copies
-# embedded in conversation history are unaffected.
+# past the cap gets broken thumbnails for its oldest plots; history refs to
+# pruned plots degrade to a text stub in later turns.
 _MAX_PLOTS = 500
 
 

@@ -38,6 +38,24 @@ _Updated: 2026-09-23._
 
 ## Recently done
 
+- **2026-09-23 - History carries plot refs, not base64 (audit finding #4).** The `done` payload
+  no longer embeds plot PNGs; assistant history entries hold `{name, epoch}` and the server
+  re-reads `plots/<name>.png` itself. Why each piece: the **epoch token** (`PLOT_EPOCH`, random
+  per process) exists because `showLogin()` keeps `history` across a server restart while the
+  plot counter restarts at `plot-000`, so a name alone would silently show the model the wrong
+  plot; refs from a dead process become "no longer available" stubs instead. **Window = 2 turns**
+  for both plots and uploads: follow-ups almost always target the previous turn, one rule is
+  explainable, and older plots keep their text label (the model can regenerate them). **Structural-
+  only pydantic validation**: only wrong types/roles/missing `content` 422; a bad plot name, mime,
+  or oversized/invalid `image.data` degrades to a stub, because the user cannot edit history and a
+  422 would strand them until Clear (`ImageRef.data` has no `max_length` for exactly this reason;
+  the body is bounded by the 48 MiB Content-Length precheck and 32 MiB part cap first). Over
+  `_MAX_HISTORY_MSGS=400` entries the oldest whole turns are **truncated, not 422'd**, so a long
+  session keeps working. No per-entry `content` length cap (the part cap suffices). The client
+  now treats any non-SSE response as an error and shows `detail`, which ends the "Thinking..."
+  hang; oversized history is a friendly 400. Legacy `plot_images` entries from stale tabs are
+  accepted and stubbed. Still open: the audit UX finding "Transcript diverges from history on
+  error or Stop", and the model still never sees a plot within the turn that generated it.
 - **2026-09-23 - Model selector (3.1 Pro Preview / 3.8 Flash) and one model constant.**
   `app/config.py` holds `CHAT_MODELS`, `DEFAULT_CHAT_MODEL`, `LITE_MODEL`, `MAX_TOOL_ROUNDS`;
   chat/auth/guards/bench/evals import from it. `GET /api/config` serves the list; the header badge

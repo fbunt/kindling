@@ -39,8 +39,9 @@ async def lifespan(app: FastAPI):
             "found. Install podman or docker (or set KINDLING_CONTAINER_RUNTIME) "
             "and build the kindling-worker image."
         )
-    # Fresh slate: plots from a prior process are unreachable (frontend state
-    # doesn't survive reload; history re-embeds plots as base64), so clear them.
+    # Fresh slate: a prior process's plots are unreachable (its PLOT_EPOCH is
+    # gone, so history refs to them degrade to text stubs; frontend state does
+    # not survive reload), so clear them.
     stale = list(PLOTS_DIR.glob("*.png"))
     for f in stale:
         f.unlink(missing_ok=True)
