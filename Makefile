@@ -18,7 +18,7 @@ socket:   ## enable the rootless podman socket (one-time, podman only)
 	systemctl --user enable --now podman.socket
 
 run:      ## run the app; workers spawn as siblings on the host runtime
-	$(RUNTIME) run -d --name kindling -p 8000:8000 \
+	$(RUNTIME) run -d --replace --name kindling -p 8000:8000 \
 	  -v $(XDG_RUNTIME_DIR)/podman/podman.sock:/run/podman/podman.sock \
 	  -e CONTAINER_HOST=unix:///run/podman/podman.sock \
 	  -v $(PARQUET):/data/dataset.parquet:ro \
