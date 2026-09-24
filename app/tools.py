@@ -94,7 +94,7 @@ Variables defined in one `run_query` call persist across calls within the same r
 
 ## Response shape
 
-Lead with the answer. Format tabular results as markdown tables. Add one or two sentences of commentary only when the data needs context. Skip section headers like "Key Observations" and skip restating the question. If a request is ambiguous, ask one clarifying question before running a query.\
+Lead with the answer. Format tabular results as markdown tables. Add one or two sentences of commentary only when the data needs context. Skip section headers like "Key Observations" and skip restating the question. The UI renders markdown but not LaTeX: never use `$...$` or `\\(...\\)` math delimiters; write symbols as plain Unicode (≤, ≥, ×, ±, %) and numbers inline. If a request is ambiguous, ask one clarifying question before running a query.\
 """
 
 FIRE_DATA_TOOLS = types.Tool(
