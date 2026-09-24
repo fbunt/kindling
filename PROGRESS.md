@@ -6,7 +6,7 @@ Architecture, invariants, and run/deploy wiring live in `CLAUDE.md`; user-facing
 `README.md`; the *what changed* history in `git log` (commit messages are detailed). This file
 holds only what those don't: in-flight work, the *why* behind non-obvious decisions, and blockers.
 
-_Updated: 2026-09-22._
+_Updated: 2026-09-23._
 
 > **Maintaining this file.** New work is appended to _Recently done_ with a date. When that
 > section passes ~10 items, compact it: fold anything that would stop someone redoing or
@@ -27,16 +27,7 @@ _Updated: 2026-09-22._
   mtime-based identity has likely changed since the 2026-09-22 symlink move — expect a recompute), then
   `python -m bench run --model gemini-3.8-flash --run-dir ...` and the same with the default
   `gemini-3.1-pro-preview`, then `grade`/`report` each. Re-running `run` with the same
-  `--run-dir` resumes. Switch `MODEL` in `app/static/app.js` (and `bench` default) if Flash wins.
-- **Model selector: `gemini-3.1-pro-preview` vs `gemini-3.8-flash`.** The UI hardcodes `MODEL` in
-  `app/static/app.js` (header badge); `POST /api/chat` already accepts a `model` form field. Add a
-  fixed two-option selector (not a live `models.list()` dropdown — that was removed in June for
-  Vertex and a fixed list is simpler and safer), send the choice with each request, and have the
-  backend allowlist the two names rather than trusting any client string. Do **not** lock the
-  choice once a chat starts: history is plain text+images with no function-call parts or thought
-  signatures and the server rebuilds contents each turn, so switching mid-conversation is safe
-  and useful (explore on Flash, escalate to Pro). Stamp each assistant history entry and message
-  with the model that produced it so the badge doesn't misattribute earlier turns.
+  `--run-dir` resumes. Switch `DEFAULT_CHAT_MODEL` in `app/config.py` if Flash wins.
 - **gVisor (`runsc`) as the worker runtime** — recommended defense-in-depth now that there is no
   AST/blocklist layer (kernel-CVE isolation). **blocked:** not installed on current hosts.
 - **Image-borne prompt injection** — the prompt-guard screens text only; uploaded images (and
@@ -47,6 +38,15 @@ _Updated: 2026-09-22._
 
 ## Recently done
 
+- **2026-09-23 - Model selector (3.1 Pro Preview / 3.8 Flash) and one model constant.**
+  `app/config.py` holds `CHAT_MODELS`, `DEFAULT_CHAT_MODEL`, `LITE_MODEL`, `MAX_TOOL_ROUNDS`;
+  chat/auth/guards/bench/evals import from it. `GET /api/config` serves the list; the header badge
+  is now a `<select>` persisted in `localStorage`; `POST /api/chat` 400s on any id outside the
+  list before opening the SSE stream. The choice is deliberately **not** locked once a chat
+  starts: history is plain text+images (no function-call parts or thought signatures) and the
+  server rebuilds `contents` each turn, so switching mid-conversation is safe and useful (explore
+  on Flash, escalate to Pro). Each assistant bubble/history entry is stamped with the model the
+  server echoes in the `done` event, so earlier turns aren't misattributed after a switch.
 - **2026-09-22 — ICFFR short paper accepted; revisions done.** The paper is not stored in this
   repo and the reviewer notes have been discarded. The `bench/` harness was built for its
   evaluation section but was never run in full; it now serves model comparison (see TODO).

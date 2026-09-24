@@ -21,8 +21,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from app.config import DEFAULT_CHAT_MODEL
+
 DEFAULT_PARQUET = "data/mtbs_pix_data.parquet"
-DEFAULT_MODEL = "gemini-3.1-pro-preview"
+DEFAULT_MODEL = DEFAULT_CHAT_MODEL
 
 
 def _client():

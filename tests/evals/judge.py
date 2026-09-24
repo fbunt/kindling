@@ -1,8 +1,10 @@
-"""Judge wrapper using gemini-3.5-flash-lite for outcome assertions."""
+"""Judge wrapper using the flash-lite model for outcome assertions."""
 
 from google import genai
 
-JUDGE_MODEL = "gemini-3.5-flash-lite"
+from app.config import LITE_MODEL
+
+JUDGE_MODEL = LITE_MODEL
 
 
 def judge(client: genai.Client, *, response_text: str, criterion: str) -> bool:

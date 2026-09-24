@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.chat_loop import ChatTurnResult, DoneEvent, RejectedEvent, ThinkingEvent
+from app.config import CHAT_MODELS, DEFAULT_CHAT_MODEL
 from app.sandbox.pool import SandboxBusy
 
 
@@ -131,6 +132,75 @@ def test_sandbox_busy_streams_error(auth_client, monkeypatch):
     assert "busy" in r.text
     assert pool.acquire_count == 1
     assert pool.release_count == 0  # nothing to release (session never acquired)
+
+
+# --- model allowlist + GET /api/config ---
+
+
+def test_config_endpoint_shape_no_auth(monkeypatch):
+    app, _ = _build_app(monkeypatch)
+    client = TestClient(app)  # no session: endpoint is public
+    r = client.get("/api/config")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["default_model"] == DEFAULT_CHAT_MODEL
+    assert body["models"] == CHAT_MODELS
+    ids = [m["id"] for m in body["models"]]
+    assert body["default_model"] in ids
+    assert all(set(m) == {"id", "label"} for m in body["models"])
+
+
+def test_unknown_model_returns_400_before_stream(auth_client, monkeypatch):
+    client, pool = auth_client
+    monkeypatch.setattr("app.routes.chat.guard_prompt", lambda *_a: (True, ""))
+    r = client.post("/api/chat", data={"message": "hi", "model": "gemini-9-ultra"})
+    assert r.status_code == 400
+    assert r.headers["content-type"].startswith("application/json")
+    detail = r.json()["detail"]
+    for m in CHAT_MODELS:
+        assert m["id"] in detail
+    assert pool.acquire_count == 0  # rejected before any container work
+
+
+def test_omitted_model_uses_default_and_done_echoes_it(auth_client, monkeypatch):
+    client, _ = auth_client
+    seen = {}
+
+    def fake_run(_client, model, *_a, **_k):
+        seen["model"] = model
+
+        async def gen():
+            yield DoneEvent(ChatTurnResult(text="ok"))
+
+        return gen()
+
+    monkeypatch.setattr("app.routes.chat.guard_prompt", lambda *_a: (True, ""))
+    monkeypatch.setattr("app.routes.chat.run_chat_turn", fake_run)
+    r = client.post("/api/chat", data={"message": "hi"})
+    assert r.status_code == 200
+    assert seen["model"] == DEFAULT_CHAT_MODEL
+    assert f'"model": "{DEFAULT_CHAT_MODEL}"' in r.text
+
+
+def test_allowed_non_default_model_is_passed_through(auth_client, monkeypatch):
+    client, _ = auth_client
+    alt = next(m["id"] for m in CHAT_MODELS if m["id"] != DEFAULT_CHAT_MODEL)
+    seen = {}
+
+    def fake_run(_client, model, *_a, **_k):
+        seen["model"] = model
+
+        async def gen():
+            yield DoneEvent(ChatTurnResult(text="ok"))
+
+        return gen()
+
+    monkeypatch.setattr("app.routes.chat.guard_prompt", lambda *_a: (True, ""))
+    monkeypatch.setattr("app.routes.chat.run_chat_turn", fake_run)
+    r = client.post("/api/chat", data={"message": "hi", "model": alt})
+    assert r.status_code == 200
+    assert seen["model"] == alt
+    assert f'"model": "{alt}"' in r.text
 
 
 def test_session_released_on_midturn_exception(auth_client, monkeypatch):

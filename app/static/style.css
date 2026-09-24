@@ -2,6 +2,45 @@
     display: none !important;
 }
 
+/* Header model selector: styled like the Bootstrap badge it replaced
+   (bg-secondary text-light fw-normal), with a caret so it reads as a control. */
+.model-select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: var(--bs-secondary);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23f8f9fa' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 0.45rem center;
+    background-size: 0.65em;
+    color: var(--bs-light);
+    border: none;
+    border-radius: var(--bs-border-radius);
+    font-size: 0.8rem;
+    font-weight: 400;
+    line-height: 1;
+    padding: 0.35em 1.6em 0.35em 0.65em;
+    cursor: pointer;
+}
+
+.model-select:focus-visible {
+    outline: 2px solid var(--bs-primary);
+    outline-offset: 1px;
+}
+
+.model-select option {
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+}
+
+/* Per-message model attribution on assistant bubbles */
+.message .model-tag {
+    display: block;
+    margin-top: 0.5rem;
+    font-size: 0.7rem;
+    color: var(--bs-secondary-color);
+    user-select: none;
+}
+
 /* Messages */
 #messages {
     min-height: 0;

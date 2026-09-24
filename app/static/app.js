@@ -11,7 +11,7 @@ const messagesDiv = document.getElementById("messages");
 const logoutBtn = document.getElementById("logout-btn");
 const clearBtn = document.getElementById("clear-btn");
 const clearConfirmBtn = document.getElementById("clear-confirm-btn");
-const MODEL = "gemini-3.1-pro-preview";
+const modelSelect = document.getElementById("model-select");
 const imageInput = document.getElementById("image-input");
 const imageUploadLabel = document.getElementById("image-upload-label");
 const imageName = document.getElementById("image-name");
@@ -22,6 +22,66 @@ const lightboxImg = document.getElementById("lightbox-img");
 
 let history = [];
 let abortController = null;
+
+// Model selection. The list and default come from GET /api/config (the server
+// allowlists the posted value); the choice persists across reloads. Not locked
+// once a chat starts: history is plain text+images (no function-call parts or
+// thought signatures) and the server rebuilds contents each turn, so switching
+// mid-conversation is safe.
+const MODEL_STORAGE_KEY = "kindling.model";
+const FALLBACK_MODELS = [{ id: "gemini-3.1-pro-preview", label: "3.1 Pro Preview" }];
+let chatModels = FALLBACK_MODELS;
+let selectedModel = FALLBACK_MODELS[0].id;
+
+function modelLabel(id) {
+    const m = chatModels.find(m => m.id === id);
+    return m ? m.label : id;
+}
+
+function loadStoredModel() {
+    try {
+        return localStorage.getItem(MODEL_STORAGE_KEY);
+    } catch (e) {
+        return null;
+    }
+}
+
+function storeModel(id) {
+    try {
+        localStorage.setItem(MODEL_STORAGE_KEY, id);
+    } catch (e) {
+        // Storage unavailable (private mode, blocked): selection lives in memory only.
+    }
+}
+
+function renderModelSelect(models, defaultModel) {
+    chatModels = models;
+    const stored = loadStoredModel();
+    selectedModel = models.some(m => m.id === stored) ? stored : defaultModel;
+    modelSelect.innerHTML = "";
+    for (const m of models) {
+        const opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.label;
+        opt.title = m.id;
+        modelSelect.appendChild(opt);
+    }
+    modelSelect.value = selectedModel;
+}
+
+modelSelect.addEventListener("change", () => {
+    selectedModel = modelSelect.value;
+    storeModel(selectedModel);
+});
+
+fetch("/api/config")
+    .then(r => r.json())
+    .then(data => {
+        const models = Array.isArray(data.models) && data.models.length ? data.models : FALLBACK_MODELS;
+        const def = models.some(m => m.id === data.default_model) ? data.default_model : models[0].id;
+        renderModelSelect(models, def);
+    })
+    .catch(() => renderModelSelect(FALLBACK_MODELS, FALLBACK_MODELS[0].id));
 
 // Lightbox: open on plot image click, toggle zoom, close on background/Escape
 function openLightbox(src) {
@@ -83,7 +143,7 @@ function showChat() {
 }
 
 
-function addMessage(role, content, imageDataUrl) {
+function addMessage(role, content, imageDataUrl, model) {
     const div = document.createElement("div");
     div.className = `message ${role}`;
     if (role === "assistant") {
@@ -131,6 +191,13 @@ function addMessage(role, content, imageDataUrl) {
         img.src = imageDataUrl;
         div.appendChild(img);
     }
+    if (role === "assistant" && model) {
+        const tag = document.createElement("span");
+        tag.className = "model-tag";
+        tag.textContent = modelLabel(model);
+        tag.title = model;
+        div.appendChild(tag);
+    }
     // Add copy button for non-transient messages
     if (role !== "thinking") {
         const copyBtn = document.createElement("button");
@@ -138,7 +205,17 @@ function addMessage(role, content, imageDataUrl) {
         copyBtn.title = "Copy to clipboard";
         copyBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
         copyBtn.addEventListener("click", () => {
-            const text = role === "code" ? content : div.innerText;
+            let text;
+            if (role === "code") {
+                text = content;
+            } else {
+                // innerText skips display:none nodes, so hide the model tag
+                // while reading to keep attribution out of the copied text.
+                const tag = div.querySelector(".model-tag");
+                if (tag) tag.hidden = true;
+                text = div.innerText;
+                if (tag) tag.hidden = false;
+            }
             navigator.clipboard.writeText(text).then(() => {
                 copyBtn.classList.add("copied");
                 copyBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
@@ -332,7 +409,7 @@ chatForm.addEventListener("submit", async (e) => {
     // Build form data
     const formData = new FormData();
     formData.append("message", message);
-    formData.append("model", MODEL);
+    formData.append("model", selectedModel);
     formData.append("history", JSON.stringify(history));
     if (imageFile) {
         formData.append("image", imageFile);
@@ -349,6 +426,19 @@ chatForm.addEventListener("submit", async (e) => {
         if (res.status === 401) {
             thinkingDiv.remove();
             showLogin();
+            return;
+        }
+        if (res.status === 400) {
+            // Model allowlist rejection (JSON body, no SSE stream).
+            thinkingDiv.remove();
+            let detail = "Request rejected.";
+            try {
+                const body = await res.json();
+                if (body && body.detail) detail = String(body.detail);
+            } catch (e) {
+                // non-JSON body: keep the generic message
+            }
+            addMessage("error", detail);
             return;
         }
 
@@ -424,12 +514,14 @@ chatForm.addEventListener("submit", async (e) => {
                             userEntry.image = data.image_info;
                         }
                         history.push(userEntry);
-                        const assistantEntry = { role: "assistant", content: data.response };
+                        // Stamp with the server's model, not the one we sent.
+                        const turnModel = data.model || selectedModel;
+                        const assistantEntry = { role: "assistant", content: data.response, model: turnModel };
                         if (data.plot_images) {
                             assistantEntry.plot_images = data.plot_images;
                         }
                         history.push(assistantEntry);
-                        addMessage("assistant", data.response);
+                        addMessage("assistant", data.response, null, turnModel);
                         if (data.plots) {
                             for (const plot of data.plots) {
                                 addPlotToGallery(plot.url, plot.name);
@@ -542,6 +634,7 @@ h1 { text-align: center; color: #888; font-size: 1rem; margin-bottom: 1.5rem; }
 .message pre { background: #2a2a3a; padding: 0.5rem 0.75rem; border-radius: 0.25rem; overflow-x: auto; }
 .message code { font-size: 0.85em; }
 .message p:last-child { margin-bottom: 0; }
+.message .model-tag { display: block; margin-top: 0.5rem; font-size: 0.7rem; color: #888; }
 .lightbox { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; cursor: zoom-out; }
 .lightbox.open { display: flex; }
 .lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 0.5rem; box-shadow: 0 0 40px rgba(0,0,0,0.5); }

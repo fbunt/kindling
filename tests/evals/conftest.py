@@ -10,6 +10,7 @@ from google import genai
 from google.genai import types
 
 from app.chat_loop import DoneEvent, run_chat_turn
+from app.config import DEFAULT_CHAT_MODEL
 from app.genai_client import make_client
 from app.query_engine import configure
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION
@@ -120,7 +121,7 @@ def run_turn(genai_client, run_dir, sandbox_pool):
 
     Each turn runs in a fresh container worker.
     """
-    model = os.environ.get("KINDLING_EVAL_MODEL", "gemini-3.1-pro-preview")
+    model = os.environ.get("KINDLING_EVAL_MODEL", DEFAULT_CHAT_MODEL)
 
     async def _run(prompt: str, trial: int):
         contents = [

@@ -23,7 +23,7 @@ def test_build_done_payload_embeds_plot_via_clean_path(tmp_path):
         ],
     )
 
-    payload = _build_done_payload(result, image_info=None)
+    payload = _build_done_payload(result, image_info=None, model="m")
 
     assert payload["plot_images"], "plot must be embedded into history via clean path"
     assert payload["plot_images"][0]["name"] == "my-plot"

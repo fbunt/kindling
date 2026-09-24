@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request
 from google.genai import types
 from pydantic import BaseModel
 
+from app.config import LITE_MODEL
 from app.genai_client import make_client
 from app.keystore import drop_key, get_key, put_key
 
@@ -13,7 +14,7 @@ router = APIRouter()
 # Validate keys with a tiny generation, NOT models.list(): under Vertex express
 # mode list() rejects API keys with 401 UNAUTHENTICATED, but generate_content
 # works (and works on the Developer API too). flash-lite keeps it cheap.
-_VALIDATION_MODEL = "gemini-3.5-flash-lite"
+_VALIDATION_MODEL = LITE_MODEL
 
 
 def _validate_key(api_key: str) -> None:

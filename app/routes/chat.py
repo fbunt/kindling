@@ -17,6 +17,12 @@ from app.chat_loop import (  # noqa: E402
     ThinkingEvent,
     run_chat_turn,
 )
+from app.config import (  # noqa: E402
+    CHAT_MODEL_IDS,
+    CHAT_MODELS,
+    DEFAULT_CHAT_MODEL,
+    MAX_TOOL_ROUNDS,
+)
 from app.genai_client import make_client  # noqa: E402
 from app.guards import guard_prompt  # noqa: E402
 from app.keystore import get_key  # noqa: E402
@@ -25,7 +31,12 @@ from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION  # noqa: E402
 
 router = APIRouter()
 
-MAX_TOOL_ROUNDS = 20
+
+@router.get("/config")
+async def get_config():
+    # Unauthenticated on purpose: model ids/labels are not sensitive, and the
+    # UI needs them before login to render the selector.
+    return {"models": CHAT_MODELS, "default_model": DEFAULT_CHAT_MODEL}
 
 
 def _sse(event: str, data: dict) -> str:
@@ -36,13 +47,23 @@ def _sse(event: str, data: dict) -> str:
 async def chat(
     request: Request,
     message: str = Form(...),
-    model: str = Form("gemini-3.1-pro-preview"),
+    model: str = Form(DEFAULT_CHAT_MODEL),
     history: str = Form("[]"),
     image: UploadFile | None = File(None),  # noqa: B008
 ):
     api_key = get_key(request.session.get("token"))
     if not api_key:
         raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Allowlist before the SSE stream opens: a plain 400 the client can surface.
+    if model not in CHAT_MODEL_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown model {model!r}; allowed: "
+                + ", ".join(m["id"] for m in CHAT_MODELS)
+            ),
+        )
 
     history_list = json.loads(history)
 
@@ -149,7 +170,9 @@ async def chat(
                 elif isinstance(ev, RejectedEvent):
                     yield _sse("rejected", {"queries": ev.queries})
                 elif isinstance(ev, DoneEvent):
-                    yield _sse("done", _build_done_payload(ev.result, image_info))
+                    yield _sse(
+                        "done", _build_done_payload(ev.result, image_info, model)
+                    )
         except SandboxBusy:
             logger.warning("Sandbox pool exhausted; turn rejected")
             yield _sse(
@@ -168,7 +191,7 @@ async def chat(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-def _build_done_payload(result, image_info: dict | None) -> dict:
+def _build_done_payload(result, image_info: dict | None, model: str) -> dict:
     plot_images = []
     for plot in result.plots:
         # Use the clean on-disk path, not plot["url"] — the URL carries a ?t=
@@ -187,6 +210,9 @@ def _build_done_payload(result, image_info: dict | None) -> dict:
     payload = {
         "response": result.text,
         "image_info": image_info,
+        # Authoritative: the client stamps its history entry with this, not
+        # with whatever it sent.
+        "model": model,
     }
     if result.plots:
         payload["plots"] = result.plots

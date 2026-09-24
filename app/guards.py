@@ -21,9 +21,11 @@ import logging
 from google import genai
 from google.genai import types
 
+from app.config import LITE_MODEL
+
 logger = logging.getLogger(__name__)
 
-JUDGE_MODEL = "gemini-3.5-flash-lite"
+JUDGE_MODEL = LITE_MODEL
 
 _CODE_JUDGE_INSTRUCTION = """\
 You review Python code before it runs in a sandboxed data-analysis tool.
