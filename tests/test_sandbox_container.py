@@ -60,11 +60,9 @@ def test_build_run_argv_hardening(runtime):
     # A CPU cap was requested → it and the coupled polars thread count appear.
     assert "--cpus 1.0" in joined
     assert "POLARS_MAX_THREADS=4" in argv
-    # --userns=keep-id is podman-only (rootless UID mapping).
-    if runtime == "podman":
-        assert "--userns=keep-id" in argv
-    else:
-        assert "--userns=keep-id" not in argv
+    # No user-namespace override: keep-id would map the worker's uid back to
+    # the real host user and defeat the non-root second line of defence.
+    assert not any(a.startswith("--userns") for a in argv)
 
 
 def test_build_run_argv_all_cores_when_unlimited():

@@ -17,7 +17,7 @@ RUN dnf install -y --setopt=install_weak_deps=False \
         python3 python3-pip podman-remote \
     && dnf clean all
 # The package ships the binary as `podman-remote`; the app shells out to `podman`
-# (and detect_runtime / build_run_argv key off the name "podman" for --userns=keep-id).
+# (and detect_runtime keys off the name "podman").
 # As the remote-only client it forwards to the host via CONTAINER_HOST.
 RUN ln -s /usr/bin/podman-remote /usr/local/bin/podman
 

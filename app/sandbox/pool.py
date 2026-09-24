@@ -82,8 +82,9 @@ def build_run_argv(
     max_threads: int | None,
 ) -> list[str]:
     """Construct the hardened `run` argv for one worker. Identical across podman
-    and docker except `--userns=keep-id`, which is podman-only (rootless UID
-    mapping; docker has no equivalent).
+    and docker. No `--userns` flag: under rootless podman the worker's uid 1000
+    maps to an unprivileged host subuid, which is the non-root second line of
+    defence (keep-id would map it back to the real host user).
 
     cpus=None  -> no CPU cap; the worker uses all host cores.
     max_threads=None -> POLARS_MAX_THREADS unset; polars/BLAS auto-detect cores.
@@ -113,8 +114,6 @@ def build_run_argv(
         argv += ["--pids-limit", str(pids)]
     if cpus:
         argv += ["--cpus", cpus]
-    if runtime == "podman":
-        argv.append("--userns=keep-id")
     argv += [
         # :ro,z relabels for SELinux (no-op off SELinux on both runtimes).
         "-v",
