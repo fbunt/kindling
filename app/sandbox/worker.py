@@ -194,21 +194,26 @@ def handle_run_query(code: str, namespace: dict) -> dict:
 
 
 def main() -> None:
-    # The protocol owns fd 1. Capture a private handle to the real stdout, then
-    # redirect Python-level stdout to stderr so stray user/library writes —
-    # including `print` in query code — can't corrupt the JSON stream.
+    # The protocol owns the real stdout. Capture a private handle to it, then
+    # point fd 1 itself at stderr (dup2) and Python-level stdout at stderr too, so
+    # nothing query code can reach — `print`, `sys.__stdout__`, or a raw
+    # `os.write(1, ...)` — lands on the protocol pipe. Only `proto` does.
     proto = os.fdopen(os.dup(1), "w", buffering=1)
+    os.dup2(2, 1)
     sys.stdout = sys.stderr
 
     namespace = build_namespace()
 
-    def reply(obj: dict) -> None:
-        frame = json.dumps(obj, default=str)
+    def reply(req_id, obj: dict) -> None:
+        # Every frame echoes the request's id; the host discards frames whose id
+        # doesn't match the request it is waiting on (late replies after a host
+        # timeout, forged frames). None only for requests we couldn't parse.
+        frame = json.dumps({**obj, "id": req_id}, default=str)
         # Belt-and-braces: _fit_reply already bounds run_query output, but no
         # frame may ever exceed the host's stream limit (it would desync the
         # pipe), so guard every reply path.
         if len(frame) > MAX_REPLY_BYTES:
-            frame = json.dumps(_too_large_error(len(frame)))
+            frame = json.dumps({**_too_large_error(len(frame)), "id": req_id})
         proto.write(frame)
         proto.write("\n")
         proto.flush()
@@ -220,15 +225,18 @@ def main() -> None:
         try:
             req = json.loads(line)
         except json.JSONDecodeError:
-            reply({"error": "malformed request"})
+            req = None
+        if not isinstance(req, dict):
+            reply(None, {"error": "malformed request"})
             continue
+        req_id = req.get("id")
         op = req.get("op")
         if op == "ping":
-            reply({"op": "pong"})
+            reply(req_id, {"op": "pong"})
         elif op == "run_query":
-            reply(handle_run_query(req.get("code", ""), namespace))
+            reply(req_id, handle_run_query(req.get("code", ""), namespace))
         else:
-            reply({"error": f"unknown op: {op!r}"})
+            reply(req_id, {"error": f"unknown op: {op!r}"})
 
 
 if __name__ == "__main__":

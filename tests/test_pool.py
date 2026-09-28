@@ -6,6 +6,7 @@ checkout timeout, discard/refill, drain) is exercised without spawning anything.
 """
 
 import asyncio
+import logging
 
 import pytest
 
@@ -260,3 +261,91 @@ async def test_drain_kills_ready_and_blocks_refill(monkeypatch):
     await pool._discard_and_refill(session.worker)
     assert session.worker.killed is True
     assert pool._ready.qsize() == 0
+
+
+# --- start(): fail fast on an empty pool; partial pool is a warning ---
+
+
+async def test_start_raises_when_no_worker_spawns(monkeypatch):
+    pool, _ = make_pool(monkeypatch, size=1, max_total=2)
+
+    async def boom(*_a, **_k):
+        raise RuntimeError("Error: kindling-worker:latest: image not known")
+
+    monkeypatch.setattr(pool, "_spawn", boom)
+    with pytest.raises(RuntimeError) as ei:
+        await pool.start()
+    msg = str(ei.value)
+    assert "0/1" in msg
+    assert "image not known" in msg  # the last spawn failure is surfaced
+    assert "KINDLING_WORKER_PARQUET_PATH" in msg
+
+
+async def test_start_partial_pool_warns_not_raises(monkeypatch, caplog):
+    pool, created = make_pool(monkeypatch, size=2, max_total=4)
+    real_spawn = pool._spawn
+    calls = {"n": 0}
+
+    async def flaky(*_a, **_k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("transient")
+        return await real_spawn()
+
+    monkeypatch.setattr(pool, "_spawn", flaky)
+    with caplog.at_level(logging.WARNING, logger="app.sandbox.pool"):
+        await pool.start()  # must not raise
+    assert pool._ready.qsize() == 1
+    assert len(created) == 1
+    assert any("degraded: 1/2" in r.message for r in caplog.records)
+
+
+async def test_start_with_size_zero_does_not_raise(monkeypatch):
+    pool, _ = make_pool(monkeypatch, size=0, max_total=1)
+    await pool.start()
+    assert pool._ready.qsize() == 0
+
+
+# --- refill: bounded retry, never forever ---
+
+
+async def test_refill_retries_then_succeeds(monkeypatch):
+    monkeypatch.setattr(pool_mod, "_REFILL_BACKOFF", 0.0)
+    pool, _ = make_pool(monkeypatch, size=1, max_total=2)
+    await pool.start()
+    session = await pool.acquire_session()
+
+    real_launch = pool._launch_worker
+    calls = {"n": 0}
+
+    async def flaky(*_a, **_k):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise RuntimeError("podman hiccup")
+        return await real_launch()
+
+    monkeypatch.setattr(pool, "_launch_worker", flaky)
+    await pool._discard_and_refill(session.worker)
+    assert calls["n"] == 3
+    assert pool._ready.qsize() == 1  # refilled on the third attempt
+
+
+async def test_refill_gives_up_after_bounded_attempts(monkeypatch):
+    monkeypatch.setattr(pool_mod, "_REFILL_BACKOFF", 0.0)
+    pool, _ = make_pool(monkeypatch, size=1, max_total=2)
+    await pool.start()
+    session = await pool.acquire_session()
+    calls = {"n": 0}
+
+    async def boom(*_a, **_k):
+        calls["n"] += 1
+        raise RuntimeError("still broken")
+
+    monkeypatch.setattr(pool, "_launch_worker", boom)
+    await pool._discard_and_refill(session.worker)
+    assert calls["n"] == pool_mod._REFILL_ATTEMPTS
+    assert pool._ready.qsize() == 0
+    assert "still broken" in pool._last_spawn_error
+    # Every failed attempt released its permit: all permits acquirable.
+    for _ in range(2):
+        await asyncio.wait_for(pool._sema.acquire(), timeout=0.2)

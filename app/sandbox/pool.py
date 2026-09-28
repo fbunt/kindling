@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 _STREAM_LIMIT = 8 * 1024 * 1024  # base64 PNG frames overflow the 64KB default
 _NAME_PREFIX = "kindling-worker-"
 _PING_TIMEOUT = 30.0
+# A refill spawn (after a turn) retries a few times with a short backoff so one
+# transient runtime hiccup doesn't leave the pool permanently smaller. Startup
+# spawns get a single attempt: a misconfigured host should fail fast (start()).
+_REFILL_ATTEMPTS = 3
+_LAUNCH_REAP_TIMEOUT = 5.0  # bound on proc.wait() when tearing down a failed launch
+_REFILL_BACKOFF = 1.0  # seconds; multiplied by the attempt number
 _WORKER_DEAD_MSG = (
     "The sandbox worker terminated unexpectedly (it may have run out of memory "
     "or timed out). Try a smaller or simpler query."
@@ -198,9 +204,17 @@ class Worker:
     runtime: str = "podman"
     stderr_task: "asyncio.Task | None" = None
     stderr_tail: deque = field(default_factory=lambda: deque(maxlen=20))
+    # Set on the first WorkerDead (timeout, EOF, pipe error) or on kill(). Once
+    # dead, the pipe may be desynced (a late frame from a wedged query could be
+    # in flight), so every later request() fails immediately without writing.
+    dead: bool = False
+    _ids: itertools.count = field(default_factory=itertools.count, repr=False)
+    _killed: bool = field(default=False, repr=False)
 
-    async def _read_frame(self) -> dict:
-        """Read one JSON frame, skipping any non-JSON noise on the pipe."""
+    async def _read_frame(self, req_id: int) -> dict:
+        """Read frames until the one tagged with `req_id`, skipping non-JSON noise
+        and any frame whose id is missing or mismatched (a late reply to an
+        earlier timed-out request, or a forged frame from query code)."""
         while True:
             line = await self.proc.stdout.readline()
             if not line:
@@ -209,27 +223,46 @@ class Worker:
             if not text:
                 continue
             try:
-                return json.loads(text)
+                frame = json.loads(text)
             except json.JSONDecodeError:
                 logger.warning(
                     "sandbox %s: dropping non-JSON line: %.200r", self.name, text
                 )
+                continue
+            if not isinstance(frame, dict) or frame.get("id") != req_id:
+                got = frame.get("id") if isinstance(frame, dict) else None
+                logger.warning(
+                    "sandbox %s: dropping frame with id %r (expected %d)",
+                    self.name,
+                    got,
+                    req_id,
+                )
+                continue
+            frame.pop("id")
+            return frame
 
     async def request(self, payload: dict, timeout: float) -> dict:
+        if self.dead:
+            raise WorkerDead("worker marked dead after an earlier failure")
         # If the container already exited (e.g. OOM-killed by a prior heavy query
         # in this turn), writing to its stdin would raise; surface WorkerDead.
         if self.proc.returncode is not None:
+            self.dead = True
             raise WorkerDead(f"worker already exited (rc={self.proc.returncode})")
+        req_id = next(self._ids)
+        payload = {**payload, "id": req_id}
         try:
             self.proc.stdin.write((json.dumps(payload) + "\n").encode())
             await self.proc.stdin.drain()
-            return await asyncio.wait_for(self._read_frame(), timeout)
+            return await asyncio.wait_for(self._read_frame(req_id), timeout)
         except (TimeoutError, WorkerDead) as e:
+            self.dead = True
             raise WorkerDead(str(e) or type(e).__name__) from e
         except (BrokenPipeError, ConnectionResetError, RuntimeError, ValueError) as e:
             # Writing/draining a closed pipe of a dead worker. uvloop raises a
             # plain RuntimeError ("handler is closed"); asyncio raises
             # ConnectionResetError/ValueError. All mean the worker is gone.
+            self.dead = True
             raise WorkerDead(f"worker pipe closed: {type(e).__name__}: {e}") from e
 
     async def ping(self, timeout: float = _PING_TIMEOUT) -> None:
@@ -241,6 +274,13 @@ class Worker:
         return await self.request({"op": "run_query", "code": code}, timeout)
 
     async def kill(self) -> None:
+        # Idempotent: SandboxSession.run_query kills on WorkerDead and the turn's
+        # release_session -> _retire kills again; the second call is a no-op
+        # (the semaphore permit is released by _retire alone, exactly once).
+        if self._killed:
+            return
+        self._killed = True
+        self.dead = True
         if self.stderr_task is not None:
             self.stderr_task.cancel()
         try:
@@ -282,6 +322,11 @@ class SandboxSession:
                 e,
                 f"\n--- worker stderr tail ---\n{tail}" if tail else "",
             )
+            # On a host timeout the container may still be alive (the query held
+            # the GIL past the worker's soft timeout) with a late frame on the
+            # way; kill it now so nothing answers a later request. The worker is
+            # already marked dead, so later run_query calls this turn fail fast.
+            await self.worker.kill()
             return {"error": _WORKER_DEAD_MSG}
         if result.get("plots"):
             result["plots"] = materialize_plots(result["plots"])
@@ -341,15 +386,36 @@ class SandboxPool:
         self._sema = asyncio.BoundedSemaphore(max_total)
         self._closing = False
         self._inflight: set[asyncio.Task] = set()  # in-flight discard/refill tasks
+        self._last_spawn_error: str | None = None
 
     async def start(self) -> None:
         await self._log_runtime()
         await self._reap_orphans()
         await self._probe_limits()
         await asyncio.gather(*(self._spawn_into_ready() for _ in range(self.size)))
-        logger.info(
-            "sandbox pool ready: %d/%d warm workers", self._ready.qsize(), self.size
-        )
+        ready = self._ready.qsize()
+        if self.size > 0 and ready == 0:
+            # Fail fast rather than run a "healthy" app where every turn waits
+            # out the checkout timeout and reports "sandbox busy". A raise here
+            # propagates out of the lifespan, uvicorn exits non-zero, and the
+            # service manager's Restart=always gets to retry.
+            raise RuntimeError(
+                f"sandbox pool: 0/{self.size} workers started. Last spawn failure: "
+                f"{self._last_spawn_error or 'unknown'}. Check that the worker "
+                f"image ({self.image}) exists in the host image store, that "
+                "KINDLING_WORKER_PARQUET_PATH is the HOST path to the parquet "
+                f"(workers mount {self.worker_parquet_path}), and that the runtime "
+                f"({self.runtime}) / its socket is reachable."
+            )
+        if ready < self.size:
+            logger.warning(
+                "sandbox pool degraded: %d/%d warm workers (last spawn failure: %s)",
+                ready,
+                self.size,
+                self._last_spawn_error,
+            )
+        else:
+            logger.info("sandbox pool ready: %d/%d warm workers", ready, self.size)
 
     async def _log_runtime(self) -> None:
         """Log the runtime and warn if it looks rootful (weaker boundary).
@@ -426,6 +492,7 @@ class SandboxPool:
 
     async def _launch_worker(self) -> Worker:
         proc = None
+        worker = None
         name = f"{self.name_prefix}{uuid.uuid4().hex[:12]}"
         try:
             argv = build_run_argv(
@@ -450,20 +517,71 @@ class SandboxPool:
             worker.stderr_task = asyncio.create_task(self._drain_stderr(worker))
             await worker.ping()
             return worker
-        except BaseException:
+        except BaseException as e:
+            detail = ""
             if proc is not None:
+                # Remove the container FIRST: that also ends the `podman run`
+                # client, which is what actually holds our pipe ends when the
+                # runtime binary is a wrapper (e.g. a host-exec shim) rather
+                # than podman itself. asyncio's Process.wait() only resolves
+                # once every stdio pipe is disconnected, so waiting before the
+                # container is gone can hang forever and leak it.
+                await _cli(self.runtime, "rm", "-f", name)
                 try:
                     proc.kill()
                 except ProcessLookupError:
                     pass
-                await _cli(self.runtime, "rm", "-f", name)
+                try:
+                    await asyncio.wait_for(proc.wait(), _LAUNCH_REAP_TIMEOUT)
+                except TimeoutError:
+                    logger.warning(
+                        "sandbox: %s client for %s did not exit within %.0fs of "
+                        "kill; closing its pipes and moving on",
+                        self.runtime,
+                        name,
+                        _LAUNCH_REAP_TIMEOUT,
+                    )
+                # Surface why `podman run` failed (no such image, bad mount
+                # source, socket down...): let the stderr drain hit EOF, then
+                # attach its tail. Best-effort; never blocks startup for long.
+                if worker is not None and worker.stderr_task is not None:
+                    try:
+                        await asyncio.wait_for(worker.stderr_task, 2.0)
+                    except BaseException:  # noqa: BLE001 — diagnostics only
+                        worker.stderr_task.cancel()
+                    tail = "\n".join(worker.stderr_tail)
+                    detail = f" (rc={proc.returncode})" + (
+                        f"\n--- {self.runtime} stderr ---\n{tail}" if tail else ""
+                    )
+                # Disconnect the pipes ourselves (idempotent) so a lingering
+                # client can't keep the transport — and wait() — pending.
+                try:
+                    transport = getattr(proc, "_transport", None)
+                    if transport is not None:
+                        transport.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            if isinstance(e, Exception):
+                raise WorkerDead(f"worker {name} failed to start: {e}{detail}") from e
             raise
 
-    async def _spawn_into_ready(self) -> None:
-        try:
-            worker = await self._spawn()
-        except Exception:
-            logger.exception("sandbox: failed to spawn worker")
+    async def _spawn_into_ready(self, attempts: int = 1) -> None:
+        """Spawn one worker into the ready queue. Failures are logged (and the
+        last one kept in _last_spawn_error for start()); with attempts > 1 a
+        failure is retried after a short backoff, bounded — never forever."""
+        for attempt in range(1, attempts + 1):
+            try:
+                worker = await self._spawn()
+                break
+            except Exception as e:
+                self._last_spawn_error = str(e) or type(e).__name__
+                logger.exception(
+                    "sandbox: failed to spawn worker (attempt %d/%d)", attempt, attempts
+                )
+                if attempt >= attempts or self._closing:
+                    return
+                await asyncio.sleep(_REFILL_BACKOFF * attempt)
+        else:  # pragma: no cover — attempts < 1
             return
         if self._closing:
             await self._retire(worker)
@@ -477,7 +595,7 @@ class SandboxPool:
     async def _discard_and_refill(self, worker: Worker) -> None:
         await self._retire(worker)
         if not self._closing and self._ready.qsize() < self.size:
-            await self._spawn_into_ready()
+            await self._spawn_into_ready(attempts=_REFILL_ATTEMPTS)
 
     async def _drain_stderr(self, worker: Worker) -> None:
         # Worker stderr carries tracebacks + library chatter from user code. Keep

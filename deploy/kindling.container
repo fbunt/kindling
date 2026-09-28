@@ -5,13 +5,25 @@
 #
 # Prereqs on the host:
 #   - systemctl --user enable --now podman.socket
+#   - loginctl enable-linger $USER   (rootless user services start at boot and
+#     survive logout; without it the unit only runs while a session is open)
 #   - the worker image in the user's image store (podman build -t kindling-worker:latest .)
 #   - the app image (podman build -t kindling-app:latest -f Containerfile.app .)
 #   - podman secret create kindling-gemini-key <file-with-key>   (or drop the Secret line)
 #   - edit the parquet paths below to the real host path
 [Unit]
 Description=kindling natural-language query app
-After=network-online.target
+# The app drives the host runtime through the user socket; start after it
+# rather than racing it at boot and coming up with an empty worker pool. If
+# the socket unit is missing, the dependency fails and the app is not started.
+Requires=podman.socket
+After=network-online.target podman.socket
+# SandboxPool.start() exits non-zero (in ~1-2 s) when no worker comes up, e.g.
+# the worker image is missing or KINDLING_WORKER_PARQUET_PATH is wrong. With
+# systemd's default start limit (5 starts / 10 s) that would mark the unit
+# `failed` after ~7 s and stop retrying; disable the limit so Restart= below
+# keeps retrying until the misconfiguration is fixed.
+StartLimitIntervalSec=0
 
 [Container]
 Image=kindling-app:latest
@@ -37,6 +49,9 @@ SecurityLabelDisable=true
 
 [Service]
 Restart=always
+# Pace the retries (default 100 ms) so a persistent startup failure is a
+# slow, readable loop in the journal instead of a tight one.
+RestartSec=5
 
 [Install]
 WantedBy=default.target

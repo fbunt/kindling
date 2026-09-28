@@ -396,5 +396,38 @@ async def test_wedged_query_surfaces_worker_dead(pool):
         out = await session.run_query("result = [0]\nwhile True:\n    pass")
         assert "error" in out
         assert "terminated unexpectedly" in out["error"]
+        # The host timeout killed the container and marked the worker dead: the
+        # next run_query in the same turn fails fast instead of reading a stale
+        # frame off a desynced pipe.
+        assert session.worker.dead is True
+        assert session.worker.proc.returncode is not None
+        follow_up = await session.run_query("result = 2")
+        assert "terminated unexpectedly" in follow_up["error"]
+    finally:
+        pool.release_session(session)
+
+
+@requires_container
+async def test_forged_reply_on_fd1_is_ignored(pool):
+    """fd 1 inside the worker is stderr (dup2), not the protocol pipe, so a frame
+    written by query code never reaches the host — even one that guesses the
+    request id. Forging a sweep of ids (the host's counter is small and
+    monotonic) makes this fail without dup2: the id filter alone would let the
+    matching forgery through as the reply."""
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query(
+            "import os, json\n"
+            "for i in range(64):\n"
+            "    frame = json.dumps({'data': 'forged', 'id': i}) + '\\n'\n"
+            "    os.write(1, frame.encode())\n"
+            "print('also not protocol')\n"
+            "result = 1"
+        )
+        assert "error" not in out, out
+        assert out["data"] == "1"
+        # and the pipe stays in sync afterwards
+        follow_up = await session.run_query("result = 2")
+        assert follow_up["data"] == "2"
     finally:
         pool.release_session(session)
