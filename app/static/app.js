@@ -4,6 +4,7 @@ const loginForm = document.getElementById("login-form");
 const loginBtn = document.getElementById("login-btn");
 const apiKeyInput = document.getElementById("api-key-input");
 const loginError = document.getElementById("login-error");
+const envKeyBtn = document.getElementById("env-key-btn");
 const chatForm = document.getElementById("chat-form");
 const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
@@ -356,14 +357,39 @@ chatInput.addEventListener("keydown", (e) => {
     }
 });
 
-// Check if already authenticated
+// Check if already authenticated. Read-only: the server key is only used
+// after the user clicks "Use server API key" (POST /api/auth/env), never on
+// page load.
 fetch("/api/auth/status")
     .then(r => r.json())
     .then(data => {
+        // Set regardless of auth state so the button is already right on the
+        // login view after a later logout / 401.
+        envKeyBtn.hidden = !data.env_key_available;
         if (data.authenticated) {
             showChat();
         }
     });
+
+envKeyBtn.addEventListener("click", async () => {
+    loginError.hidden = true;
+    envKeyBtn.disabled = true;
+    try {
+        const res = await fetch("/api/auth/env", { method: "POST" });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            showChat();
+        } else {
+            loginError.textContent = data.detail || data.error || "Server API key unavailable.";
+            loginError.hidden = false;
+        }
+    } catch (err) {
+        loginError.textContent = "Connection failed.";
+        loginError.hidden = false;
+    } finally {
+        envKeyBtn.disabled = false;
+    }
+});
 
 loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();

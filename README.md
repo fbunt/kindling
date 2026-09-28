@@ -36,6 +36,20 @@ uv run kindling data/mtbs_pix_data.parquet --host 0.0.0.0 --port 9000
 
 Then open http://localhost:8000 (or your custom port).
 
+The app binds to loopback by default, including the container launch paths
+(`scripts/run.sh`, `make run`, `compose.yaml`, the Quadlet unit), so it is not
+reachable from the network. To use it from another machine, tunnel in:
+
+```bash
+ssh -N -L 8000:localhost:8000 user@host   # then open http://localhost:8000 locally
+```
+
+(or use IAP). To expose it deliberately, pass `--host 0.0.0.0` to the CLI, or set
+`KINDLING_BIND=0.0.0.0` for `scripts/run.sh` / `BIND=0.0.0.0` for `make run`.
+
+If `GEMINI_API_KEY` is set on the server, the login screen offers a
+"Use server API key" button; nothing uses the server key until you click it.
+
 ## Stack
 
 - **Backend**: FastAPI (Python)

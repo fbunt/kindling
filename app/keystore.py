@@ -4,7 +4,8 @@ Starlette's SessionMiddleware is a client-side signed (NOT encrypted) cookie,
 so the Gemini key must never go in the session itself. Keys live in this
 in-memory dict; the session cookie carries only the opaque token. Entries are
 dropped on re-login/logout; a server restart clears the store, which just sends
-the client back through /api/auth/status (env-key fallback or login screen).
+the client back to the login screen (with a 'Use server API key' button when
+GEMINI_API_KEY is set).
 """
 
 import secrets

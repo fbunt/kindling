@@ -68,7 +68,7 @@ container stays the sole security boundary.
 scripts/run.sh --build     # build both images, enable the socket, run (one shot)
 scripts/run.sh             # run against data/mtbs_pix_data.parquet (images prebuilt)
 scripts/run.sh /abs/x.parquet   # run against another dataset
-#   env: KINDLING_SANDBOX_MEM, KINDLING_POOL_SIZE, GEMINI_API_KEY, KINDLING_USE_VERTEX, KINDLING_PORT
+#   env: KINDLING_SANDBOX_MEM, KINDLING_POOL_SIZE, GEMINI_API_KEY, KINDLING_USE_VERTEX, KINDLING_PORT, KINDLING_BIND
 #   (full env-knob list under "Environment knobs" below)
 
 # equivalent Make targets:
@@ -85,6 +85,13 @@ Key wiring (see `compose.yaml` / `deploy/kindling.container` / `Makefile`):
 - mount the parquet for the app's schema reads **and** set
   `KINDLING_WORKER_PARQUET_PATH` to the **host** path workers bind-mount (these
   differ once the app is containerized — the app's view ≠ the host path).
+- **Loopback by default**: every launch path (run.sh, Makefile, compose, Quadlet)
+  publishes on `127.0.0.1:8000`, so the app is not reachable from the network. The
+  intended remote access path is an SSH tunnel (`ssh -N -L 8000:localhost:8000 user@host`)
+  or IAP. Explicit opt-out: `KINDLING_BIND=0.0.0.0` (run.sh) / `BIND=0.0.0.0` (Makefile),
+  or edit the port mapping in compose.yaml / kindling.container. The `--host 0.0.0.0`
+  inside the container is correct and unrelated: that port is only reachable through
+  the published mapping.
 - `--security-opt label=disable` (SELinux) to mount the socket.
 - The worker image must exist in the **host** image store (workers run there).
 - forward `KINDLING_USE_VERTEX` into the **app** container if using Vertex — the
@@ -109,7 +116,8 @@ All read in `app/main.py` (lifespan / middleware) unless noted:
 | `KINDLING_USE_VERTEX` | false | Vertex AI express mode instead of the Developer API |
 | `KINDLING_SESSION_SECRET` | random per process | Starlette session secret; set for cookies that survive restarts / multi-worker uvicorn. Buys little today: the keystore is in-memory, so a surviving cookie points at a dropped token anyway. Not forwarded by any launch tooling. |
 | `KINDLING_LOG_LEVEL` | INFO | log level (also `--log-level` on the CLI) |
-| `GEMINI_API_KEY` | unset | pre-authenticates the session; otherwise entered at the login screen |
+| `KINDLING_BIND` | 127.0.0.1 | (run.sh only; `BIND` in the Makefile) host interface the container port is published on; `0.0.0.0` to expose on the network |
+| `GEMINI_API_KEY` | unset | offers a 'Use server API key' button on the login screen (explicit `POST /api/auth/env`; nothing is minted on page load); otherwise the key is entered at the login screen |
 
 ## Architecture
 
@@ -145,7 +153,7 @@ app/
 
 ### Key Design Decisions
 
-- **Session-based API key**: Gemini API key stored server-side in an in-memory token store (`app/keystore.py`); the session cookie carries only an opaque token (Starlette sessions are signed but unencrypted client-side cookies, so the key itself must never go in one). Supports `GEMINI_API_KEY` env var via `.env` file.
+- **Session-based API key**: Gemini API key stored server-side in an in-memory token store (`app/keystore.py`); the session cookie carries only an opaque token (Starlette sessions are signed but unencrypted client-side cookies, so the key itself must never go in one). `GET /api/auth/status` is read-only (`{authenticated, env_key_available}`, never mints a token). A server-side `GEMINI_API_KEY` (env or `.env`) is used only via an explicit `POST /api/auth/env` (the login view's 'Use server API key' button; 404 when unset, not validated with a paid call), so an anonymous GET can't spend the operator's key and logout actually logs out.
 - **Backend selector (`app/genai_client.py`)**: `make_client()` builds every genai client; `KINDLING_USE_VERTEX=true` routes to Vertex AI express mode (`aiplatform.googleapis.com`, `AQ.…` key), else the Gemini Developer API (`generativelanguage.googleapis.com`, `AIza…` key). Key validation uses `generate_content`, not `models.list()` (unsupported under Vertex express mode).
 - **Conversation history**: Maintained client-side and sent with each request as a JSON `history` form field: text plus references. Assistant entries carry plot refs `{name, epoch}` (never plot bytes); user entries carry the upload as base64 only for the last `HISTORY_IMAGE_WINDOW=2` turns (the client drops older bytes, keeping `{mime, name}`). The server (`routes/chat.py`) validates the array with a pydantic `TypeAdapter` that is structural-only (422 on wrong types/roles/missing content; bad per-entry values degrade to stubs, never 422), truncates to the newest `_MAX_HISTORY_MSGS=400` entries (whole turns, logged at info), re-embeds plot PNGs from `plots/` by name when `epoch == PLOT_EPOCH` (a per-process random token from `sandbox/pool.py`) and the file exists, and otherwise emits text stubs: `(image omitted from context)` for entries outside the window, `(image no longer available)` / `(unavailable)` for missing/pruned/foreign-process plots and invalid upload data. The legacy `plot_images` key from pre-fix tabs is accepted and rendered as stubs. The form is read by hand (`request.form(max_part_size=32 MiB)` behind a 48 MiB Content-Length precheck); an oversized history part is a plain 400 with an actionable detail, uploads are capped at 10 MiB and allowlisted to png/jpeg with a magic-byte sniff (413/415).
 - **Model**: All model names live in `app/config.py`. `CHAT_MODELS` is a fixed ordered list (3.1 Pro Preview, 3.8 Flash) served by `GET /api/config` and rendered as a header `<select>` in the UI; the client sends the chosen id with each `/api/chat` request and the server rejects anything outside the list with HTTP 400 (before the SSE stream opens). The selection persists in `localStorage` and is **not** locked once a chat starts: history is plain text+images with no function-call parts or thought signatures, so switching mid-conversation is safe. Each assistant history entry and bubble is stamped with the model the server reports in the `done` event. `LITE_MODEL` (flash-lite) covers the guards, key validation, and the eval judge; the bench and evals import `DEFAULT_CHAT_MODEL`. (A live `models.list()` dropdown was dropped in June: Vertex express mode doesn't support it with API keys, and a fixed list is simpler and safer.)

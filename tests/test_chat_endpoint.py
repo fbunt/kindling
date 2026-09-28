@@ -65,21 +65,76 @@ def _build_app(monkeypatch):
 
 @pytest.fixture
 def auth_client(monkeypatch):
-    """An authenticated TestClient (session set via the env-var path, no network)
-    plus the FakePool on app.state."""
+    """An authenticated TestClient (explicit env-key opt-in via POST /auth/env,
+    no network) plus the FakePool on app.state."""
     app, pool = _build_app(monkeypatch)
     client = TestClient(app)
     monkeypatch.setenv("GEMINI_API_KEY", "x")
-    r = client.get("/api/auth/status")
-    assert r.json().get("authenticated") is True
+    r = client.post("/api/auth/env")
+    assert r.status_code == 200 and r.json() == {"ok": True}
+    assert client.get("/api/auth/status").json()["authenticated"] is True
     return client, pool
 
 
 def test_unauthenticated_returns_401(monkeypatch):
     app, _ = _build_app(monkeypatch)
-    client = TestClient(app)  # never hit /auth/status → no session
+    client = TestClient(app)  # no session
     r = client.post("/api/chat", data={"message": "hi"})
     assert r.status_code == 401
+
+
+def test_env_key_does_not_imply_auth(monkeypatch):
+    """A cookieless request gets 401 even when the server has GEMINI_API_KEY:
+    the env key is only used after an explicit POST /auth/env."""
+    app, _ = _build_app(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    client = TestClient(app)
+    r = client.post("/api/chat", data={"message": "hi"})
+    assert r.status_code == 401
+
+
+def test_auth_status_is_read_only_with_env_key(monkeypatch):
+    app, _ = _build_app(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    client = TestClient(app)
+    r = client.get("/api/auth/status")
+    assert r.status_code == 200
+    assert r.json() == {"authenticated": False, "env_key_available": True}
+    assert "set-cookie" not in r.headers  # no session token minted
+    # Still unauthenticated afterwards (nothing was minted server-side either).
+    assert client.get("/api/auth/status").json()["authenticated"] is False
+
+
+def test_auth_status_without_env_key(monkeypatch):
+    app, _ = _build_app(monkeypatch)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    client = TestClient(app)
+    assert client.get("/api/auth/status").json() == {
+        "authenticated": False,
+        "env_key_available": False,
+    }
+
+
+def test_auth_env_404_when_unset(monkeypatch):
+    app, _ = _build_app(monkeypatch)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    client = TestClient(app)
+    r = client.post("/api/auth/env")
+    assert r.status_code == 404
+    assert r.json()["detail"] == "No server API key configured"
+    assert client.get("/api/auth/status").json()["authenticated"] is False
+
+
+def test_logout_after_env_login(auth_client):
+    client, _ = auth_client
+    assert client.post("/api/auth/logout").json() == {"ok": True}
+    # The status GET no longer re-mints a token, so logout sticks and the
+    # client is offered the env key again instead of being silently re-logged.
+    assert client.get("/api/auth/status").json() == {
+        "authenticated": False,
+        "env_key_available": True,
+    }
+    assert client.post("/api/chat", data={"message": "hi"}).status_code == 401
 
 
 def test_prompt_guard_block_short_circuits(auth_client, monkeypatch):

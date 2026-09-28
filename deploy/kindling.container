@@ -16,7 +16,9 @@ After=network-online.target
 [Container]
 Image=kindling-app:latest
 Exec=kindling /data/dataset.parquet --host 0.0.0.0
-PublishPort=8000:8000
+# Loopback only: reach it via an SSH tunnel (ssh -N -L 8000:localhost:8000 user@host)
+# or IAP. Change to 0.0.0.0:8000:8000 only if you deliberately want it on the network.
+PublishPort=127.0.0.1:8000:8000
 # %t = the user's XDG_RUNTIME_DIR (where the rootless podman socket lives).
 Volume=%t/podman/podman.sock:/run/podman/podman.sock
 Volume=/srv/kindling/data/mtbs.parquet:/data/dataset.parquet:ro

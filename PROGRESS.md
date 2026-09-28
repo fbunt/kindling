@@ -6,7 +6,7 @@ Architecture, invariants, and run/deploy wiring live in `CLAUDE.md`; user-facing
 `README.md`; the *what changed* history in `git log` (commit messages are detailed). This file
 holds only what those don't: in-flight work, the *why* behind non-obvious decisions, and blockers.
 
-_Updated: 2026-09-23._
+_Updated: 2026-09-28._
 
 > **Maintaining this file.** New work is appended to _Recently done_ with a date. When that
 > section passes ~10 items, compact it: fold anything that would stop someone redoing or
@@ -38,6 +38,7 @@ _Updated: 2026-09-23._
 
 ## Recently done
 
+- **2026-09-28 — Loopback publish + explicit env-key login (audit fix-first #3).** All four launch paths publish on `127.0.0.1` (`KINDLING_BIND`/`BIND=0.0.0.0` opts out; SSH tunnel is the access path). `GET /api/auth/status` no longer mints a session on `GEMINI_API_KEY`; the login view offers a 'Use server API key' button that POSTs `/api/auth/env`. Rationale: an anonymous GET on a LAN-reachable bind spent the operator's key; the bind is the real mitigation, the read-only status is hygiene that also makes logout work.
 - **2026-09-23 - History carries plot refs, not base64 (audit finding #4).** The `done` payload
   no longer embeds plot PNGs; assistant history entries hold `{name, epoch}` and the server
   re-reads `plots/<name>.png` itself. Why each piece: the **epoch token** (`PLOT_EPOCH`, random

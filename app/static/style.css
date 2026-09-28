@@ -2,6 +2,12 @@
     display: none !important;
 }
 
+/* Login view: "Use server API key" sits under the manual key form, revealed by
+   JS only when the server reports GEMINI_API_KEY is set. */
+.env-key-btn {
+    margin-top: 0.75rem;
+}
+
 /* Header model selector: styled like the Bootstrap badge it replaced
    (bg-secondary text-light fw-normal), with a caret so it reads as a control. */
 .model-select {

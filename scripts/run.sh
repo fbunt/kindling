@@ -14,6 +14,9 @@
 #   KINDLING_REAP_ORPHANS  'all' -> reap leftover kindling-worker-* on start
 #                          (default: all; single-instance host)
 #   KINDLING_PORT          host port (default: 8000)
+#   KINDLING_BIND          host interface to publish on (default: 127.0.0.1 --
+#                          loopback only; reach it via ssh -N -L 8000:localhost:8000.
+#                          Set 0.0.0.0 to expose on all interfaces)
 #   KINDLING_NAME          container name (default: kindling)
 set -euo pipefail
 
@@ -25,6 +28,7 @@ if [[ "${1:-}" == "--build" ]]; then BUILD=1; shift; fi
 PARQUET_INPUT="${1:-data/mtbs_pix_data.parquet}"
 NAME="${KINDLING_NAME:-kindling}"
 PORT="${KINDLING_PORT:-8000}"
+BIND="${KINDLING_BIND:-127.0.0.1}"
 APP_IMAGE="${KINDLING_APP_IMAGE:-kindling-app:latest}"
 WORKER_IMAGE="${KINDLING_SANDBOX_IMAGE:-kindling-worker:latest}"
 SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
@@ -88,7 +92,7 @@ extra=()
 [[ -n "${KINDLING_USE_VERTEX:-}" ]]  && extra+=(-e "KINDLING_USE_VERTEX=${KINDLING_USE_VERTEX}")
 
 echo ">> starting $NAME  (parquet=$PARQUET)"
-podman run -d --name "$NAME" -p "${PORT}:8000" \
+podman run -d --name "$NAME" -p "${BIND}:${PORT}:8000" \
   -v "${SOCK}:/run/podman/podman.sock" \
   -e CONTAINER_HOST=unix:///run/podman/podman.sock \
   -v "${PARQUET}:/data/dataset.parquet:ro" \

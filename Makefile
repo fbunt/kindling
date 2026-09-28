@@ -3,6 +3,9 @@ RUNTIME      ?= podman
 IMAGE_WORKER ?= kindling-worker:latest
 IMAGE_APP    ?= kindling-app:latest
 PARQUET      ?= $(shell readlink -f data/mtbs_pix_data.parquet)
+# Host interface to publish on. Loopback by default (reach via ssh -N -L
+# 8000:localhost:8000); BIND=0.0.0.0 to expose on all interfaces.
+BIND         ?= 127.0.0.1
 
 .PHONY: build build-worker build-app socket run stop logs compose-up compose-down
 
@@ -18,7 +21,7 @@ socket:   ## enable the rootless podman socket (one-time, podman only)
 	systemctl --user enable --now podman.socket
 
 run:      ## run the app; workers spawn as siblings on the host runtime
-	$(RUNTIME) run -d --replace --name kindling -p 8000:8000 \
+	$(RUNTIME) run -d --replace --name kindling -p $(BIND):8000:8000 \
 	  -v $(XDG_RUNTIME_DIR)/podman/podman.sock:/run/podman/podman.sock \
 	  -e CONTAINER_HOST=unix:///run/podman/podman.sock \
 	  -v $(PARQUET):/data/dataset.parquet:ro \
