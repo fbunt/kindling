@@ -584,6 +584,7 @@ name = "kindling"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "fastapi" },
     { name = "google-genai" },
     { name = "itsdangerous" },
@@ -616,6 +617,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4.13" },
     { name = "fastapi" },
     { name = "google-genai" },
     { name = "itsdangerous" },

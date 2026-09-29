@@ -1,11 +1,13 @@
 import asyncio
 import base64
 import binascii
+import contextlib
 import json
 import logging
 import re
 from typing import Literal
 
+import anyio
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from google.genai import types
@@ -110,6 +112,50 @@ async def get_config():
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+# An SSE comment line, sent whenever the stream has been silent this long (the
+# prompt-guard call, a long run_query) so proxies/TLS terminators with an idle
+# timeout do not cut the connection. The client parser skips data-less blocks.
+KEEPALIVE_SECONDS = 15
+_KEEPALIVE = ": keepalive\n\n"
+
+
+async def _with_keepalive(agen, interval: float):
+    """Yield agen's items, plus _KEEPALIVE after every `interval` s of silence.
+
+    Each __anext__ runs as a task that is waited on (never wait_for, whose
+    timeout would cancel the step mid-flight); the same task is kept across
+    timeouts. On close (GeneratorExit) or cancellation, a pending step is
+    cancelled and awaited, then agen is aclose()d. Exceptions from agen
+    propagate unchanged. Callers must close this generator (aclosing).
+    """
+    task = None
+    try:
+        while True:
+            task = asyncio.ensure_future(agen.__anext__())
+            while not (await asyncio.wait({task}, timeout=interval))[0]:
+                yield _KEEPALIVE
+            try:
+                item = task.result()
+            except StopAsyncIteration:
+                return
+            finally:
+                task = None
+            yield item
+    finally:
+        # Shielded: under Starlette's task-group disconnect path anyio re-cancels
+        # every await in the cancelled scope, which would abort this cleanup and
+        # leave the step task pending and agen unclosed.
+        with anyio.CancelScope(shield=True):
+            if task is not None:
+                task.cancel()
+                # agen cannot be closed while a step is running: wait for it to
+                # unwind, and retrieve its outcome so nothing is left unlogged.
+                await asyncio.wait({task})
+                if not task.cancelled():
+                    task.exception()
+            await agen.aclose()
 
 
 def _clean_label(s: str) -> str:
@@ -357,7 +403,18 @@ async def chat(request: Request):
     async def event_stream():
         # Prompt-guard (defense-in-depth): screen the user message for injection/
         # abuse before doing any work. Fails open on judge error.
-        allowed, reason = await asyncio.to_thread(guard_prompt, message, client)
+        async def guard():
+            yield await asyncio.to_thread(guard_prompt, message, client)
+
+        allowed, reason = True, ""
+        async with contextlib.aclosing(
+            _with_keepalive(guard(), KEEPALIVE_SECONDS)
+        ) as stream:
+            async for item in stream:
+                if item is _KEEPALIVE:
+                    yield item
+                else:
+                    allowed, reason = item
         if not allowed:
             logger.warning("prompt-guard blocked message: %s | %.80r", reason, message)
             yield _sse(
@@ -375,7 +432,7 @@ async def chat(request: Request):
             return
         try:
             session = await pool.acquire_session()
-            async for ev in run_chat_turn(
+            turn = run_chat_turn(
                 client,
                 model,
                 contents,
@@ -383,18 +440,26 @@ async def chat(request: Request):
                 session,
                 max_rounds=MAX_TOOL_ROUNDS,
                 on_disconnect=request.is_disconnected,
-            ):
-                if isinstance(ev, ThinkingEvent):
-                    yield _sse("status", {"status": "thinking"})
-                elif isinstance(ev, RunningQueryEvent):
-                    yield _sse(
-                        "status",
-                        {"status": "running_query", "queries": ev.queries},
-                    )
-                elif isinstance(ev, RejectedEvent):
-                    yield _sse("rejected", {"queries": ev.queries})
-                elif isinstance(ev, DoneEvent):
-                    yield _sse("done", _build_done_payload(ev.result, model))
+            )
+            # aclosing: on disconnect the pending step is cancelled and the turn
+            # closed before the finally below retires the container.
+            async with contextlib.aclosing(
+                _with_keepalive(turn, KEEPALIVE_SECONDS)
+            ) as stream:
+                async for ev in stream:
+                    if ev is _KEEPALIVE:
+                        yield ev
+                    elif isinstance(ev, ThinkingEvent):
+                        yield _sse("status", {"status": "thinking"})
+                    elif isinstance(ev, RunningQueryEvent):
+                        yield _sse(
+                            "status",
+                            {"status": "running_query", "queries": ev.queries},
+                        )
+                    elif isinstance(ev, RejectedEvent):
+                        yield _sse("rejected", {"queries": ev.queries})
+                    elif isinstance(ev, DoneEvent):
+                        yield _sse("done", _build_done_payload(ev.result, model))
         except SandboxBusy:
             logger.warning("Sandbox pool exhausted; turn rejected")
             yield _sse(

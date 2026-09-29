@@ -12,6 +12,7 @@ dependencies = [
     "python-multipart",
     "polars>=1.38.1",
     "pyarrow",
+    "anyio>=4.13",
 ]
 
 # Plotting/analysis libs are used ONLY inside the worker container (the host/app

