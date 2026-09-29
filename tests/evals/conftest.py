@@ -119,11 +119,16 @@ def run_turn(genai_client, run_dir, sandbox_pool):
     and returns (result, trial_path) so the caller can append judge verdicts
     or other per-trial metadata to the same file via _append_trial_fields.
 
-    Each turn runs in a fresh container worker.
+    Each turn runs in a fresh container worker. `max_rounds` and `model`
+    default to the app's normal budget and KINDLING_EVAL_MODEL (else
+    DEFAULT_CHAT_MODEL); a test may override either per call.
     """
-    model = os.environ.get("KINDLING_EVAL_MODEL", DEFAULT_CHAT_MODEL)
+    default_model = os.environ.get("KINDLING_EVAL_MODEL", DEFAULT_CHAT_MODEL)
 
-    async def _run(prompt: str, trial: int):
+    async def _run(
+        prompt: str, trial: int, *, max_rounds: int = 15, model: str | None = None
+    ):
+        model = model or default_model
         contents = [
             types.Content(role="user", parts=[types.Part(text=prompt)]),
         ]
@@ -135,7 +140,7 @@ def run_turn(genai_client, run_dir, sandbox_pool):
         result = None
         try:
             async for ev in run_chat_turn(
-                genai_client, model, contents, config, sandbox, max_rounds=15
+                genai_client, model, contents, config, sandbox, max_rounds=max_rounds
             ):
                 if isinstance(ev, DoneEvent):
                     result = ev.result
@@ -147,6 +152,7 @@ def run_turn(genai_client, run_dir, sandbox_pool):
             "prompt": prompt,
             "trial": trial,
             "model": model,
+            "max_rounds": max_rounds,
             "tool_calls": result.tool_calls,
             "queries_run": result.queries_run,
             "rejected_queries": result.rejected_queries,
