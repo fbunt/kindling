@@ -8,11 +8,11 @@
 FROM python:3.12.13-slim
 
 RUN pip install --no-cache-dir \
-        polars==1.38.1 \
+        polars==1.41.2 \
         numpy==2.4.2 \
         matplotlib==3.10.8 \
         seaborn==0.13.2 \
-        pyarrow==23.0.1 \
+        pyarrow==24.0.0 \
         pandas==3.0.3 \
         scipy==1.17.1 \
         scikit-learn==1.9.0 \

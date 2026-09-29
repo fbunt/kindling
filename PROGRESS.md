@@ -6,7 +6,7 @@ Architecture, invariants, and run/deploy wiring live in `CLAUDE.md`; user-facing
 `README.md`; the *what changed* history in `git log` (commit messages are detailed). This file
 holds only what those don't: in-flight work, the *why* behind non-obvious decisions, and blockers.
 
-_Updated: 2026-09-28._
+_Updated: 2026-09-29._
 
 > **Maintaining this file.** New work is appended to _Recently done_ with a date. When that
 > section passes ~10 items, compact it: fold anything that would stop someone redoing or
@@ -19,16 +19,31 @@ _Updated: 2026-09-28._
 
 ## TODO
 
-- **Verify the 2026-09-28 prompt changes against live Gemini.** Run `uv run pytest --run-evals tests/evals` (incid_type mapping + guards) and a bench subset (`python -m bench run --questions ...`). Unverified until then: that the model now answers full-scan questions with `engine="streaming"` instead of sampling, and that the API accepts the loop-exhaustion final call, which has tools off (`FunctionCallingConfig(mode="NONE")`) and ends with two consecutive user turns (function responses, then the budget-exhausted instruction). If the API rejects that, fold the instruction into the function-response Content in `app/chat_loop.py`.
-- **Benchmark 3.8 Flash against 3.1 Pro on the bench harness.** Google's Pro line has stalled at
-  the 3.1 preview (Feb 2026; 3.5 Pro announced May 2026, repeatedly delayed) while Flash shipped
-  3.5–3.8; public coding/agentic benchmarks put 3.8 Flash at or above 3.1 Pro at ~1/3 the price.
-  Steps: `python -m bench gt` on the full parquet (est. 30–90 min, cached by parquet identity;
-  of the two cached entries one is sample-keyed and one is the June full parquet, whose
-  mtime-based identity has likely changed since the 2026-09-22 symlink move — expect a recompute), then
-  `python -m bench run --model gemini-3.8-flash --run-dir ...` and the same with the default
-  `gemini-3.1-pro-preview`, then `grade`/`report` each. Re-running `run` with the same
-  `--run-dir` resumes. Switch `DEFAULT_CHAT_MODEL` in `app/config.py` if Flash wins.
+- **Bench grading redesign (next; approved 2026-09-29).** Replace the 3-vote flash-lite judge with a
+  blind extractor (sees question + response, never the expected value; returns status/value/unit/
+  multiple_candidates/sampled_disclosed as JSON) plus deterministic Python comparison, the regex as a
+  cross-check feeding an `adjudication.json` overlay, and a 10% hand-audit hook with agreement
+  reported. Also review items 6-7: clarification rate as its own column; `partial_data` from code
+  crossed with disclosure; `grounded` flag. Then the `compare` command (paired, question-clustered
+  bootstrap CI + sign-flip test). Spec: items 5-7 and 10 of the 2026-09-28 bench review, saved locally
+  at `.bench-runs/review-2026-09-28.md` (gitignored). Traces are regradable, so runs made before this
+  lands can be regraded.
+- **Cost-sizing bench run.** `uv run python -m bench run --run-dir .bench-runs/cost-pro` (25 questions x
+  3 trials, 3.1 Pro), then `grade` and `report`. Settles whether the model now uses
+  `engine="streaming"` instead of sampling (the other open item from the 2026-09-28 prompt change;
+  the loop-exhaustion final call was confirmed accepted by the live eval on 2026-09-28). The report
+  prints token totals only until `bench/prices.py` is filled in with verified per-model prices.
+- **Benchmark 3.8 Flash against 3.1 Pro.** `python -m bench run --models
+  gemini-3.1-pro-preview,gemini-3.8-flash --run-dir .bench-runs/pro-vs-flash` (interleaved, one dir per
+  model), then `grade`/`report` on the parent dir. Ground truth takes ~1.5 min and is cached. Best after
+  the grading redesign and `compare`; the review suggests >=5 trials to resolve a 5-15 pp gap. Google's
+  Pro line has stalled at the 3.1 preview while Flash reached 3.8; switch `DEFAULT_CHAT_MODEL` in
+  `app/config.py` if Flash wins.
+- **Bench follow-ups from the 2026-09-29 fix review (non-blocking).** Prompt-guard preflight caches a
+  fail-open "guard unavailable" verdict and never retries it on resume; `git_diff_sha` is not a drift key
+  and untracked files don't count as dirty; SDK retries x 300 s request timeout can exhaust the 1800 s
+  turn timeout and bill an API hang to the model; `report.py` still indexes `trial`/`category` directly;
+  `grade` checks `reference_sha` but not `question_sha`.
 - **gVisor (`runsc`) as the worker runtime** — recommended defense-in-depth now that there is no
   AST/blocklist layer (kernel-CVE isolation). **blocked:** not installed on current hosts.
 - **Image-borne prompt injection** — the prompt-guard screens text only; uploaded images (and
@@ -39,6 +54,7 @@ _Updated: 2026-09-28._
 
 ## Recently done
 
+- **2026-09-29 — Benchmark fixed before its first run.** A 4-lens review (all 25 references correct) found the questions ambiguous on incident-type scope, 4 lookups answerable from the prompt's stats table, and a degenerate M05; rewritten with full-parquet ground truth matching every value the review claimed. The system prompt's examples no longer teach the non-deduplicated pixel-sum error two questions grade. The harness now buckets failures (model-caused failures stay in denominators), fingerprints runs and refuses drifted resumes, captures per-call tokens, interleaves models, and holds a host-wide lock (two 80-90 GB queries would exceed the 125 GB host). Worker polars/pyarrow now match uv.lock, so ground truth and model queries run the same polars.
 - **2026-09-28 — SSE keepalive + sanitizer fetch allowlist (audit fix-first #8).** The chat stream sends `: keepalive` after 15 s of silence (prompt-guard, long queries) so a future TLS proxy doesn't cut long turns; the step runs as a task waited on with a timeout, never `wait_for`, which would cancel `run_chat_turn` mid-step. Rendered assistant markdown keeps `<img src>` only for `/plots/` or `data:image/`, strips src/href on other elements and forbids `svg`/`math`/`style`/srcset, closing web_search-injected beacon URLs. CSP is still open and is the backstop for vectors outside that list.
 - **2026-09-28 — System prompt corrected (audit fix-first #5).** The Performance section said full scans time out, which pushed the model to sample on the exact questions the paper bench grades; it now requires `.collect(engine="streaming")` and says full scans are fine. The 100-row result cap is stated, and pandas/Series results now carry `total_rows`/`truncated`/`note` like polars frames. The prompt no longer claims eco2/eco3 name mappings exist. The loop-exhaustion final call runs with tools off so 20 rounds of work don't end in "ran out of tool-use rounds".
 - **2026-09-28 — Worker protocol hardening + pool fail-fast (audit fix-first #4, #6).** Every JSONL frame carries a request id and the host drops mismatches; a host timeout marks the worker dead and kills it (a late reply could previously answer the next `run_query`); the worker `dup2`s stderr onto fd 1 so query code can't write to the pipe. `SandboxPool.start()` raises on 0 workers so uvicorn exits non-zero; refills retry 3x. The Quadlet gained `Requires=podman.socket` plus `StartLimitIntervalSec=0`/`RestartSec=5`: a review skeptic measured that the ~1 s fail-fast would otherwise trip systemd's 5-starts/10 s limit and leave the unit `failed`.

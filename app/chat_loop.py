@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from google.genai import types
 
+from app.config import MAX_TOOL_ROUNDS
 from app.tools import execute_function_call_async
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ async def run_chat_turn(
     contents: list,
     config,
     session,
-    max_rounds: int = 15,
+    max_rounds: int = MAX_TOOL_ROUNDS,
     on_disconnect: Callable | None = None,
 ):
     """Run a single chat turn through the tool-use loop.
@@ -92,7 +93,7 @@ async def run_chat_turn(
             config=config,
         )
 
-        parts = response.candidates[0].content.parts if response.candidates else []
+        parts = _first_parts(response)
         if logger.isEnabledFor(logging.DEBUG):
             part_types = [type(p).__name__ for p in parts]
             logger.debug(f"Round {round_num}: parts={part_types}")
@@ -216,6 +217,16 @@ async def run_chat_turn(
     )
 
 
+def _first_parts(response) -> list:
+    """Parts of the first candidate, or [] when there is no candidate, no
+    content, or no parts (e.g. finish_reason=MALFORMED_FUNCTION_CALL returns a
+    candidate whose content is None)."""
+    candidate = response.candidates[0] if response.candidates else None
+    if candidate is None or candidate.content is None:
+        return []
+    return candidate.content.parts or []
+
+
 def _extract_text(response) -> str:
     try:
         return response.text or ""
@@ -224,17 +235,16 @@ def _extract_text(response) -> str:
             "response.text failed, extracting text from parts", exc_info=True
         )
         text = ""
-        if response.candidates:
-            for p in response.candidates[0].content.parts:
-                if hasattr(p, "text") and p.text:
-                    text += p.text
+        for p in _first_parts(response):
+            if hasattr(p, "text") and p.text:
+                text += p.text
         return text
 
 
 def _log_empty_response(response, all_plots: list, all_queries: list) -> None:
     candidates = response.candidates or []
     finish_reason = candidates[0].finish_reason if candidates else "no_candidates"
-    parts = candidates[0].content.parts if candidates else []
+    parts = _first_parts(response)
     part_details = []
     for p in parts:
         if hasattr(p, "function_call") and p.function_call:

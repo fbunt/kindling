@@ -102,3 +102,49 @@ async def test_empty_final_response_keeps_fallback_text(monkeypatch):
         )
     ]
     assert events[-1].result.text.startswith("I ran out of tool-use rounds")
+
+
+async def test_malformed_function_call_candidate_does_not_crash():
+    """finish_reason=MALFORMED_FUNCTION_CALL comes back with content=None; the
+    turn must end with the fallback text instead of an AttributeError."""
+
+    class _Malformed:
+        def generate_content(self, *, model, contents, config):
+            return types.GenerateContentResponse(
+                candidates=[
+                    types.Candidate(
+                        content=None, finish_reason="MALFORMED_FUNCTION_CALL"
+                    )
+                ]
+            )
+
+    client = _FakeClient()
+    client.models = _Malformed()
+    contents = [types.Content(role="user", parts=[types.Part(text="q")])]
+    events = [
+        e
+        async for e in run_chat_turn(
+            client, "m", contents, types.GenerateContentConfig(), session=None
+        )
+    ]
+    done = events[-1]
+    assert isinstance(done, DoneEvent)
+    assert done.result.text.startswith("I ran out of tool-use rounds")
+    assert done.result.tool_calls == []
+
+
+async def test_run_query_without_code_returns_error():
+    import json
+
+    from app.tools import execute_function_call_async
+
+    class _NoSession:
+        async def run_query(self, code):
+            raise AssertionError("must not reach the sandbox")
+
+    for args in ({}, {"code": ""}, {"code": None}):
+        result, plots = await execute_function_call_async(
+            "run_query", args, client=None, model="m", session=_NoSession()
+        )
+        assert "error" in json.loads(result)
+        assert plots == []

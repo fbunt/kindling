@@ -48,13 +48,49 @@ live in `[project.optional-dependencies] worker` — the host/app never import t
 ## Benchmark
 
 `bench/` is the ICFFR paper's 25-question accuracy harness (4 categories: lookup, aggregation,
-trend, multistep). `python -m bench gt` precomputes reference-Polars ground truth (cached
-under `.bench-runs/ground_truth/`, keyed by parquet identity — a cache built on the eval
-sample parquet is not reused for the full one); `run [--trials 3] [--questions SPEC]
-[--model M] [--run-dir DIR]` drives full chat turns through `app.chat_loop` against real
-sandboxes (web_search disabled); then `grade` and `report`. Needs `GEMINI_API_KEY` and the
-parquet; output goes to `.bench-runs/<run-dir>/`. Re-running `run` with the same `--run-dir`
-resumes (trials with an existing trace JSON are skipped). Usage in `bench/__main__.py`.
+trend, multistep). Trend questions (T01-T05) count wildfire only (`Incid_Type == 1`); every
+other event-count question says "Count every incident type". Subcommands (usage in
+`bench/__main__.py`):
+
+- `gt [--force]` precomputes reference-Polars ground truth, cached under
+  `.bench-runs/ground_truth/<parquet identity>.json` per question `reference_sha`. Local Polars
+  only, no API call. ~1.5 min on the full parquet, but single references reach 80-90 GB, so run
+  nothing heavy alongside it. Parquet identity hashes part names, sizes, raw parquet footers and
+  the total row count (no mtime, no absolute path), for a single file or a directory of parts.
+- `run [--trials 3] [--questions SPEC] [--model M | --models A,B] [--seed 0] [--run-dir DIR]
+  [--max-rounds 20] [--allow-drift]` checks key presence / runtime / worker image, computes
+  ground truth, makes one prompt-guard call per question (verdicts in `run_meta`), then drives
+  full chat turns through `app.chat_loop` against real sandboxes (web_search not declared; a
+  call to it is blocked and flagged). `--models A,B` interleaves (question, trial, model) in a
+  seeded shuffle and writes one standard run dir per model (`DIR/<model>/`). `--model(s)` must
+  be in `CHAT_MODEL_IDS`; `--max-rounds` defaults to `MAX_TOOL_ROUNDS` (a parity test pins
+  bench, evals and `run_chat_turn` to it). Pool/sandbox settings come from the same
+  `KINDLING_SANDBOX_*` / `KINDLING_POOL_SIZE` env as the app (2 warm / 3 max).
+- `grade --run-dir DIR` (flash-lite judge, unchanged) refuses traces whose `reference_sha` no
+  longer matches `questions.py`; `report --run-dir DIR` writes `report.md` incl. a tokens/cost
+  section (dollar estimate only once `bench/prices.py` is filled in). Both accept `DIR` of an
+  interleaved run (every per-model dir under it).
+
+`gt` and `run` hold a host-wide `fcntl` lock (`$KINDLING_BENCH_LOCK`, default
+`/tmp/kindling-bench.lock`): one bench per host. Output goes to `.bench-runs/<run-dir>/`.
+
+Failure buckets per trace (`error_bucket`): **retryable** (408/429/5xx, transport; whole trial
+retried with backoff honoring Retry-After; exhausted -> `infra_error`), **fatal** (401/403/404,
+a 400 on the first call, SandboxBusy; trace written, run aborts), **model** (malformed/blocked/
+empty final response, a 400 after model output, 1800 s turn timeout -> `model_error`, graded
+`executable=False, model_malformed`, kept in every denominator), else **infra**. 3 consecutive
+infra errors abort. Traces are written atomically and record served `model_version`,
+`prompt_sha`/`question_sha`/`reference_sha`, every generate_content call's usage/finish
+reason/latency (`calls`, `usage`), rejections per round with source (code_judge / sandbox /
+missing_code_arg), and plot URLs. `run_meta.json` holds the fingerprint (git sha + dirty, prompt
+sha, question shas, parquet identity, SDK/polars and worker-image versions + id, backend,
+effective sandbox and HTTP settings, max rounds) plus `ended_at`.
+
+Resume: re-running `run` with the same `--run-dir` skips a trial only if its trace parses and
+has `infra_error` null; corrupt/infra traces are moved aside (`*.bak`) and re-run. Resume refuses
+if the fingerprint drifted (any commit or prompt/question/image/SDK change) unless
+`--allow-drift`, which is recorded under `resumes` in `run_meta`. A different model or parquet
+identity is refused even with `--allow-drift` (one run dir = one model on one dataset).
 
 ## Running in a container (Option A)
 

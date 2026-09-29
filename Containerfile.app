@@ -29,7 +29,7 @@ COPY pyproject.toml ./
 COPY app ./app
 # Pin polars/pyarrow to the worker versions so the app's schema reads match the
 # semantics of query execution in the worker.
-RUN python3 -m pip install . polars==1.38.1 pyarrow==23.0.1
+RUN python3 -m pip install . polars==1.41.2 pyarrow==24.0.0
 
 EXPOSE 8000
 

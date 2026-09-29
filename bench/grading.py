@@ -13,6 +13,8 @@ import logging
 import re
 from pathlib import Path
 
+from bench.ground_truth import reference_sha
+from bench.io import atomic_write_json, read_trace
 from bench.questions import BY_ID, Question
 from tests.evals.judge import judge
 
@@ -69,6 +71,10 @@ def is_executable(trace: dict) -> tuple[bool, str]:
     self-corrected errors are fine), and the tool loop terminated normally."""
     if trace.get("infra_error"):
         return False, "infra_error"  # excluded from denominators, not failed
+    if trace.get("model_error"):
+        # Model-caused turn failure (malformed/blocked final response, turn
+        # timeout, model-caused API 400): a real failure, kept in denominators.
+        return False, "model_malformed"
     outcomes = _run_query_outcomes(trace)
     if not outcomes:
         return False, "no_queries"
@@ -141,12 +147,18 @@ def render_criterion(question: Question, expected) -> str:
         else:
             crit += " The value must match exactly."
     elif question.answer_kind == "series":
-        pct = question.tolerance_rel * 100
-        crit += (
-            f" Each listed value must appear within ±{pct:g}% of the stated "
-            "number; extra commentary is fine; a missing or out-of-band value "
-            "means 'no'."
-        )
+        if question.tolerance_abs == 0:
+            crit += (
+                " Each listed value must match exactly; extra commentary is "
+                "fine; a missing or different value means 'no'."
+            )
+        else:
+            pct = question.tolerance_rel * 100
+            crit += (
+                f" Each listed value must appear within ±{pct:g}% of the stated "
+                "number; extra commentary is fine; a missing or out-of-band "
+                "value means 'no'."
+            )
     elif question.answer_kind == "set":
         crit += (
             " Order may differ and case/punctuation differences are fine, but "
@@ -252,16 +264,59 @@ def grade_trace(trace: dict, client) -> dict:
     return fields
 
 
+def stale_reference(trace: dict) -> str | None:
+    """Why a trace's embedded `expected` can't be trusted against the current
+    reference code, or None. A trace records the reference_sha its expected
+    value came from; grading it after the reference changed would score the
+    model against a stale answer."""
+    question = BY_ID.get(trace.get("question_id"))
+    if question is None:
+        return f"unknown question id {trace.get('question_id')!r}"
+    got = trace.get("reference_sha")
+    if got is None:
+        return "trace has no reference_sha (recorded before provenance tracking)"
+    want = reference_sha(question)
+    if got != want:
+        return f"reference_sha {got} != current {want}"
+    return None
+
+
+class StaleTraceError(Exception):
+    pass
+
+
 def grade_run(run_dir: Path, client, *, regrade: bool = False) -> list[dict]:
-    """Grade every trace in a run dir (merging fields in place) + triage."""
-    traces = []
+    """Grade every trace in a run dir (merging fields in place) + triage.
+
+    Refuses (before any judge call) if a trace that would be graded was
+    produced by different reference code than the current questions.py.
+    Unreadable traces are skipped with an error log."""
+    loaded = []
     for path in _trace_paths(run_dir):
-        trace = json.loads(path.read_text())
+        trace, err = read_trace(path)
+        if trace is None:
+            logger.error("%s: unreadable trace, skipped (%s)", path, err)
+            continue
+        loaded.append((path, trace))
+    stale = [
+        f"{path}: {why}"
+        for path, trace in loaded
+        if ("accurate" not in trace or regrade)
+        and not trace.get("infra_error")
+        and (why := stale_reference(trace))
+    ]
+    if stale:
+        raise StaleTraceError(
+            "refusing to grade traces whose ground truth no longer matches the "
+            "current reference code (re-run those trials):\n  " + "\n  ".join(stale)
+        )
+    traces = []
+    for path, trace in loaded:
         if "accurate" in trace and not regrade:
             logger.info("%s: already graded, skipping", path)
         else:
             trace.update(grade_trace(trace, client))
-            path.write_text(json.dumps(trace, indent=2, default=str))
+            atomic_write_json(path, trace)
             logger.info(
                 "%s trial %d: executable=%s accurate=%s",
                 trace["question_id"],
@@ -306,7 +361,7 @@ def write_triage(run_dir: Path, traces: list[dict]) -> None:
                 "failure_mode": old.get("failure_mode", ""),
             }
         )
-    triage_path.write_text(json.dumps(entries, indent=2))
+    atomic_write_json(triage_path, entries)
     unannotated = sum(1 for e in entries if not e["failure_mode"])
     logger.info(
         "triage: %d failed trials (%d unannotated) -> %s",

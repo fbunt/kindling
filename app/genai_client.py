@@ -26,8 +26,13 @@ def use_vertex() -> bool:
     return os.environ.get("KINDLING_USE_VERTEX", "").strip().lower() in _TRUTHY
 
 
-def make_client(api_key: str) -> genai.Client:
-    """Build a genai client for the configured backend."""
+def make_client(api_key: str, http_options=None) -> genai.Client:
+    """Build a genai client for the configured backend.
+
+    `http_options` (a types.HttpOptions) is for callers that need their own
+    timeout/retry policy (the benchmark); the app never passes it, so
+    production clients keep the SDK defaults.
+    """
     if use_vertex():
-        return genai.Client(vertexai=True, api_key=api_key)
-    return genai.Client(api_key=api_key)
+        return genai.Client(vertexai=True, api_key=api_key, http_options=http_options)
+    return genai.Client(api_key=api_key, http_options=http_options)

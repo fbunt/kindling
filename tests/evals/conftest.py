@@ -10,7 +10,7 @@ from google import genai
 from google.genai import types
 
 from app.chat_loop import DoneEvent, run_chat_turn
-from app.config import DEFAULT_CHAT_MODEL
+from app.config import DEFAULT_CHAT_MODEL, MAX_TOOL_ROUNDS
 from app.genai_client import make_client
 from app.query_engine import configure
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION
@@ -126,7 +126,11 @@ def run_turn(genai_client, run_dir, sandbox_pool):
     default_model = os.environ.get("KINDLING_EVAL_MODEL", DEFAULT_CHAT_MODEL)
 
     async def _run(
-        prompt: str, trial: int, *, max_rounds: int = 15, model: str | None = None
+        prompt: str,
+        trial: int,
+        *,
+        max_rounds: int = MAX_TOOL_ROUNDS,
+        model: str | None = None,
     ):
         model = model or default_model
         contents = [

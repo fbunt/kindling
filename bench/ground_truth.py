@@ -6,6 +6,7 @@ expected answer. Results are cached per (parquet identity, reference-code hash)
 so each reference runs once per dataset.
 """
 
+import functools
 import hashlib
 import json
 import logging
@@ -29,22 +30,57 @@ class GroundTruthError(Exception):
     pass
 
 
-def parquet_identity(path: Path | str) -> str:
-    """Stable 12-hex-char identity for a parquet file or directory of parts.
+_PARQUET_MAGIC = b"PAR1"
 
-    The default dataset is a symlink to a dask-written directory of ~600 part
-    files, so identity must cover the directory contents, not one file stat.
+
+def _parquet_footer(path: Path) -> bytes:
+    """Raw Thrift FileMetaData footer of one parquet file (schema, row groups,
+    column-chunk offsets and statistics): a content fingerprint that needs no
+    full read."""
+    size = path.stat().st_size
+    with path.open("rb") as f:
+        if size < 12:
+            raise GroundTruthError(f"{path}: too small to be a parquet file")
+        f.seek(size - 8)
+        tail = f.read(8)
+        if tail[4:] != _PARQUET_MAGIC:
+            raise GroundTruthError(f"{path}: missing parquet magic bytes")
+        footer_len = int.from_bytes(tail[:4], "little")
+        if footer_len > size - 12:
+            raise GroundTruthError(f"{path}: corrupt parquet footer length")
+        f.seek(size - 8 - footer_len)
+        return f.read(footer_len)
+
+
+def parquet_parts(path: Path | str) -> list[Path]:
+    """The parquet files behind a dataset path: a single file, or the sorted
+    *.parquet parts of a (dask-written) directory."""
+    p = Path(path).resolve()
+    if p.is_dir():
+        return sorted(e for e in p.iterdir() if e.suffix == ".parquet")
+    return [p]
+
+
+def parquet_identity(path: Path | str) -> str:
+    """Stable 12-hex-char content identity for a parquet file or directory.
+
+    Hashes each part's name (directories only), size, and raw parquet footer,
+    plus the total row count. No mtime and no absolute path, so a copy, a
+    re-symlink or a `touch` keeps the identity while any rewrite of the data
+    changes it. The default dataset is a directory of ~600 dask part files.
     """
     p = Path(path).resolve()
+    parts = parquet_parts(p)
+    if not parts:
+        raise GroundTruthError(f"{p}: no parquet files")
     h = hashlib.sha256()
-    if p.is_dir():
-        entries = sorted(e for e in p.iterdir() if e.suffix == ".parquet")
-        for e in entries:
-            st = e.stat()
-            h.update(f"{e.name}:{st.st_size}:{st.st_mtime_ns}\n".encode())
-    else:
-        st = p.stat()
-        h.update(f"{p}:{st.st_size}:{st.st_mtime_ns}".encode())
+    for part in parts:
+        name = part.name if p.is_dir() else ""
+        footer = _parquet_footer(part)
+        h.update(f"{name}:{part.stat().st_size}:{len(footer)}\n".encode())
+        h.update(footer)
+    rows = pl.scan_parquet(parts).select(pl.len()).collect().item()
+    h.update(f"rows:{rows}\n".encode())
     return h.hexdigest()[:12]
 
 
@@ -81,7 +117,7 @@ def _normalize(value):
     return value
 
 
-def _reference_sha(question: Question) -> str:
+def reference_sha(question: Question) -> str:
     return hashlib.sha256(question.reference_code.encode()).hexdigest()[:12]
 
 
@@ -120,19 +156,24 @@ def _store_cache(identity: str, cache: dict) -> None:
     os.replace(tmp, path)
 
 
+@functools.cache
+def _identity_memo(resolved: str) -> str:
+    return parquet_identity(resolved)
+
+
 def get_expected(question: Question, parquet_path: Path | str, *, force: bool = False):
     """Cached ground truth for one question against one parquet."""
-    identity = parquet_identity(parquet_path)
+    identity = _identity_memo(str(Path(parquet_path).resolve()))
     cache = _load_cache(identity)
     entry = cache.get(question.id)
-    if entry and not force and entry.get("reference_sha") == _reference_sha(question):
+    if entry and not force and entry.get("reference_sha") == reference_sha(question):
         return entry["expected"]
     lf = _build_lazyframe(parquet_path)
     expected, elapsed = compute_expected(question, lf)
     logger.info("ground truth %s: %.1fs -> %r", question.id, elapsed, expected)
     cache[question.id] = {
         "expected": expected,
-        "reference_sha": _reference_sha(question),
+        "reference_sha": reference_sha(question),
         "elapsed_s": round(elapsed, 2),
         "computed_at": datetime.now().isoformat(timespec="seconds"),
     }

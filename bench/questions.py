@@ -34,6 +34,10 @@ class Question:
     expensive_gt: bool = False  # ground truth is more than a trivial scan
 
 
+# Incident-type scope is stated in every question that counts fire events: the
+# trend questions (T01-T05) cover wildfire only (Incid_Type == 1, filtered in
+# the reference); A01/M02/M04 say "Count every incident type".
+#
 # Several references roll up to one row per fire event via
 # lf.group_by("Event_ID").agg(...). `first()` is safe for fire-level columns
 # (area_m2, Incid_Name, year, Ig_Date are constant within an Event_ID).
@@ -45,18 +49,27 @@ QUESTIONS: list[Question] = [
         id="L01",
         category="lookup",
         text=(
-            "What is the area in square meters (area_m2, as recorded) of the "
-            "single largest fire event in the dataset?"
+            "What is the incident name of the largest prescribed-fire event "
+            "(Incid_Type = 2) by area_m2?"
         ),
         reference_code="""\
-expected = lf.select(pl.col("area_m2").max()).collect(engine="streaming").item()
+rx = lf.filter(pl.col("Incid_Type") == 2)
+mx = rx.select(pl.col("area_m2").max()).collect(engine="streaming").item()
+expected = sorted(
+    rx.filter(pl.col("area_m2") == mx)
+    .select("Incid_Name")
+    .unique()
+    .collect(engine="streaming")["Incid_Name"]
+    .to_list()
+)
 """,
-        answer_kind="scalar",
+        answer_kind="text",
         criterion=(
-            "The response states the area of the largest fire event as "
-            "{expected} square meters."
+            "The response identifies the incident name of the largest "
+            "prescribed-fire event as {expected}. Case and punctuation "
+            "differences are fine; if several names are listed as expected, "
+            "naming any one of them counts."
         ),
-        tolerance_rel=1e-6,
     ),
     Question(
         id="L02",
@@ -86,7 +99,8 @@ expected = sorted(
         id="L03",
         category="lookup",
         text=(
-            "How many distinct fire events (unique Event_ID values) are in the dataset?"
+            "How many distinct fire events (unique Event_ID values) are in the "
+            "dataset? Give the exact count."
         ),
         reference_code="""\
 expected = lf.select(pl.col("Event_ID").n_unique()).collect(engine="streaming").item()
@@ -95,14 +109,14 @@ expected = lf.select(pl.col("Event_ID").n_unique()).collect(engine="streaming").
         criterion=(
             "The response states the number of distinct fire events as {expected}."
         ),
-        tolerance_rel=1e-6,
+        tolerance_abs=0.0,
     ),
     Question(
         id="L04",
         category="lookup",
         text=(
-            "How many distinct fire events (unique Event_ID) have "
-            "Incid_Type = 2, i.e. prescribed fires?"
+            "How many distinct prescribed-fire events are in the dataset? "
+            "Give the exact count."
         ),
         reference_code="""\
 expected = (
@@ -115,45 +129,66 @@ expected = (
         answer_kind="scalar",
         criterion=(
             "The response states the number of distinct prescribed-fire events "
-            "(Incid_Type = 2) as {expected}."
+            "as {expected}."
         ),
-        tolerance_rel=1e-6,
+        tolerance_abs=0.0,
     ),
     Question(
         id="L05",
         category="lookup",
-        text="What is the earliest ignition date (Ig_Date) recorded in the dataset?",
+        text=(
+            "What is the ignition date (Ig_Date) of the earliest Wildland Fire "
+            "Use event (Incid_Type = 3)?"
+        ),
         reference_code="""\
 # Ig_Date is a Datetime in the parquet; truncate to the calendar date.
 expected = str(
-    lf.select(pl.col("Ig_Date").min()).collect(engine="streaming").item().date()
+    lf.filter(pl.col("Incid_Type") == 3)
+    .select(pl.col("Ig_Date").min())
+    .collect(engine="streaming")
+    .item()
+    .date()
 )
 """,
         answer_kind="text",
         criterion=(
-            "The response gives the earliest ignition date as {expected}. "
-            "Equivalent date formats count (e.g. 'January 26, 1984' matches "
-            "'1984-01-26')."
+            "The response gives the ignition date of the earliest Wildland "
+            "Fire Use event as {expected}. Equivalent date formats count (e.g. "
+            "'March 26, 1988' matches '1988-03-26')."
         ),
     ),
     Question(
         id="L06",
         category="lookup",
-        text="What is the maximum pixel elevation in meters recorded in the dataset?",
-        reference_code="""\
-expected = lf.select(pl.col("elevation").max()).collect(engine="streaming").item()
-""",
-        answer_kind="scalar",
-        criterion=(
-            "The response states the maximum pixel elevation as {expected} meters."
+        text=(
+            "Which fire event contains the single highest-elevation pixel? "
+            "Give its incident name."
         ),
-        # elevation is stored as float; allow rounding to the nearest meter.
-        tolerance_abs=1.0,
+        reference_code="""\
+mx = lf.select(pl.col("elevation").max()).collect(engine="streaming").item()
+expected = sorted(
+    lf.filter(pl.col("elevation") == mx)
+    .select("Incid_Name")
+    .unique()
+    .collect(engine="streaming")["Incid_Name"]
+    .to_list()
+)
+""",
+        answer_kind="text",
+        criterion=(
+            "The response identifies the fire event containing the "
+            "highest-elevation pixel by its incident name, {expected}. Case and "
+            "punctuation differences are fine; if several names are listed as "
+            "expected, naming any one of them counts."
+        ),
     ),
     Question(
         id="L07",
         category="lookup",
-        text="How many burned-pixel rows does the dataset contain for the year 2020?",
+        text=(
+            "How many burned-pixel rows does the dataset contain for the year "
+            "2020? Give the exact count."
+        ),
         reference_code="""\
 expected = (
     lf.filter(pl.col("year") == 2020)
@@ -167,21 +202,29 @@ expected = (
             "The response states the number of burned-pixel rows for 2020 as "
             "{expected}."
         ),
-        tolerance_rel=1e-6,
+        tolerance_abs=0.0,
     ),
     Question(
         id="L08",
         category="lookup",
-        text="How many rows have a null burn severity (bs) value?",
+        text=(
+            "How many rows with fire year 2012 have a null bs value? Give the "
+            "exact count."
+        ),
         reference_code="""\
-expected = lf.select(pl.col("bs").null_count()).collect(engine="streaming").item()
+expected = (
+    lf.filter(pl.col("year") == 2012)
+    .select(pl.col("bs").null_count())
+    .collect(engine="streaming")
+    .item()
+)
 """,
         answer_kind="scalar",
         criterion=(
-            "The response states the number of rows with a null burn severity "
-            "as {expected}."
+            "The response states the number of 2012 rows with a null burn "
+            "severity (bs) value as {expected}."
         ),
-        tolerance_rel=1e-6,
+        tolerance_abs=0.0,
     ),
     # ------------------------------------------------------------------
     # Aggregations (7)
@@ -190,17 +233,18 @@ expected = lf.select(pl.col("bs").null_count()).collect(engine="streaming").item
         id="A01",
         category="aggregation",
         text=(
-            "What is the mean fire size in square meters across distinct fire "
-            "events? Deduplicate by Event_ID so each fire counts once."
+            "What is the mean fire size, in acres, across all fire events in "
+            "the dataset? Count every incident type."
         ),
         reference_code="""\
 ev = lf.group_by("Event_ID").agg(pl.col("area_m2").first())
-expected = ev.select(pl.col("area_m2").mean()).collect(engine="streaming").item()
+mean_m2 = ev.select(pl.col("area_m2").mean()).collect(engine="streaming").item()
+expected = mean_m2 / 4046.8564224  # international acre
 """,
         answer_kind="scalar",
         criterion=(
-            "The response states the mean fire size across distinct fire "
-            "events as {expected} square meters."
+            "The response states the mean fire size across fire events as "
+            "{expected} acres."
         ),
         tolerance_rel=0.01,
     ),
@@ -222,8 +266,8 @@ expected = int(counts.sort("len", descending=True)["year"][0])
         id="A03",
         category="aggregation",
         text=(
-            "For the year 2021, report the number of pixels in each burn "
-            "severity class 1 through 4 (four counts: bs=1, 2, 3, 4)."
+            "For the year 2021, how many pixels fall in each burn severity "
+            "class: unburned, low, moderate and high? Give the exact counts."
         ),
         reference_code="""\
 counts = (
@@ -232,14 +276,17 @@ counts = (
     .len()
     .collect(engine="streaming")
 )
-expected = {str(r["bs"]): r["len"] for r in counts.to_dicts()}
+pairs = sorted((r["bs"], r["len"]) for r in counts.to_dicts())
+expected = {f"bs={k}": v for k, v in pairs}
 """,
         answer_kind="series",
         criterion=(
             "The response reports 2021 pixel counts per burn severity class "
-            "matching all of: {expected}."
+            "matching all of: {expected} (bs=1 is Unburned, bs=2 Low, bs=3 "
+            "Moderate, bs=4 High; the response may use either the labels or "
+            "the codes)."
         ),
-        tolerance_rel=0.005,
+        tolerance_abs=0.0,
     ),
     Question(
         id="A04",
@@ -330,11 +377,13 @@ expected = (
         text=(
             "Using ordinary least-squares regression of the annual count of "
             "distinct fire events (unique Event_ID per year) against year, "
-            "over 1984-2022, what is the slope in fires per year?"
+            "over 1984-2022, what is the slope in fires per year? Count only "
+            "wildfire events (Incid_Type = 1)."
         ),
         reference_code="""\
 counts = (
-    lf.group_by("year")
+    lf.filter(pl.col("Incid_Type") == 1)
+    .group_by("year")
     .agg(pl.col("Event_ID").n_unique().alias("n"))
     .sort("year")
     .collect(engine="streaming")
@@ -344,8 +393,8 @@ expected = ols_slope(counts["year"].to_list(), counts["n"].to_list())
         answer_kind="scalar",
         criterion=(
             "The response states the ordinary least-squares slope of annual "
-            "distinct fire-event counts against year as {expected} fires per "
-            "year."
+            "distinct wildfire-event counts against year as {expected} fires "
+            "per year."
         ),
         tolerance_rel=0.05,
     ),
@@ -356,10 +405,11 @@ expected = ols_slope(counts["year"].to_list(), counts["n"].to_list())
             "Define annual burned area as the sum of area_m2 over distinct "
             "fire events ignited in each year. What is the ordinary "
             "least-squares slope of annual burned area against year, "
-            "1984-2022, in square meters per year?"
+            "1984-2022, in square meters per year? Count only wildfire events "
+            "(Incid_Type = 1)."
         ),
         reference_code="""\
-ev = lf.group_by("Event_ID").agg(
+ev = lf.filter(pl.col("Incid_Type") == 1).group_by("Event_ID").agg(
     pl.col("area_m2").first(),
     pl.col("year").first(),
 )
@@ -374,7 +424,8 @@ expected = ols_slope(annual["year"].to_list(), annual["area_m2"].to_list())
         answer_kind="scalar",
         criterion=(
             "The response states the ordinary least-squares slope of annual "
-            "burned area against year as {expected} square meters per year. "
+            "wildfire burned area against year as {expected} square meters "
+            "per year. "
             "The same value in scientific notation counts; a value converted "
             "to other units (km², acres, hectares) does not count unless the "
             "square-meter figure is also given."
@@ -388,11 +439,12 @@ expected = ols_slope(annual["year"].to_list(), annual["area_m2"].to_list())
             "Compare the mean annual number of distinct fire events in the "
             "first decade of the record (1984-1993) with the last decade "
             "(2013-2022). Report the ratio last-decade mean divided by "
-            "first-decade mean."
+            "first-decade mean. Count only wildfire events (Incid_Type = 1)."
         ),
         reference_code="""\
 counts = (
-    lf.group_by("year")
+    lf.filter(pl.col("Incid_Type") == 1)
+    .group_by("year")
     .agg(pl.col("Event_ID").n_unique().alias("n"))
     .collect(engine="streaming")
 )
@@ -403,7 +455,8 @@ expected = last / first
         answer_kind="scalar",
         criterion=(
             "The response states the ratio of the 2013-2022 mean annual "
-            "distinct fire-event count to the 1984-1993 mean as {expected}."
+            "distinct wildfire-event count to the 1984-1993 mean as "
+            "{expected}."
         ),
         tolerance_rel=0.02,
     ),
@@ -415,11 +468,13 @@ expected = last / first
             "bs = 4 divided by pixels with bs in 1-4 (exclude nulls and "
             "classes 5-6). By how many percentage points does the mean annual "
             "high-severity fraction in 2013-2022 differ from 1984-1993 "
-            "(positive = increase)?"
+            "(positive = increase)? Average the ten annual fractions within "
+            "each decade with equal weight per year (do not pool pixels across "
+            "the decade). Count only wildfire events (Incid_Type = 1)."
         ),
         reference_code="""\
 frac = (
-    lf.filter(pl.col("bs").is_in([1, 2, 3, 4]))
+    lf.filter((pl.col("Incid_Type") == 1) & pl.col("bs").is_in([1, 2, 3, 4]))
     .group_by("year")
     .agg((pl.col("bs") == 4).mean().alias("hs"))
     .collect(engine="streaming")
@@ -430,8 +485,8 @@ expected = (last - first) * 100
 """,
         answer_kind="scalar",
         criterion=(
-            "The response states that the mean annual high-severity fraction "
-            "changed by {expected} percentage points between 1984-1993 and "
+            "The response states that the mean annual wildfire high-severity "
+            "fraction changed by {expected} percentage points between 1984-1993 and "
             "2013-2022. The sign matters: positive means an increase."
         ),
         tolerance_abs=0.5,
@@ -440,13 +495,14 @@ expected = (last - first) * 100
         id="T05",
         category="trend",
         text=(
-            "Has the fire season shifted later? Using each distinct fire "
-            "event's ignition date (Ig_Date), compare the mean day-of-year of "
-            "ignition for events in 1984-1993 vs 2013-2022. Report the "
-            "difference in days (positive = later in the recent decade)."
+            "Using each distinct wildfire event's ignition date "
+            "(Incid_Type = 1 only; one value per Event_ID), compute the mean "
+            "day-of-year of Ig_Date for events with year 1984-1993 and for "
+            "2013-2022. Report the recent-decade mean minus the early-decade "
+            "mean, in days (negative = earlier)."
         ),
         reference_code="""\
-ev = lf.group_by("Event_ID").agg(
+ev = lf.filter(pl.col("Incid_Type") == 1).group_by("Event_ID").agg(
     pl.col("Ig_Date").first(),
     pl.col("year").first(),
 )
@@ -459,9 +515,9 @@ expected = last - first
 """,
         answer_kind="scalar",
         criterion=(
-            "The response states that the mean ignition day-of-year shifted by "
-            "{expected} days between 1984-1993 and 2013-2022. The sign "
-            "matters: positive means later in the recent decade."
+            "The response states that the 2013-2022 mean wildfire ignition "
+            "day-of-year minus the 1984-1993 mean is {expected} days. The sign "
+            "matters: negative means earlier in the recent decade."
         ),
         tolerance_abs=2.0,
     ),
@@ -472,31 +528,21 @@ expected = last - first
         id="M01",
         category="multistep",
         text=(
-            "Of the 10 largest distinct fire events by area_m2, how many are "
-            "located in the box lat 32.5-42.0, lon -124.5 to -114.1 (roughly "
-            "California)? Locate each fire by the mean lat and mean lon of its "
-            "pixels."
+            "Of the 10 largest distinct fire events by area_m2, how many have "
+            "a mean pixel latitude north of 42.0 degrees (lat > 42.0)?"
         ),
         reference_code="""\
 ev = lf.group_by("Event_ID").agg(
     pl.col("area_m2").first(),
     pl.col("lat").mean(),
-    pl.col("lon").mean(),
 )
 top = ev.collect(engine="streaming").top_k(10, by="area_m2")
-expected = int(
-    (
-        (top["lat"] >= 32.5)
-        & (top["lat"] <= 42.0)
-        & (top["lon"] >= -124.5)
-        & (top["lon"] <= -114.1)
-    ).sum()
-)
+expected = int((top["lat"] > 42.0).sum())
 """,
         answer_kind="scalar",
         criterion=(
             "The response states that {expected} of the 10 largest fire events "
-            "fall within the given lat/lon box."
+            "have a mean pixel latitude north of 42.0 degrees (lat > 42.0)."
         ),
         tolerance_abs=0.0,
     ),
@@ -504,9 +550,10 @@ expected = int(
         id="M02",
         category="multistep",
         text=(
-            "Within Mediterranean California (eco1 = 11), how many distinct "
-            "pixel locations (unique geohash) burned in 3 or more distinct "
-            "fire events over the record?"
+            "Within eco1 = 11 (Mediterranean California), how many distinct "
+            "pixel locations (unique geohash) appear in 3 or more distinct fire "
+            "events (unique Event_ID), counting every row regardless of bs "
+            "value or Incid_Type? Give the exact count."
         ),
         reference_code="""\
 expected = (
@@ -522,22 +569,26 @@ expected = (
         answer_kind="scalar",
         criterion=(
             "The response states that {expected} distinct pixel locations in "
-            "Mediterranean California burned in 3 or more distinct fire "
-            "events."
+            "Mediterranean California (eco1 = 11) appear in 3 or more distinct "
+            "fire events."
         ),
-        tolerance_rel=1e-6,
+        tolerance_abs=0.0,
         expensive_gt=True,
     ),
     Question(
         id="M03",
         category="multistep",
         text=(
-            "Consider the single largest fire event by area_m2. What "
-            "percentage of its pixels with bs in 1-4 burned at high severity "
-            "(bs = 4)? One decimal place."
+            "Consider the single largest fire event by area_m2 among events "
+            "with year = 2002. What percentage of its pixels with bs in 1-4 "
+            "burned at high severity (bs = 4)? One decimal place."
         ),
         reference_code="""\
-ev = lf.group_by("Event_ID").agg(pl.col("area_m2").first())
+ev = (
+    lf.filter(pl.col("year") == 2002)
+    .group_by("Event_ID")
+    .agg(pl.col("area_m2").first())
+)
 top_id = ev.collect(engine="streaming").top_k(1, by="area_m2")["Event_ID"][0]
 counts = (
     lf.filter((pl.col("Event_ID") == top_id) & pl.col("bs").is_in([1, 2, 3, 4]))
@@ -549,7 +600,7 @@ expected = counts["high"][0] / counts["total"][0] * 100
         answer_kind="scalar",
         criterion=(
             "The response states the high-severity percentage for the largest "
-            "fire event as {expected} percent."
+            "fire event of 2002 as {expected} percent."
         ),
         tolerance_abs=0.5,
     ),
@@ -559,7 +610,8 @@ expected = counts["high"][0] / counts["total"][0] * 100
         text=(
             "Which year has the most distinct fire events, and what is the "
             "incident name of the largest fire (by area_m2) ignited in that "
-            "year? Give the fire's name."
+            "year? Count every incident type. Give both the year and the "
+            "fire's name."
         ),
         reference_code="""\
 counts = (
@@ -575,13 +627,19 @@ ev = (
     .collect(engine="streaming")
 )
 mx = ev["area_m2"].max()
-expected = sorted(ev.filter(pl.col("area_m2") == mx)["Incid_Name"].unique().to_list())
+names = ev.filter(pl.col("area_m2") == mx)["Incid_Name"].unique().to_list()
+# Compound answer {year, name}, rendered as "YEAR / NAME" strings so the
+# existing text-kind criterion can require both parts.
+expected = sorted(f"{peak_year} / {n}" for n in names)
 """,
         answer_kind="text",
         criterion=(
-            "The response identifies the fire's incident name as {expected}. "
-            "Case and punctuation differences are fine; if several names are "
-            "listed as expected, naming any one of them counts."
+            "The response gives both the peak year and the name of its largest "
+            "fire, as {expected} (year / incident name). Both parts are "
+            "required: the year alone or the name alone means 'no'. Case and "
+            "punctuation differences in the name are fine; if several "
+            "year / name pairs are listed as expected, giving any one of them "
+            "counts."
         ),
     ),
     Question(
@@ -589,7 +647,7 @@ expected = sorted(ev.filter(pl.col("area_m2") == mx)["Incid_Name"].unique().to_l
         category="multistep",
         text=(
             "Among the 20 largest distinct fire events by area_m2, how many "
-            "have more than 50% of their pixels inside the WUI "
+            "have more than 1% of their pixels inside the WUI "
             "(wui_bool = 1)?"
         ),
         reference_code="""\
@@ -598,12 +656,12 @@ ev = lf.group_by("Event_ID").agg(
     pl.col("wui_bool").mean().alias("wui_frac"),
 )
 top = ev.collect(engine="streaming").top_k(20, by="area_m2")
-expected = int((top["wui_frac"] > 0.5).sum())
+expected = int((top["wui_frac"] > 0.01).sum())
 """,
         answer_kind="scalar",
         criterion=(
             "The response states that {expected} of the 20 largest fire events "
-            "have more than 50% of their pixels inside the WUI."
+            "have more than 1% of their pixels inside the WUI."
         ),
         tolerance_abs=0.0,
     ),

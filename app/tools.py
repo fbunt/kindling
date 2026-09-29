@@ -39,12 +39,12 @@ pandas is for SMALL results only: do the heavy filtering/aggregation in Polars f
 
 Examples:
 - `result = lf.select("year", "Incid_Name", "area_m2").head(10)`
-- `result = lf.filter(pl.col("year") == 2020).sort("area_m2", descending=True).head(5)`
-- `result = lf.group_by("year").agg(pl.col("area_m2").sum()).sort("year")`
+- `result = lf.filter(pl.col("year") == 2020).unique("Event_ID").sort("area_m2", descending=True).select("Incid_Name", "area_m2").head(5)`
+- `result = lf.group_by("Event_ID").agg(pl.col("year", "area_m2").first()).group_by("year").agg(pl.col("area_m2").sum()).sort("year")`
 
 ## Plots
 
-Plots are auto-captured. Import matplotlib (`import matplotlib.pyplot as plt`) and just build the figure — skip `plt.savefig()` and `plt.show()`. Reference returned URLs with markdown image syntax: `![description](url)`. Plot-only calls don't need to assign to `result`. Generated plot images are returned to you in conversation history for review.
+Plots are auto-captured. Import matplotlib (`import matplotlib.pyplot as plt`) and just build the figure — skip `plt.savefig()` and `plt.show()`. Reference returned URLs with markdown image syntax: `![description](url)`. Plot-only calls don't need to assign to `result`. You cannot see a plot's image while answering the request that produced it; on later turns, plots from the last two turns are included in the conversation history while they are still available.
 
 ## Dataset statistics
 
@@ -193,7 +193,13 @@ async def execute_function_call_async(
         # No AST/blocklist filtering — the container is the security boundary.
         # The code-judge (app/guards.py) is a defense-in-depth filter on top:
         # it blocks clearly-malicious code, fails open otherwise.
-        code = args["code"]
+        code = args.get("code")
+        if not isinstance(code, str) or not code.strip():
+            # A malformed call (missing/empty `code`) must not crash the turn:
+            # hand the model an error it can recover from.
+            return json.dumps(
+                {"error": "run_query requires a non-empty `code` string argument."}
+            ), plots
         allow, reason = await asyncio.to_thread(judge_code, code, client)
         if not allow:
             logger.warning("code-judge blocked query: %s\n%s", reason, code)
