@@ -19,6 +19,7 @@ _Updated: 2026-09-28._
 
 ## TODO
 
+- **Verify the 2026-09-28 prompt changes against live Gemini.** Run `uv run pytest --run-evals tests/evals` (incid_type mapping + guards) and a bench subset (`python -m bench run --questions ...`). Unverified until then: that the model now answers full-scan questions with `engine="streaming"` instead of sampling, and that the API accepts the loop-exhaustion final call, which has tools off (`FunctionCallingConfig(mode="NONE")`) and ends with two consecutive user turns (function responses, then the budget-exhausted instruction). If the API rejects that, fold the instruction into the function-response Content in `app/chat_loop.py`.
 - **Benchmark 3.8 Flash against 3.1 Pro on the bench harness.** Google's Pro line has stalled at
   the 3.1 preview (Feb 2026; 3.5 Pro announced May 2026, repeatedly delayed) while Flash shipped
   3.5–3.8; public coding/agentic benchmarks put 3.8 Flash at or above 3.1 Pro at ~1/3 the price.
@@ -38,6 +39,7 @@ _Updated: 2026-09-28._
 
 ## Recently done
 
+- **2026-09-28 — System prompt corrected (audit fix-first #5).** The Performance section said full scans time out, which pushed the model to sample on the exact questions the paper bench grades; it now requires `.collect(engine="streaming")` and says full scans are fine. The 100-row result cap is stated, and pandas/Series results now carry `total_rows`/`truncated`/`note` like polars frames. The prompt no longer claims eco2/eco3 name mappings exist. The loop-exhaustion final call runs with tools off so 20 rounds of work don't end in "ran out of tool-use rounds".
 - **2026-09-28 — Worker protocol hardening + pool fail-fast (audit fix-first #4, #6).** Every JSONL frame carries a request id and the host drops mismatches; a host timeout marks the worker dead and kills it (a late reply could previously answer the next `run_query`); the worker `dup2`s stderr onto fd 1 so query code can't write to the pipe. `SandboxPool.start()` raises on 0 workers so uvicorn exits non-zero; refills retry 3x. The Quadlet gained `Requires=podman.socket` plus `StartLimitIntervalSec=0`/`RestartSec=5`: a review skeptic measured that the ~1 s fail-fast would otherwise trip systemd's 5-starts/10 s limit and leave the unit `failed`.
 - **2026-09-28 — Loopback publish + explicit env-key login (audit fix-first #3).** All four launch paths publish on `127.0.0.1` (`KINDLING_BIND`/`BIND=0.0.0.0` opts out; SSH tunnel is the access path). `GET /api/auth/status` no longer mints a session on `GEMINI_API_KEY`; the login view offers a 'Use server API key' button that POSTs `/api/auth/env`. Rationale: an anonymous GET on a LAN-reachable bind spent the operator's key; the bind is the real mitigation, the read-only status is hygiene that also makes logout work.
 - **2026-09-23 - History carries plot refs, not base64 (audit finding #4).** The `done` payload

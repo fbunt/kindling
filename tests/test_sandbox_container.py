@@ -362,6 +362,74 @@ async def test_result_truncated_to_max_rows(pool):
         assert out["total_rows"] == 250
         assert out["truncated"] is True
         assert len(out["data"]) == 100  # MAX_ROWS
+        assert out["note"].startswith("Showing the first 100 of 250 rows")
+    finally:
+        pool.release_session(session)
+
+
+@requires_container
+@pytest.mark.parametrize(
+    "code, total",
+    [
+        ("result = pl.Series('x', range(150))", 150),
+        ("import pandas as pd\nresult = pd.DataFrame({'x': range(150)})", 150),
+        (
+            "import pandas as pd\n"
+            "result = pd.DataFrame({'k': [i % 120 for i in range(240)], 'v': 1})"
+            ".groupby('k')['v'].sum()",
+            120,
+        ),
+    ],
+    ids=["polars-series", "pandas-frame", "pandas-series"],
+)
+async def test_series_and_pandas_results_are_rows(pool, code, total):
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query(code)
+        assert "error" not in out, out
+        assert isinstance(out["data"], list) and len(out["data"]) == 100
+        assert out["total_rows"] == total
+        assert out["truncated"] is True
+        assert out["note"].startswith(f"Showing the first 100 of {total} rows")
+    finally:
+        pool.release_session(session)
+
+
+@requires_container
+async def test_filtered_pandas_frame_drops_row_position_index(pool):
+    """A filter leaves an unnamed integer index of original row positions; it
+    carries no information and must not come back as an extra column. A named
+    index (group_by keys) is kept."""
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query(
+            "import pandas as pd\n"
+            "df = pd.DataFrame({'x': range(10), 'k': list('ab') * 5})\n"
+            "result = df[df.x > 5]"
+        )
+        assert "error" not in out, out
+        assert out["data"] == [
+            {"x": 6, "k": "a"},
+            {"x": 7, "k": "b"},
+            {"x": 8, "k": "a"},
+            {"x": 9, "k": "b"},
+        ]
+        out = await session.run_query("result = df.groupby('k')['x'].sum()")
+        assert "error" not in out, out
+        assert out["data"] == [{"k": "a", "x": 20}, {"k": "b", "x": 25}]
+    finally:
+        pool.release_session(session)
+
+
+@requires_container
+async def test_lazyframe_result_collects_with_streaming(pool):
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query("result = lf.filter(pl.col('year') > 1994)")
+        assert "error" not in out, out
+        assert out["total_rows"] == 4
+        assert out["truncated"] is False
+        assert "note" not in out
     finally:
         pool.release_session(session)
 

@@ -10,6 +10,12 @@ from app.tools import execute_function_call_async
 
 logger = logging.getLogger(__name__)
 
+_EXHAUSTED_PROMPT = (
+    "The tool-use budget for this turn is exhausted; no more tool calls are "
+    "possible. Answer the user now using only the results already gathered, and "
+    "say plainly what is left unfinished or unverified."
+)
+
 
 @dataclass
 class ChatTurnResult:
@@ -159,11 +165,24 @@ async def run_chat_turn(
         loop_exhausted = True
         logger.info("Loop exhausted, making final call")
         yield ThinkingEvent()
+        # Force a text answer: tools off for this one call (a copy, so the
+        # caller's shared config is untouched) plus an explicit instruction.
+        no_tools = types.ToolConfig(
+            function_calling_config=types.FunctionCallingConfig(mode="NONE")
+        )
+        final_config = (
+            config.model_copy(update={"tool_config": no_tools})
+            if config is not None
+            else types.GenerateContentConfig(tool_config=no_tools)
+        )
+        contents.append(
+            types.Content(role="user", parts=[types.Part(text=_EXHAUSTED_PROMPT)])
+        )
         response = await asyncio.to_thread(
             client.models.generate_content,
             model=model,
             contents=contents,
-            config=config,
+            config=final_config,
         )
 
     response_text = _extract_text(response)

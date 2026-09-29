@@ -55,6 +55,51 @@ def _too_large_error(size: int) -> dict:
     }
 
 
+def _truncation_note(shown: int, total: int, why: str = "") -> str:
+    why = f" ({why})" if why else ""
+    return (
+        f"Showing the first {shown} of {total} rows{why}. Aggregate or filter "
+        "further, or tell the user the table is truncated."
+    )
+
+
+def _as_polars_frame(result, limit: int):
+    """Return `(frame, total_rows)` for a tabular `result` (polars DataFrame/
+    Series, pandas DataFrame/Series), with `frame` holding at most `limit` rows;
+    else None.
+
+    pandas is detected via sys.modules so the worker never imports it itself: a
+    pandas object can only exist if query code already imported pandas. pandas
+    objects are sliced to `limit` rows BEFORE conversion, so a multi-million-row
+    result is not copied just to return the first rows. A meaningful pandas
+    index (e.g. group_by keys, which are named) is kept as columns; an unnamed
+    single-level integer index (the default, or row positions left by a
+    filter/sort) is dropped. Conversion failures return None so the caller
+    falls back to str(result)."""
+    if isinstance(result, pl.DataFrame):
+        return result.head(limit), len(result)
+    if isinstance(result, pl.Series):
+        return result.head(limit).to_frame(), len(result)
+    pd = sys.modules.get("pandas")
+    if pd is None or not isinstance(result, pd.DataFrame | pd.Series):
+        return None
+    try:
+        total_rows = len(result)
+        head = result.iloc[:limit]
+        df = head.to_frame() if isinstance(head, pd.Series) else head
+        idx = df.index
+        drop_index = (
+            idx.nlevels == 1
+            and idx.name is None
+            and pd.api.types.is_integer_dtype(idx.dtype)
+        )
+        df = df.reset_index(drop=drop_index)
+        df.columns = [str(c) for c in df.columns]
+        return pl.from_pandas(df), total_rows
+    except Exception:
+        return None
+
+
 def _fit_reply(output: dict) -> dict:
     """Shrink an oversized run_query reply until it fits MAX_REPLY_BYTES.
 
@@ -68,7 +113,11 @@ def _fit_reply(output: dict) -> dict:
             break
         output["data"] = rows[: len(rows) // 2]
         output["truncated"] = True
-        output["note"] = "rows truncated to fit the reply size cap"
+        output["note"] = _truncation_note(
+            len(output["data"]),
+            output.get("total_rows", len(rows)),
+            "to fit the reply size cap",
+        )
         size = len(json.dumps(output, default=str))
     if size > MAX_REPLY_BYTES:
         return _too_large_error(size)
@@ -174,14 +223,16 @@ def handle_run_query(code: str, namespace: dict) -> dict:
         output: dict = {}
         if result is not None:
             if isinstance(result, pl.LazyFrame):
-                result = result.collect()
-            if isinstance(result, pl.DataFrame):
-                total_rows = len(result)
-                if total_rows > MAX_ROWS:
-                    result = result.head(MAX_ROWS)
-                output["data"] = result.to_dicts()
+                result = result.collect(engine="streaming")
+            converted = _as_polars_frame(result, MAX_ROWS)
+            if converted is not None:
+                frame, total_rows = converted
+                truncated = total_rows > MAX_ROWS
+                output["data"] = frame.to_dicts()
                 output["total_rows"] = total_rows
-                output["truncated"] = total_rows > MAX_ROWS
+                output["truncated"] = truncated
+                if truncated:
+                    output["note"] = _truncation_note(MAX_ROWS, total_rows)
             else:
                 output["data"] = str(result)
         if plots:
