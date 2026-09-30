@@ -6,7 +6,12 @@ from pathlib import Path
 from statistics import mean, median
 
 from bench.io import read_trace
-from bench.prices import PRICES_AS_OF, estimate_usd
+from bench.prices import (
+    LONG_CONTEXT_THRESHOLD,
+    PRICES_AS_OF,
+    estimate_usd,
+    long_context_calls,
+)
 from bench.questions import CATEGORIES
 from bench.usage import merge_usage, total_tokens
 
@@ -209,6 +214,13 @@ def _cost_section(traces: list[dict], accurate: int) -> list[str]:
         parts.append(
             f"- estimated cost: ${usd_total:.2f} (prices as of {PRICES_AS_OF}); "
             + (f"${usd_total / accurate:.3f} per correct answer" if accurate else "")
+        )
+    n_long = sum(long_context_calls(t.get("calls") or []) for t in with_usage)
+    if n_long:
+        parts.append(
+            f"- **{n_long} call(s) had prompts over {_fmt_int(LONG_CONTEXT_THRESHOLD)} "
+            "tokens**: billed at the long-context rate, so the estimate "
+            "undercounts them"
         )
     q_rows = []
     for qid in sorted({t["question_id"] for t in with_usage}):

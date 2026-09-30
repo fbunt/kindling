@@ -712,9 +712,30 @@ def test_report_survives_ungraded_corrupt_and_missing(tmp_path):
     assert "L04 trial 0" in report  # missing cell (the corrupt one)
     assert "web_search was called" in report
     assert "infra errors counted as wrong: accuracy 1/2" in report
-    assert "prices are not filled in" in report
+    assert "estimated cost: $" in report
     assert "Tokens per question" in report
     assert (tmp_path / "report.md").exists()
+
+
+def test_estimate_usd_and_long_context_calls():
+    from bench.prices import estimate_usd, long_context_calls
+
+    usage = {
+        "prompt_token_count": 1_000_000,
+        "cached_content_token_count": 500_000,
+        "candidates_token_count": 100_000,
+        "thoughts_token_count": 100_000,
+    }
+    # 0.5M fresh * $2 + 0.5M cached * $0.20 + 0.2M output * $12
+    assert estimate_usd("gemini-3.1-pro-preview", usage) == pytest.approx(3.5)
+    assert estimate_usd("no-such-model", usage) is None
+    calls = [
+        {"model": "gemini-3.1-pro-preview", "usage": {"prompt_token_count": 250_000}},
+        {"model": "gemini-3.1-pro-preview", "usage": {"prompt_token_count": 1_000}},
+        {"model": "gemini-3.8-flash", "usage": {"prompt_token_count": 250_000}},
+        {"model": "gemini-3.1-pro-preview", "error": "503"},
+    ]
+    assert long_context_calls(calls) == 1
 
 
 def test_report_on_legacy_traces_without_usage(tmp_path):

@@ -68,8 +68,9 @@ other event-count question says "Count every incident type". Subcommands (usage 
   `KINDLING_SANDBOX_*` / `KINDLING_POOL_SIZE` env as the app (2 warm / 3 max).
 - `grade --run-dir DIR` (flash-lite judge, unchanged) refuses traces whose `reference_sha` no
   longer matches `questions.py`; `report --run-dir DIR` writes `report.md` incl. a tokens/cost
-  section (dollar estimate only once `bench/prices.py` is filled in). Both accept `DIR` of an
-  interleaved run (every per-model dir under it).
+  section (dollar estimate from `bench/prices.py`, list prices as of 2026-09-24; calls over Pro's
+  200k long-context tier are flagged, not repriced). Both accept `DIR` of an interleaved run
+  (every per-model dir under it).
 
 `gt` and `run` hold a host-wide `fcntl` lock (`$KINDLING_BENCH_LOCK`, default
 `/tmp/kindling-bench.lock`): one bench per host. Output goes to `.bench-runs/<run-dir>/`.

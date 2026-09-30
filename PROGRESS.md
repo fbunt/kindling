@@ -32,7 +32,8 @@ _Updated: 2026-09-29._
   3 trials, 3.1 Pro), then `grade` and `report`. Settles whether the model now uses
   `engine="streaming"` instead of sampling (the other open item from the 2026-09-28 prompt change;
   the loop-exhaustion final call was confirmed accepted by the live eval on 2026-09-28). The report
-  prints token totals only until `bench/prices.py` is filled in with verified per-model prices.
+  prints a dollar estimate from `bench/prices.py` (Developer API list prices as of 2026-09-24; 3.8
+  Flash doubles on 2027-01-01).
 - **Benchmark 3.8 Flash against 3.1 Pro.** `python -m bench run --models
   gemini-3.1-pro-preview,gemini-3.8-flash --run-dir .bench-runs/pro-vs-flash` (interleaved, one dir per
   model), then `grade`/`report` on the parent dir. Ground truth takes ~1.5 min and is cached. Best after
