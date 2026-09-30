@@ -8,9 +8,10 @@ bench/answers.py (exact integer counts, tolerance band or rounding rule for
 floats, sign, unit whitelist, series keys, name normalization and aliases).
 The strict `accurate` verdict also fails clarifications, multiple candidate
 answers and partial-data answers (`.sample(`/`.fetch(` anywhere, or a
-row-cutting `.head/.limit/.slice` in what the final query's `result` is built
-from; a head after a sort is ranking only while its rows are the answer
-itself, not aggregated or used as a key; see _truncations).
+row-cutting `.head/.limit/.slice` in what the answer query's `result` is built
+from; a head after a sort is ranking while its rows are the answer itself or
+only a lookup key, not when its rows are aggregated; see partial_data and
+_truncations).
 
 Cross-checks and hand review, none of which changes the automated verdict:
 - review flags: a regex over the response text (numbers; for text/set
@@ -61,7 +62,7 @@ from bench.questions import BY_ID, Question
 logger = logging.getLogger(__name__)
 
 # Bump on any change to the comparison, flag or regex logic in this module.
-GRADER_VERSION = 5
+GRADER_VERSION = 6
 
 ADJUDICATION_FILE = "adjudication.json"
 ADJUDICATION_SOURCE = "grader_review"
@@ -897,6 +898,34 @@ def _aggregates(call) -> bool:
     return False
 
 
+# Calls whose arguments are values rows are matched against, not rows.
+_KEY_METHODS = frozenset(
+    {"is_in", "isin", "eq", "ne", "gt", "ge", "lt", "le", "is_between", "lit"}
+)
+
+
+def _key_names(expr) -> set[int]:
+    """ids of the bare names used as lookup values in `expr`: a comparison
+    operand (`pl.col('Event_ID') == top_id`) or an argument of is_in / eq /
+    pl.lit / ... A ranked cut read this way picks the top item (an argmax
+    key), it does not sample rows; what the lookup then computes is judged on
+    its own."""
+    out = set()
+    for n in ast.walk(expr):
+        if isinstance(n, ast.Compare):
+            operands = [n.left, *n.comparators]
+        elif (
+            isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr in _KEY_METHODS
+        ):
+            operands = [*n.args, *(kw.value for kw in n.keywords)]
+        else:
+            continue
+        out |= {id(o) for o in operands if isinstance(o, ast.Name)}
+    return out
+
+
 def _spine(root) -> set[int]:
     """ids of the nodes whose rows reach `root` unchanged up to
     _ANSWER_PRESERVING steps: through method chains, row/column access,
@@ -1048,11 +1077,15 @@ class _Lineage:
         while todo:
             j, expr, owner, direct = todo.pop()
             spine = _spine(expr) if direct else set()
+            keys = _key_names(expr)
             out.append((j, expr, owner, spine))
             for n in ast.walk(expr):
                 if not isinstance(n, ast.Name):
                     continue
-                d = id(n) in spine
+                # A lookup value's own expression is judged as if it were the
+                # answer: a ranked head feeding it unchanged is exempt, an
+                # aggregate over cut rows is not.
+                d = id(n) in spine or id(n) in keys
                 if n.id == owner:
                     same = [v for v in self.assigns[j].get(n.id, []) if v is not expr]
                     groups = [(j, same), self.resolve(n.id, j - 1)]
@@ -1170,14 +1203,15 @@ def _truncations(codes: list[str]) -> list[tuple[int, str]]:
     """(index into codes, '.head( at line N' / '[:100] at line N') for each
     row-cutting head/tail/limit/slice or positional slice (`df[:100]`,
     `.iloc[:100]`) that feeds the last code's `result`. codes are a turn's
-    successful queries in order; the last one produced the answer.
+    successful queries in order, up to the one that produced the answer.
 
     Not counted: a head after sort/top_k/sorted value_counts (through
     order-preserving steps such as select/filter/with_columns/ordered unique,
     and through names assigned in this or an earlier query) whose rows reach
     `result` only through answer-preserving steps (_ANSWER_PRESERVING; an
-    aggregation over the top rows, or using them as a filter key, is partial
-    data), expression-level head inside an aggregation, `.str.slice`, and a
+    aggregation over the top rows is partial data) or that only supplies a
+    lookup value (_key_names: `pl.col('id') == top_id`, `is_in(top_ids)`),
+    expression-level head inside an aggregation, `.str.slice`, and a
     head that only feeds print()/display() or a value `result` does not use.
     When the lineage uses a local function, a loop/comprehension/with target
     or a container mutated in place (including `result` itself: `result = {}`
@@ -1220,11 +1254,19 @@ def truncating_calls(code: str) -> list[str]:
     return [msg for _, msg in _truncations([code])]
 
 
-def partial_data(trace: dict) -> tuple[bool, list[str]]:
-    """(flag, evidence): `.sample(`/`.fetch(` in any executed query, or a
-    row-cutting head/tail/limit/slice or positional slice on what produced the
-    answer: the last successful query_record's `result` and the values it is built from
-    (exploratory or preview head() calls are fine; see _truncations)."""
+def partial_data(
+    trace: dict,
+    question: Question | None = None,
+    extraction: dict | None = None,
+) -> tuple[bool, list[str]]:
+    """(flag, evidence): `.sample(`/`.fetch(`/`.gather_every(` in any executed
+    query, or a row-cutting head/tail/limit/slice or positional slice on what
+    produced the answer: the answer query's `result` and the values it is
+    built from (exploratory or preview head() calls are fine; see
+    _truncations). The answer query is the latest successful query whose
+    result holds the extracted answer (answer_query), else the last
+    successful one; later queries (a name lookup after the answer) are not
+    checked for cuts."""
     records = trace.get("query_records") or []
     evidence = [
         f"{pat} in query {i}"
@@ -1234,9 +1276,12 @@ def partial_data(trace: dict) -> tuple[bool, list[str]]:
     ]
     ok = [i for i, r in enumerate(records) if not r.get("error")]
     if ok:
-        codes = [records[i].get("code") or "" for i in ok]
+        found = answer_query(question, trace, extraction) if question else None
+        upto = ok.index(found) + 1 if found is not None else len(ok)
+        codes = [records[i].get("code") or "" for i in ok[:upto]]
+        label = "answer query" if found is not None else "final query"
         for j, msg in _truncations(codes):
-            where = "final query" if j == len(ok) - 1 else "query"
+            where = label if j == upto - 1 else "query"
             evidence.append(f"{msg} in {where} {ok[j]}")
     return bool(evidence), evidence
 
@@ -1262,28 +1307,61 @@ def _walk(obj, nums: list[float], strs: set[str]) -> None:
             strs.add(iso)
 
 
-def _result_values(trace: dict) -> tuple[list[float], set[str]]:
+def _record_values(record: dict, nums: list[float], strs: set[str]) -> None:
+    data = record.get("data")
+    if data is None:
+        return
+    try:
+        _walk(json.loads(data) if isinstance(data, str) else data, nums, strs)
+    except ValueError:  # capped (truncated) JSON: fall back to the text
+        nums += extract_numbers(data)
+        strs |= {normalize_name(s) for s in re.findall(r'"([^"]*)"', data)}
+
+
+def _result_values(records: list[dict]) -> tuple[list[float], set[str]]:
     nums: list[float] = []
     strs: set[str] = set()
-    for r in trace.get("query_records") or []:
-        data = r.get("data")
-        if data is None:
-            continue
-        try:
-            _walk(json.loads(data) if isinstance(data, str) else data, nums, strs)
-        except ValueError:  # capped (truncated) JSON: fall back to the text
-            nums += extract_numbers(data)
-            strs |= {normalize_name(s) for s in re.findall(r'"([^"]*)"', data)}
+    for r in records:
+        _record_values(r, nums, strs)
     return nums, strs
+
+
+# Integer answers below this appear in many results by coincidence (M05's 5),
+# so they cannot locate the answer query.
+_WEAK_INT = 1000
+
+
+def answer_query(question: Question, trace: dict, extraction: dict | None):
+    """Index of the latest successful query_record whose result holds the
+    extracted answer (see grounded), or None, also for a small integer answer
+    (_WEAK_INT), which would match by coincidence."""
+    value = (extraction or {}).get("value")
+    if question.answer_kind == "scalar" and (
+        not isinstance(value, int | float)
+        or (float(value).is_integer() and abs(value) < _WEAK_INT)
+    ):
+        return None
+    records = trace.get("query_records") or []
+    for i in range(len(records) - 1, -1, -1):
+        r = records[i]
+        if r.get("error") or r.get("data") is None:
+            continue
+        if _answer_in(question, trace.get("expected"), extraction, [r]):
+            return i
+    return None
 
 
 def grounded(question: Question, expected, extraction: dict | None, trace: dict):
     """Whether the extracted answer appears (within the question's band) in
     some query result. A flag only: ratios like T03 are legitimately computed
     from returned means. None when there is no answer to look for."""
+    return _answer_in(question, expected, extraction, trace.get("query_records") or [])
+
+
+def _answer_in(question: Question, expected, extraction, records: list[dict]):
     if not extraction or extraction.get("status") != "answer":
         return None
-    nums, strs = _result_values(trace)
+    nums, strs = _result_values(records)
     kind = question.answer_kind
     if kind in ("scalar", "series"):
         if kind == "scalar":
@@ -1364,7 +1442,7 @@ def grade_trace(trace: dict, client) -> dict:
         trace, extraction.get("status") if extraction else None
     )
     fields.update(executable=executable, executability_reason=reason)
-    partial, evidence = partial_data(trace)
+    partial, evidence = partial_data(trace, question, extraction)
     fields.update(partial_data=partial, partial_data_evidence=evidence)
     if extraction is None:
         fields.update(grader_error=ext["error"], auto_reason="grader_error")

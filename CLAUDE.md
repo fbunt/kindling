@@ -74,11 +74,15 @@ other event-count question says "Count every incident type". Subcommands (usage 
   Units are never converted. Strict `accurate` fails clarifications, multiple candidates and
   `partial_data`:
   - `.sample(`/`.fetch(`/`.gather_every(` in any executed query, or
-  - a row cut (`.head/.tail/.limit/.slice`, `df[:N]`, `.iloc[:N]`) in what the last successful
-    query's `result` is built from (names followed back through earlier queries). A cut after
-    sort/top_k/sorted value_counts is ranking, not sampling, only while its rows reach `result`
-    through projections, conversions and row access; aggregating, filtering or deduplicating the
-    top rows is partial data, as is an aggregate over an expression-level cut
+  - a row cut (`.head/.tail/.limit/.slice`, `df[:N]`, `.iloc[:N]`) in what the answer query's
+    `result` is built from (names followed back through earlier queries). The answer query is
+    the latest successful one whose result holds the extracted answer (small integers under
+    1000 don't locate it), else the last successful one; later queries, like a name lookup
+    after the answer, are not checked. A cut after sort/top_k/sorted value_counts is ranking,
+    not sampling, while its rows reach `result` through projections, conversions and row
+    access, or while it only supplies a lookup value (`pl.col('id') == top_id`,
+    `is_in(top_ids)`); aggregating, filtering or deduplicating the top rows is partial data,
+    as is an aggregate over an expression-level cut
     (`pl.col('a').head(100).mean()`). An unknown frame library is treated as polars. Local
     functions, loop targets and containers mutated in place make every non-print() cut in that
     query count.

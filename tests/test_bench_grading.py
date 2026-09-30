@@ -28,6 +28,7 @@ from bench.grading import (
     ADJUDICATION_FILE,
     ADJUDICATION_SOURCE,
     adjudication_index,
+    answer_query,
     apply_adjudication,
     check_answer,
     extract_numbers,
@@ -713,6 +714,102 @@ def test_partial_data_only_final_query_for_head():
     )
     explore_df = ("df = lf.head(5).collect()", [{"a": 1}])
     assert partial_data(_trace("L03", 0, "", [explore_df, fresh])) == (False, [])
+
+
+# The real cost-pro M03 trial: the answer comes from query 0 (a ranked top-1
+# used only as a lookup key); query 1 is a name lookup with a plain head(1).
+M03_Q0 = (
+    'target_event = lf.filter(pl.col("year") == 2002).unique("Event_ID")'
+    '.sort("area_m2", descending=True).select("Event_ID").head(1)'
+    '.collect(engine="streaming")["Event_ID"][0]\n'
+    "result = (\n"
+    '    lf.filter(pl.col("Event_ID") == target_event)\n'
+    '    .filter(pl.col("bs").is_in([1, 2, 3, 4]))\n'
+    "    .select(Event_ID=pl.lit(target_event), total_pixels=pl.len(),\n"
+    '        high_sev_pixels=pl.col("bs").eq(4).sum())\n'
+    "    .with_columns(high_sev_pct=(pl.col('high_sev_pixels')"
+    " / pl.col('total_pixels') * 100).round(1))\n"
+    '    .collect(engine="streaming")\n)'
+)
+M03_Q1 = (
+    'result = lf.filter(pl.col("Event_ID") == "OR4244112390420020713")'
+    '.select("Incid_Name").head(1).collect(engine="streaming")'
+)
+
+
+def test_partial_data_checks_the_query_that_holds_the_answer():
+    trace = _trace(
+        "M03",
+        0,
+        "29.2% burned at high severity.",
+        [
+            (M03_Q0, [{"Event_ID": "OR42", "high_sev_pct": 29.2}]),
+            (M03_Q1, [{"Incid_Name": "BISCUIT"}]),
+        ],
+    )
+    ext = _ex(value=29.2, unit="%")
+    assert answer_query(BY_ID["M03"], trace, ext) == 0
+    assert partial_data(trace, BY_ID["M03"], ext) == (False, [])
+    # Without an extraction it falls back to the last query, as before.
+    assert partial_data(trace) == (True, [".head( at line 1 in final query 1"])
+    # A cut in the answer query itself still counts.
+    cut = _trace(
+        "M03",
+        0,
+        "",
+        [("result = lf.head(1000).collect()", [{"pct": 29.2}]), (M03_Q1, [{}])],
+    )
+    assert partial_data(cut, BY_ID["M03"], ext) == (
+        True,
+        [".head( at line 1 in answer query 0"],
+    )
+
+
+def test_small_integer_answers_do_not_locate_the_answer_query():
+    trace = _trace(
+        "M05",
+        0,
+        "5 of them.",
+        [
+            ("result = lf.select(pl.len()).collect()", [{"n": 5}]),
+            ("result = lf.head(20).collect()", [{"k": 1}]),
+        ],
+    )
+    assert answer_query(BY_ID["M05"], trace, _ex(value=5)) is None
+    assert partial_data(trace, BY_ID["M05"], _ex(value=5))[0] is True
+
+
+@pytest.mark.parametrize(
+    ("code", "flagged"),
+    [
+        # A ranked top item used as a lookup value is an argmax key.
+        (
+            "top = lf.sort('a').head(1).collect()['id'][0]\n"
+            "result = lf.filter(pl.col('id') == top).select(pl.len()).collect()",
+            False,
+        ),
+        (
+            "ids = lf.sort('a').head(20).collect()['id']\n"
+            "result = lf.filter(pl.col('id').is_in(ids)).collect()",
+            False,
+        ),
+        # An unranked cut as the key picks arbitrary rows.
+        (
+            "top = lf.head(1).collect()['id'][0]\n"
+            "result = lf.filter(pl.col('id') == top).select(pl.len()).collect()",
+            True,
+        ),
+        # A key aggregated from cut rows is partial data.
+        (
+            "thr = lf.sort('a').head(100).collect()['a'].mean()\n"
+            "result = lf.filter(pl.col('a') > thr).select(pl.len()).collect()",
+            True,
+        ),
+        (M03_Q0, False),
+    ],
+)
+def test_ranked_lookup_keys(code, flagged):
+    assert bool(truncating_calls(code)) is flagged
 
 
 def test_partial_data_on_smoke_shaped_m04_query():
