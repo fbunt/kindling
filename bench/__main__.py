@@ -4,8 +4,10 @@
     python -m bench run    [--trials 3] [--questions SPEC] [--parquet P]
                            [--model M | --models A,B] [--seed 0]
                            [--run-dir DIR] [--max-rounds 20] [--allow-drift]
-    python -m bench grade  --run-dir DIR [--regrade]
-    python -m bench report --run-dir DIR
+    python -m bench grade   --run-dir DIR [--regrade]
+    python -m bench report  --run-dir DIR
+    python -m bench audit   --run-dir DIR [--fraction 0.1] [--seed 0]
+    python -m bench compare A [B] [--out FILE] [--seed 0] [--resamples 10000]
 
 SPEC = comma-separated question ids ("L01,M04") or a category name
 ("lookup", "aggregation", "trend", "multistep").
@@ -29,7 +31,29 @@ questions, parquet identity, git sha/dirty, SDK/polars/worker-image versions,
 sandbox settings, max rounds) changed, unless --allow-drift. A different model
 or parquet identity is refused even with --allow-drift (one dir = one model on
 one dataset).
-grade refuses traces whose reference_sha no longer matches questions.py.
+grade makes one blind extractor call (flash-lite, temperature 0; it never
+sees the expected value) per non-infra trial and compares the extraction with
+ground truth in Python (bench/answers.py holds the per-question units,
+precision, aliases and series keys). It refuses traces whose reference_sha no
+longer matches questions.py, skips traces already graded by the current
+grader_sha (--regrade forces all) and retries grader errors. Trials flagged
+for review (a regex/name cross-check disagreeing with the verdict, a right
+number failed on its unit, an in-band answer failed only by the head/limit/
+slice heuristic) become pending entries in DIR/adjudication.json:
+fill `verdict` (pass/fail), `reason` and `adjudicator`; grade and report apply
+decided entries over the automated verdict, and grade never overwrites them.
+
+audit samples --fraction of the graded trials (seeded) into DIR/audit.json for
+a hand `human_verdict`; re-running keeps filled verdicts, and report shows
+judge-human agreement.
+
+compare A B takes two graded single-model run dirs (or one interleaved dir with
+exactly two model subdirs) and writes compare-<A>-vs-<B>.md next to A (or
+--out): macro pass@1 and pass^k, question-clustered bootstrap 95% CIs, a
+sign-flip permutation test on per-question differences, the questions where
+the models disagree, and tokens/cost/latency. It refuses runs whose parquet
+identity, reference_shas, grader_sha or question sets differ, or that have
+ungraded trials.
 """
 
 import argparse
@@ -104,6 +128,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_report = sub.add_parser("report", help="render report.md for a run")
     p_report.add_argument("--run-dir", required=True)
+
+    p_audit = sub.add_parser("audit", help="sample graded trials for hand audit")
+    p_audit.add_argument("--run-dir", required=True)
+    p_audit.add_argument("--fraction", type=float, default=0.1)
+    p_audit.add_argument("--seed", type=int, default=0)
+
+    p_cmp = sub.add_parser("compare", help="paired comparison of two graded runs")
+    p_cmp.add_argument("a", help="run dir A (or an interleaved dir of two models)")
+    p_cmp.add_argument("b", nargs="?", default=None, help="run dir B")
+    p_cmp.add_argument("--out", default=None, help="markdown output path")
+    p_cmp.add_argument("--seed", type=int, default=0)
+    p_cmp.add_argument("--resamples", type=int, default=10_000)
     return parser
 
 
@@ -129,20 +165,41 @@ def main() -> None:
 
         main_run(args)
     elif args.command == "grade":
-        from bench.grading import StaleTraceError, grade_run
+        from bench.grading import AdjudicationFileError, StaleTraceError, grade_run
+        from bench.judge import ExtractorFatal
 
         dirs = expand_run_dirs(Path(args.run_dir))
         client = _client()
         try:
             for d in dirs:
                 grade_run(d, client, regrade=args.regrade)
-        except StaleTraceError as e:
+        except (StaleTraceError, AdjudicationFileError, ExtractorFatal) as e:
             sys.exit(str(e))
     elif args.command == "report":
         from bench.report import build_report
 
         for d in expand_run_dirs(Path(args.run_dir)):
             print(build_report(d))
+    elif args.command == "audit":
+        from bench.audit import AuditFileError, write_audit
+
+        try:
+            for d in expand_run_dirs(Path(args.run_dir)):
+                print(write_audit(d, fraction=args.fraction, seed=args.seed))
+        except (AuditFileError, ValueError) as e:
+            sys.exit(str(e))
+    elif args.command == "compare":
+        from bench.compare import CompareError, compare_runs, default_out, resolve_pair
+
+        try:
+            a, b = resolve_pair(Path(args.a), Path(args.b) if args.b else None)
+            text = compare_runs(a, b, seed=args.seed, resamples=args.resamples)
+        except CompareError as e:
+            sys.exit(f"bench compare refused: {e}")
+        out = Path(args.out) if args.out else default_out(a, b)
+        out.write_text(text)
+        print(text)
+        print(f"\nwritten to {out}", file=sys.stderr)
 
 
 if __name__ == "__main__":

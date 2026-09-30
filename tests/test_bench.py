@@ -21,7 +21,7 @@ from app.config import CHAT_MODEL_IDS, LITE_MODEL, MAX_TOOL_ROUNDS
 from app.sandbox.pool import SandboxBusy
 from bench import provenance
 from bench.__main__ import build_parser
-from bench.grading import is_executable, render_criterion, stale_reference
+from bench.grading import is_executable, stale_reference
 from bench.ground_truth import parquet_identity, reference_sha
 from bench.io import atomic_write_json, move_aside, read_trace
 from bench.questions import BY_ID, QUESTIONS
@@ -605,33 +605,19 @@ def test_bench_lock_is_exclusive(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# grading templates on the current grader
+# question wording invariants (grading itself: tests/test_bench_grading.py)
 # ---------------------------------------------------------------------------
 
 
-def _fake_expected(q):
-    return {
-        "scalar": 3.0,
-        "series": {"bs=1": 1, "bs=2": 2, "bs=3": 3, "bs=4": 4},
-        "set": ["A", "B"],
-        "text": ["X"],
-    }[q.answer_kind]
+def test_exact_count_questions_are_exact():
+    from bench.answers import ANSWERS
 
-
-@pytest.mark.parametrize("q", QUESTIONS, ids=lambda q: q.id)
-def test_every_criterion_renders(q):
-    crit = render_criterion(q, _fake_expected(q))
-    assert "{expected}" not in crit and crit.endswith("answer 'no'.")
-
-
-def test_exact_count_questions_render_exact():
     for qid in ("L03", "L04", "L07", "L08", "M02"):
         q = BY_ID[qid]
         assert q.tolerance_abs == 0
         assert "Give the exact count." in q.text
-        assert "must match exactly" in render_criterion(q, 12345)
-    a03 = render_criterion(BY_ID["A03"], _fake_expected(BY_ID["A03"]))
-    assert "bs=2: 2" in a03 and "must match exactly" in a03 and "bs=2 Low" in a03
+        assert ANSWERS[qid].integer
+    assert BY_ID["A03"].tolerance_abs == 0 and ANSWERS["A03"].integer
 
 
 def test_incident_type_scope_is_stated():

@@ -18,7 +18,7 @@ uv add <package>                           # Add a dependency
 uv run pytest -q                           # Unit tests (no dataset/runtime needed; see Testing & CI)
 uv run pytest --run-evals tests/evals      # Model-behaviour evals: real Gemini calls, needs key+parquet+runtime
 uv run ruff check app/ tests/ && uv run ruff format   # Lint/format (CI gate; pre-commit runs both)
-uv run python -m bench {gt|run|grade|report}          # Paper accuracy benchmark (see Benchmark)
+uv run python -m bench {gt|run|grade|report|audit|compare}  # Paper accuracy benchmark (see Benchmark)
 ```
 
 Even the plain local `uv run kindling` path needs a container runtime **and** a built
@@ -66,11 +66,46 @@ other event-count question says "Count every incident type". Subcommands (usage 
   be in `CHAT_MODEL_IDS`; `--max-rounds` defaults to `MAX_TOOL_ROUNDS` (a parity test pins
   bench, evals and `run_chat_turn` to it). Pool/sandbox settings come from the same
   `KINDLING_SANDBOX_*` / `KINDLING_POOL_SIZE` env as the app (2 warm / 3 max).
-- `grade --run-dir DIR` (flash-lite judge, unchanged) refuses traces whose `reference_sha` no
-  longer matches `questions.py`; `report --run-dir DIR` writes `report.md` incl. a tokens/cost
-  section (dollar estimate from `bench/prices.py`, list prices as of 2026-09-24; calls over Pro's
-  200k long-context tier are flagged, not repriced). Both accept `DIR` of an interleaved run
-  (every per-model dir under it).
+- `grade --run-dir DIR [--regrade]` makes one blind extractor call per non-infra trial
+  (`bench/judge.py`: `LITE_MODEL`, temperature 0, JSON schema; sees question + response, never
+  the expected value; not `tests/evals/judge.py`) and decides accuracy in Python
+  (`bench/grading.py`, with per-question units/precision/aliases/series keys in
+  `bench/answers.py`, kept out of `Question` so `question_sha`/`reference_sha` don't move).
+  Units are never converted. Strict `accurate` fails clarifications, multiple candidates and
+  `partial_data`:
+  - `.sample(`/`.fetch(`/`.gather_every(` in any executed query, or
+  - a row cut (`.head/.tail/.limit/.slice`, `df[:N]`, `.iloc[:N]`) in what the last successful
+    query's `result` is built from (names followed back through earlier queries). A cut after
+    sort/top_k/sorted value_counts is ranking, not sampling, only while its rows reach `result`
+    through projections, conversions and row access; aggregating, filtering or deduplicating the
+    top rows is partial data, as is an aggregate over an expression-level cut
+    (`pl.col('a').head(100).mean()`). An unknown frame library is treated as polars. Local
+    functions, loop targets and containers mutated in place make every non-print() cut in that
+    query count.
+
+  `grounded` and the cross-checks are flags only. A trial goes to review (`review_reasons`) when
+  the regex cross-check (numbers; expected-name token search on text/set; every count on A03)
+  disagrees, a right number fails only on its unit, a name fails on an unsure reading (`2017 (vs
+  2020)`, `AUGUST COMPLEX, Dixie`, `Tundra = 6`), or an in-band answer fails only on a row cut.
+  Each becomes a pending entry in `DIR/adjudication.json`; a hand-filled `verdict` wins in grade
+  and report. Touched entries are never dropped, unrecognized verdicts are kept and reported,
+  and entries carry `response_sha` so a re-run trial's old verdict goes stale (not applied) and
+  gets a fresh pending entry. Extractor failures retry once (with backoff on 408/429/5xx), then
+  record `grader_error` (ungraded; the next `grade` retries). Traces record `grader_sha`
+  (extractor model/prompt/schema + answers table + `GRADER_VERSION`; bump on any rule change);
+  grade skips traces graded by the current sha and refuses stale `reference_sha`.
+- `report --run-dir DIR` writes `report.md`: strict accuracy, executability, exec & accurate,
+  clarification rate, exec-gated accuracy (secondary), partial data disclosed/undisclosed,
+  grounded rate, adjudication and audit status, and tokens/cost (list prices as of 2026-09-24
+  in `bench/prices.py`; calls over Pro's 200k long-context tier are flagged, not repriced).
+- `audit --run-dir DIR [--fraction 0.1] [--seed 0]` samples graded trials into `DIR/audit.json`
+  for a hand `human_verdict` (kept across re-runs); report shows judge-human agreement.
+- `compare A B` (or `compare DIR` with two model subdirs) writes `compare-<A>-vs-<B>.md` next
+  to A (`--out` overrides): macro pass@1 and pass^k, question-clustered bootstrap 95% CIs (10k
+  seeded resamples), a Monte Carlo sign-flip test, disagreeing questions, descriptive
+  per-category rows, tokens/cost/latency, and pending/unparseable/stale adjudication counts per
+  run. Refuses differing parquet identity, `reference_sha`, `grader_sha` or question sets, and
+  ungraded trials. grade, report and audit also accept an interleaved run's parent `DIR`.
 
 `gt` and `run` hold a host-wide `fcntl` lock (`$KINDLING_BENCH_LOCK`, default
 `/tmp/kindling-bench.lock`): one bench per host. Output goes to `.bench-runs/<run-dir>/`.

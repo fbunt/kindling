@@ -19,15 +19,12 @@ _Updated: 2026-09-29._
 
 ## TODO
 
-- **Bench grading redesign (next; approved 2026-09-29).** Replace the 3-vote flash-lite judge with a
-  blind extractor (sees question + response, never the expected value; returns status/value/unit/
-  multiple_candidates/sampled_disclosed as JSON) plus deterministic Python comparison, the regex as a
-  cross-check feeding an `adjudication.json` overlay, and a 10% hand-audit hook with agreement
-  reported. Also review items 6-7: clarification rate as its own column; `partial_data` from code
-  crossed with disclosure; `grounded` flag. Then the `compare` command (paired, question-clustered
-  bootstrap CI + sign-flip test). Spec: items 5-7 and 10 of the 2026-09-28 bench review, saved locally
-  at `.bench-runs/review-2026-09-28.md` (gitignored). Traces are regradable, so runs made before this
-  lands can be regraded.
+- **Check the new grader on real traces (pending user runs).** The blind extractor's temperature-0
+  stability on Gemini 3.x is unmeasured: grade one real run twice with `--regrade` and diff the
+  `extraction` fields (if they drift, the review's fallback is voting plus a vote-split rate). Then
+  `python -m bench audit --run-dir DIR` and fill `human_verdict` for the 10% sample so the report
+  shows judge-human agreement, and adjudicate the trials pending review in
+  `DIR/adjudication.json`.
 - **Cost-sizing bench run.** `uv run python -m bench run --run-dir .bench-runs/cost-pro` (25 questions x
   3 trials, 3.1 Pro), then `grade` and `report`. Settles whether the model now uses
   `engine="streaming"` instead of sampling (the other open item from the 2026-09-28 prompt change;
@@ -36,8 +33,8 @@ _Updated: 2026-09-29._
   Flash doubles on 2027-01-01).
 - **Benchmark 3.8 Flash against 3.1 Pro.** `python -m bench run --models
   gemini-3.1-pro-preview,gemini-3.8-flash --run-dir .bench-runs/pro-vs-flash` (interleaved, one dir per
-  model), then `grade`/`report` on the parent dir. Ground truth takes ~1.5 min and is cached. Best after
-  the grading redesign and `compare`; the review suggests >=5 trials to resolve a 5-15 pp gap. Google's
+  model), then `grade`/`report`/`compare` on the parent dir. Ground truth takes ~1.5 min and is cached.
+  Best after the grader check above; the review suggests >=5 trials to resolve a 5-15 pp gap. Google's
   Pro line has stalled at the 3.1 preview while Flash reached 3.8; switch `DEFAULT_CHAT_MODEL` in
   `app/config.py` if Flash wins.
 - **Bench follow-ups from the 2026-09-29 fix review (non-blocking).** Prompt-guard preflight caches a
@@ -55,6 +52,7 @@ _Updated: 2026-09-29._
 
 ## Recently done
 
+- **2026-09-29 — Bench grading redesign (review items 5, 6, 7, 10).** The 3-vote flash-lite yes/no judge is gone: one blind extractor call (never sees the expected value) returns status/value/unit/multiple_candidates/sampled_disclosed as JSON and Python decides accuracy, so a verdict is reproducible from the stored extraction. Grading rules live in `bench/answers.py`, not on `Question`, so existing traces keep their hashes and stay gradable. Strict accuracy fails clarifications (new executability reason `clarified`) and partial-data answers. Deviation from the review's literal partial-data rule: a static-analysis heuristic follows `result` back through the turn's queries and counts only cuts that feed it, exempting ranked top-N rows only while they are the answer. It has known gaps (it is not a sandbox-level row count), so anything it is unsure of, plus unit-only fails, unsure name readings and regex disagreements, goes to `adjudication.json` for review rather than a silent verdict. `audit` samples 10% for hand verdicts; `compare` gives question-clustered bootstrap CIs and a sign-flip test and refuses mismatched grader/ground-truth/dataset hashes. Built over three review rounds; unverified: extractor stability at temperature 0 and judge-human agreement (see TODO).
 - **2026-09-29 — Benchmark fixed before its first run.** A 4-lens review (all 25 references correct) found the questions ambiguous on incident-type scope, 4 lookups answerable from the prompt's stats table, and a degenerate M05; rewritten with full-parquet ground truth matching every value the review claimed. The system prompt's examples no longer teach the non-deduplicated pixel-sum error two questions grade. The harness now buckets failures (model-caused failures stay in denominators), fingerprints runs and refuses drifted resumes, captures per-call tokens, interleaves models, and holds a host-wide lock (two 80-90 GB queries would exceed the 125 GB host). Worker polars/pyarrow now match uv.lock, so ground truth and model queries run the same polars.
 - **2026-09-28 — SSE keepalive + sanitizer fetch allowlist (audit fix-first #8).** The chat stream sends `: keepalive` after 15 s of silence (prompt-guard, long queries) so a future TLS proxy doesn't cut long turns; the step runs as a task waited on with a timeout, never `wait_for`, which would cancel `run_chat_turn` mid-step. Rendered assistant markdown keeps `<img src>` only for `/plots/` or `data:image/`, strips src/href on other elements and forbids `svg`/`math`/`style`/srcset, closing web_search-injected beacon URLs. CSP is still open and is the backstop for vectors outside that list.
 - **2026-09-28 — System prompt corrected (audit fix-first #5).** The Performance section said full scans time out, which pushed the model to sample on the exact questions the paper bench grades; it now requires `.collect(engine="streaming")` and says full scans are fine. The 100-row result cap is stated, and pandas/Series results now carry `total_rows`/`truncated`/`note` like polars frames. The prompt no longer claims eco2/eco3 name mappings exist. The loop-exhaustion final call runs with tools off so 20 rounds of work don't end in "ran out of tool-use rounds".
@@ -118,5 +116,5 @@ Dev, container, and deploy commands are in `CLAUDE.md`. Beyond those:
 
 - Tests: `uv run pytest -q` (unit); `uv run pytest --run-evals tests/evals` (model evals, costs API).
 - Lint: `uv run ruff check app/ tests/` (CI gate; `.pre-commit-config.yaml` also runs ruff).
-- Benchmark: `uv run python -m bench {gt|run|grade|report}` — usage in `bench/__main__.py`'s
+- Benchmark: `uv run python -m bench {gt|run|grade|report|audit|compare}` — usage in `bench/__main__.py`'s
   docstring; output under `.bench-runs/<run-dir>/`.

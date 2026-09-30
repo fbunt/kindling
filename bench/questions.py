@@ -28,7 +28,7 @@ class Question:
     text: str  # prompt sent to the model, verbatim
     reference_code: str  # host-executed Polars; must assign `expected`
     answer_kind: str  # scalar | series | set | text
-    criterion: str  # judge criterion template; {expected} placeholder
+    criterion: str  # legacy judge template; hashed into question_sha, not graded
     tolerance_rel: float = 0.01  # relative band for scalar/series numerics
     tolerance_abs: float | None = None  # absolute band; overrides rel when set
     expensive_gt: bool = False  # ground truth is more than a trivial scan
