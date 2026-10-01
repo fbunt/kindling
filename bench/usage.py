@@ -32,7 +32,9 @@ MODEL_FAILURE_FINISH = frozenset(
         "IMAGE_PROHIBITED_CONTENT",
     }
 )
-# ...and these only when the response also carried no text.
+# ...and these only when the response also carried no text. Any other finish
+# reason (STOP included) is a failure when the response carried neither text
+# nor a function call: an empty answer.
 EMPTY_FAILURE_FINISH = frozenset({"MAX_TOKENS", "OTHER", "LANGUAGE"})
 
 
@@ -118,7 +120,8 @@ def chat_calls(calls: list[dict]) -> list[dict]:
 
 def terminal_model_error(calls: list[dict]) -> str | None:
     """Model-caused failure of a completed turn, judged from its LAST chat call:
-    no candidate / no content / a blocked prompt, or a failure finish reason."""
+    no candidate / no content / a blocked prompt, a failure finish reason, or
+    an empty response (no text and no function call, whatever the reason)."""
     chats = [c for c in chat_calls(calls) if "error" not in c]
     if not chats:
         return None
@@ -132,13 +135,16 @@ def terminal_model_error(calls: list[dict]) -> str | None:
         return f"final response finish_reason={reason}"
     if not last.get("has_content"):
         return f"final response has no content (finish_reason={reason})"
-    if reason in EMPTY_FAILURE_FINISH and not last.get("has_text"):
+    if not last.get("has_text") and (
+        reason in EMPTY_FAILURE_FINISH or not last.get("n_function_calls")
+    ):
         return f"final response empty (finish_reason={reason})"
     return None
 
 
 def call_anomalies(calls: list[dict]) -> list[str]:
-    """Every non-STOP / contentless chat call, terminal or not (informational)."""
+    """Every non-STOP / contentless / empty chat call, terminal or not
+    (informational)."""
     out = []
     for i, c in enumerate(chat_calls(calls)):
         if "error" in c:
@@ -146,6 +152,8 @@ def call_anomalies(calls: list[dict]) -> list[str]:
         reason = c.get("finish_reason")
         if reason not in (None, "STOP") or not c.get("has_content"):
             out.append(f"chat call {i}: finish_reason={reason}")
+        elif not c.get("has_text") and not c.get("n_function_calls"):
+            out.append(f"chat call {i}: empty (finish_reason={reason})")
     return out
 
 

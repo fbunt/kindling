@@ -1002,6 +1002,43 @@ def test_empty_response_and_infra_make_no_call():
     assert fields["extraction"] is None and fields["auto_reason"] == "infra_error"
 
 
+# The last chat call of pro-vs-flash Flash T02 trial 1: five good queries, then
+# STOP with no text, no function call and zero output tokens.
+_EMPTY_STOP = {
+    "purpose": "chat",
+    "finish_reason": "STOP",
+    "block_reason": None,
+    "n_candidates": 1,
+    "has_content": True,
+    "has_text": False,
+    "n_function_calls": 0,
+}
+
+
+def test_empty_stop_final_response_is_model_error_at_grade_time():
+    """A trace run before the empty-STOP rule (model_error None) is graded
+    model_malformed from its call log, and the fields say where it came from."""
+    calls = [{**_EMPTY_STOP, "n_function_calls": 1}, _EMPTY_STOP]
+    trace = _trace(
+        "T02",
+        1,
+        "The model returned an empty response. Try rephrasing your request.",
+        [("result = 1", {"value": 1})],
+        calls=calls,
+    )
+    fake = FakeExtractor(lambda p: _reply(status="no_answer"))
+    fields = grade_trace(trace, fake)
+    assert fields["executable"] is False
+    assert fields["executability_reason"] == "model_malformed"
+    assert fields["model_error"] == "final response empty (finish_reason=STOP)"
+    assert fields["error_bucket"] == "model"
+    assert fields["model_error_source"] == "grade"
+    assert fields["model_anomalies"] == ["chat call 1: empty (finish_reason=STOP)"]
+    # a run-time model_error is left alone
+    ran = grade_trace({**trace, "model_error": "MALFORMED"}, fake)
+    assert "model_error_source" not in ran
+
+
 # ---------------------------------------------------------------------------
 # grade_run: fields, clarified, partial data, adjudication, triage
 # ---------------------------------------------------------------------------

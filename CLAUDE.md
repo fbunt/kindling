@@ -116,7 +116,9 @@ Failure buckets per trace (`error_bucket`): **retryable** (408/429/5xx, transpor
 retried with backoff honoring Retry-After; exhausted -> `infra_error`), **fatal** (401/403/404,
 a 400 on the first call, SandboxBusy; trace written, run aborts), **model** (malformed/blocked/
 empty final response, a 400 after model output, 1800 s turn timeout -> `model_error`, graded
-`executable=False, model_malformed`, kept in every denominator), else **infra**. 3 consecutive
+`executable=False, model_malformed`, kept in every denominator; empty means no text and no
+function call, whatever the finish reason, and grade applies the current rule to traces run
+before it, marking them `model_error_source: grade`), else **infra**. 3 consecutive
 infra errors abort. Traces are written atomically and record served `model_version`,
 `prompt_sha`/`question_sha`/`reference_sha`, every generate_content call's usage/finish
 reason/latency (`calls`, `usage`), rejections per round with source (code_judge / sandbox /

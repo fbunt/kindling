@@ -57,11 +57,12 @@ from bench.answers import parse_date as _parse_date
 from bench.ground_truth import reference_sha
 from bench.io import atomic_write_json, read_trace
 from bench.questions import BY_ID, Question
+from bench.usage import call_anomalies, terminal_model_error
 
 logger = logging.getLogger(__name__)
 
 # Bump on any change to the comparison, flag or regex logic in this module.
-GRADER_VERSION = 7
+GRADER_VERSION = 8
 
 ADJUDICATION_FILE = "adjudication.json"
 ADJUDICATION_SOURCE = "grader_review"
@@ -1330,7 +1331,20 @@ def grade_trace(trace: dict, client) -> dict:
     """Compute the grade fields for one trace (no file I/O; one extractor
     call unless the trace is an infra error or has no response text)."""
     question = BY_ID[trace["question_id"]]
-    fields = {
+    fields = {}
+    if not trace.get("infra_error") and not trace.get("model_error"):
+        # The current terminal-failure rules, for traces run before one existed
+        # (an empty STOP final response was not a model error until 2026-10-01).
+        late = terminal_model_error(trace.get("calls") or [])
+        if late:
+            fields.update(
+                model_error=late,
+                error_bucket="model",
+                model_error_source="grade",
+                model_anomalies=call_anomalies(trace.get("calls") or []),
+            )
+            trace = {**trace, **fields}
+    fields |= {
         "grader_sha": grader_sha(),
         "grader_version": GRADER_VERSION,
         "resource_violation": resource_violation(trace),

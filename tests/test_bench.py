@@ -29,6 +29,7 @@ from bench.report import build_report
 from bench.usage import (
     RecordingClient,
     aggregate_usage,
+    call_anomalies,
     describe_response,
     merge_usage,
     terminal_model_error,
@@ -420,6 +421,14 @@ def test_terminal_model_error():
     assert terminal_model_error([ok, judge]) is None  # judge calls don't count
     assert "MAX_TOKENS" in terminal_model_error([empty_max])
     assert terminal_model_error([]) is None
+    empty_stop = {"purpose": "chat", **describe_response(_response([]))}
+    assert terminal_model_error([ok, empty_stop]) == (
+        "final response empty (finish_reason=STOP)"
+    )
+    assert call_anomalies([empty_stop, ok]) == [
+        "chat call 0: empty (finish_reason=STOP)"
+    ]
+    assert call_anomalies([ok]) == []
 
 
 # ---------------------------------------------------------------------------
