@@ -84,18 +84,18 @@ other event-count question says "Count every incident type". Subcommands (usage 
     that came back short (fewer rows than its N in the answer query's `total_rows`, when it
     feeds a sole `result` through row-keeping steps: `filter(e == max).limit(10)` -> 1 row).
     An aggregate over an unranked expression-level cut (`pl.col('a').head(100).mean()`)
-    counts. An unknown
-    frame library is treated as polars. Local functions, loop targets and containers mutated
-    in place make every non-print() cut in that query count.
+    counts. An unknown frame library is treated as polars. Local functions, loop targets and
+    containers mutated in place make every non-print() cut in that query count.
 
   `grounded` and the cross-checks are flags only. A trial goes to review (`review_reasons`) when
   the regex cross-check (numbers; expected-name token search on text/set; every count on A03)
   disagrees, a right number fails only on its unit, a name fails on an unsure reading (`2017 (vs
   2020)`, `AUGUST COMPLEX, Dixie`, `Tundra = 6`), or an in-band answer fails only on a row cut.
   Each becomes a pending entry in `DIR/adjudication.json`; a hand-filled `verdict` wins in grade
-  and report. Touched entries are never dropped, unrecognized verdicts are kept and reported,
-  and entries carry `response_sha` so a re-run trial's old verdict goes stale (not applied) and
-  gets a fresh pending entry. Extractor failures retry once (with backoff on 408/429/5xx), then
+  and report. Touched entries are never dropped; a decided one keeps the flags and context it
+  was decided on (`current_review_reasons` shows the trial's flags under the current grader).
+  Unrecognized verdicts are kept and reported, and entries carry `response_sha` so a re-run
+  trial's old verdict goes stale (not applied) and gets a fresh pending entry. Extractor failures retry once (with backoff on 408/429/5xx), then
   record `grader_error` (ungraded; the next `grade` retries). Traces record `grader_sha`
   (extractor model/prompt/schema + answers table + `GRADER_VERSION`; bump on any rule change);
   grade skips traces graded by the current sha and refuses stale `reference_sha`.

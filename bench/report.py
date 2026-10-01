@@ -217,6 +217,7 @@ def _grading_section(
     to_fail = sum(
         1 for t in adjudicated if t["adjudicated"]["overrode"] and not t["accurate"]
     )
+    unflagged = sum(1 for t in adjudicated if not t.get("needs_review"))
     pending = pending_review(graded)
     issues = {
         kind: [
@@ -246,7 +247,9 @@ def _grading_section(
         ),
         f"- grounded (answer appears in a query result): {_pct(grounded, len(judged))}",
         f"- adjudicated: {len(adjudicated)} ({to_pass} overridden to pass, "
-        f"{to_fail} to fail); pending review: {len(pending)}"
+        f"{to_fail} to fail"
+        + (f"; {unflagged} on trials no longer flagged" if unflagged else "")
+        + f"); pending review: {len(pending)}"
         + (
             f" ({', '.join(f'{k} x{v}' for k, v in sorted(why.items()))})"
             if why

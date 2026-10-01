@@ -1727,9 +1727,12 @@ def write_adjudication(run_dir: Path, traces: list[dict], entries: list[dict]) -
     fields; the only entries pruned are auto-added ones left entirely blank
     whose trace is no longer flagged. Auto-added entries get their context
     refreshed, except that a touched entry keeps the response (and hash) it
-    was judged on, and a touched entry whose trace changed since (stale) is
-    left exactly as it is; a flagged trial with only stale entries gets a new
-    pending entry for its current response next to them."""
+    was judged on; a decided one (verdict filled) keeps all of the context it
+    was decided on (review_reasons, auto verdict, extraction, ...) and gets
+    only trace_path and `current_review_reasons` (the trial's flags now, []
+    when no longer flagged) updated; and a touched entry whose trace changed
+    since (stale) is left exactly as it is. A flagged trial with only stale
+    entries gets a new pending entry for its current response next to them."""
     by_key = {(t["question_id"], t["trial"]): t for t in traces}
     flagged = {k for k, t in by_key.items() if t.get("needs_review")}
     out, covered = [], set()  # covered: keys with an entry for the current response
@@ -1747,6 +1750,17 @@ def write_adjudication(run_dir: Path, traces: list[dict], entries: list[dict]) -
             if touched:
                 if sha and sha != ctx["response_sha"]:
                     out.append(e)  # stale: keep what the adjudicator saw
+                    continue
+                if not _blank(e.get("verdict")):
+                    # The flags it answered stay with the verdict; a later
+                    # grader rule's flags show beside them, not over them.
+                    out.append(
+                        {
+                            **e,
+                            "trace_path": ctx["trace_path"],
+                            "current_review_reasons": ctx["review_reasons"] or [],
+                        }
+                    )
                     continue
                 for f in ("response", "response_sha"):
                     if f in e:

@@ -1310,7 +1310,10 @@ def test_stale_adjudication_is_ignored_and_reported(tmp_path):
     )
     report = build_report(tmp_path)
     assert "1 stale adjudication(s), not applied" in report
-    assert "adjudicated: 1 (1 overridden to pass, 0 to fail)" in report
+    assert (
+        "adjudicated: 1 (1 overridden to pass, 0 to fail; "
+        "1 on trials no longer flagged)" in report
+    )
     # A matching hash applies.
     index = adjudication_index(
         [_auto_entry("L03", 0, verdict="pass", response_sha=response_sha(t0))]
@@ -1340,6 +1343,42 @@ def test_write_adjudication_keeps_what_the_adjudicator_saw(tmp_path):
     (refreshed,) = write_adjudication(tmp_path, [rerun], [blank])
     assert refreshed["response_sha"] == response_sha(rerun)
     assert refreshed["response"] == "new answer"
+
+
+def test_decided_entry_keeps_the_flags_it_answered(tmp_path):
+    """A regrade under a later rule must not rewrite why a verdict was given
+    (pro-vs-flash Pro M01 trial 4: judged for a head() cut, later shown under
+    a cross-check flag)."""
+    then = _graded_trace(
+        "L03",
+        0,
+        True,
+        needs_review=True,
+        review_reasons=["partial_data_heuristic"],
+        partial_data_evidence=[".head( at line 1"],
+    )
+    (entry,) = write_adjudication(tmp_path, [then], [])
+    entry.update(verdict="pass", adjudicator="fb")
+    now = {
+        **then,
+        "review_reasons": ["cross_check_disagree"],
+        "partial_data_evidence": [],
+        "_path": "moved/trial_00.json",
+    }
+    (kept,) = write_adjudication(tmp_path, [now], [entry])
+    assert kept["review_reasons"] == ["partial_data_heuristic"]
+    assert kept["partial_data_evidence"] == [".head( at line 1"]
+    assert kept["current_review_reasons"] == ["cross_check_disagree"]
+    assert kept["trace_path"] == "moved/trial_00.json"
+    gone = {**now, "needs_review": False, "review_reasons": []}
+    (kept,) = write_adjudication(tmp_path, [gone], [kept])
+    assert kept["current_review_reasons"] == []
+    assert kept["review_reasons"] == ["partial_data_heuristic"]
+    # Undecided (reason only): context still refreshes.
+    (entry,) = write_adjudication(tmp_path, [then], [])
+    entry["reason"] = "looking"
+    (fresh,) = write_adjudication(tmp_path, [now], [entry])
+    assert fresh["review_reasons"] == ["cross_check_disagree"]
 
 
 def test_rerun_after_adjudication_gets_a_fresh_pending_entry(tmp_path):
