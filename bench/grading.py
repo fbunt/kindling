@@ -9,9 +9,8 @@ floats, sign, unit whitelist, series keys, name normalization and aliases).
 The strict `accurate` verdict also fails clarifications, multiple candidate
 answers and partial-data answers (`.sample(`/`.fetch(` anywhere, or a
 row-cutting `.head/.limit/.slice` in what the answer query's `result` is built
-from; a head after a sort is ranking while its rows are the answer itself or
-only a lookup key, not when its rows are aggregated; see partial_data and
-_truncations).
+from; a cut after a sort is top-N selection, never partial data, and so is a
+one-row cut of filtered rows; see partial_data and _truncations).
 
 Cross-checks and hand review, none of which changes the automated verdict:
 - review flags: a regex over the response text (numbers; for text/set
@@ -62,7 +61,7 @@ from bench.questions import BY_ID, Question
 logger = logging.getLogger(__name__)
 
 # Bump on any change to the comparison, flag or regex logic in this module.
-GRADER_VERSION = 6
+GRADER_VERSION = 7
 
 ADJUDICATION_FILE = "adjudication.json"
 ADJUDICATION_SOURCE = "grader_review"
@@ -433,6 +432,12 @@ def _series_key(label: str, spec: AnswerSpec) -> str | None:
         for key, labels in spec.series_keys.items():
             if norm in {normalize_name(x) for x in labels}:
                 return key
+    parts = [x for x in text.split("/") if x.strip()]
+    if len(parts) > 1:
+        # 'Unburned to Low / Unburned': every alternative must name one class.
+        keys = {_series_key(x, spec) for x in parts}
+        if len(keys) == 1 and None not in keys:
+            return keys.pop()
     m = _BS_CODE.search(text)
     code = (m.group(1) or m.group(2)) if m else None
     if code is None:
@@ -722,34 +727,6 @@ _ORDER_PRESERVING = frozenset(
         "drop_duplicates",
     }
 )
-# Steps between a ranked head() and `result` that keep the cut rows as the
-# answer (the head's rows ARE the answer): the order-preserving steps above
-# minus the row-subsetting ones (group_by, filter, dedup, null drops: a count
-# of a filtered top-100000 is partial data), plus re-sorts, row/column access
-# and conversions. Any other step, or one whose arguments aggregate
-# (_AGGREGATES), makes the cut rows partial data.
-_ROW_SUBSETTING = frozenset(
-    {"group_by", "groupby", "filter", "query", "unique", "drop_duplicates"}
-    | {"drop_nulls", "dropna"}
-)
-_ANSWER_PRESERVING = (_ORDER_PRESERVING - _ROW_SUBSETTING) | {
-    "sort",
-    "sort_by",
-    "sort_values",
-    "to_dicts",
-    "to_dict",
-    "to_list",
-    "tolist",
-    "to_numpy",
-    "to_series",
-    "get_column",
-    "rows",
-    "row",
-    "item",
-    "iter_rows",
-    "to_string",
-    "to_markdown",
-}
 _AGGREGATES = frozenset(
     {
         "sum",
@@ -884,88 +861,6 @@ def _kwarg(call, name: str):
     return False, None
 
 
-def _aggregates(call) -> bool:
-    """Whether a method call's arguments aggregate (select(pl.col('a').sum()),
-    filter(pl.col('a') > pl.col('a').mean()), agg(...))."""
-    for arg in [*call.args, *(kw.value for kw in call.keywords)]:
-        for n in ast.walk(arg):
-            if (
-                isinstance(n, ast.Call)
-                and isinstance(n.func, ast.Attribute)
-                and n.func.attr in _AGGREGATES
-            ):
-                return True
-    return False
-
-
-# Calls whose arguments are values rows are matched against, not rows.
-_KEY_METHODS = frozenset(
-    {"is_in", "isin", "eq", "ne", "gt", "ge", "lt", "le", "is_between", "lit"}
-)
-
-
-def _key_names(expr) -> set[int]:
-    """ids of the bare names used as lookup values in `expr`: a comparison
-    operand (`pl.col('Event_ID') == top_id`) or an argument of is_in / eq /
-    pl.lit / ... A ranked cut read this way picks the top item (an argmax
-    key), it does not sample rows; what the lookup then computes is judged on
-    its own."""
-    out = set()
-    for n in ast.walk(expr):
-        if isinstance(n, ast.Compare):
-            operands = [n.left, *n.comparators]
-        elif (
-            isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Attribute)
-            and n.func.attr in _KEY_METHODS
-        ):
-            operands = [*n.args, *(kw.value for kw in n.keywords)]
-        else:
-            continue
-        out |= {id(o) for o in operands if isinstance(o, ast.Name)}
-    return out
-
-
-def _spine(root) -> set[int]:
-    """ids of the nodes whose rows reach `root` unchanged up to
-    _ANSWER_PRESERVING steps: through method chains, row/column access,
-    pass-through builtins, element-wise operators and container literals.
-    Anything under an aggregation or passed as a method argument is off it."""
-    out, todo = set(), [root]
-    while todo:
-        n = todo.pop()
-        if isinstance(n, ast.Call):
-            f = n.func
-            if isinstance(f, ast.Attribute):
-                if f.attr in _ANSWER_PRESERVING and not _aggregates(n):
-                    out.add(id(n))
-                    todo.append(f.value)
-            elif isinstance(f, ast.Name) and f.id in _PASS_THROUGH_FUNCS and n.args:
-                out.add(id(n))
-                todo.append(n.args[0])
-        elif isinstance(n, ast.Subscript):
-            out.add(id(n))
-            todo.append(n.value)
-        elif isinstance(n, ast.Attribute) and n.attr in _ROW_ACCESS_ATTRS:
-            out.add(id(n))
-            todo.append(n.value)
-        elif isinstance(n, ast.Name):
-            out.add(id(n))
-        elif isinstance(n, ast.Dict):
-            todo += [v for v in n.values if v is not None]
-        elif isinstance(n, ast.List | ast.Tuple | ast.Set):
-            todo += n.elts
-        elif isinstance(n, ast.JoinedStr):
-            todo += [v.value for v in n.values if isinstance(v, ast.FormattedValue)]
-        elif isinstance(n, ast.BinOp):
-            todo += [n.left, n.right]
-        elif isinstance(n, ast.UnaryOp):
-            todo.append(n.operand)
-        elif isinstance(n, ast.Compare):
-            todo += [n.left, *n.comparators]
-    return out
-
-
 class _Lineage:
     """Name resolution over a turn's successful queries (the worker namespace
     persists across run_query calls): a name read in query j resolves to its
@@ -1058,43 +953,32 @@ class _Lineage:
                 return False
 
     def answer_exprs(self, last: int) -> tuple[list, set[int]]:
-        """([(query index, expression, assigned name, spine)], opaque queries)
-        for every expression the final query's `result` is computed from,
-        following names back through this and earlier queries. `spine` is
-        _spine(expression) while the rows of that expression reach `result`
-        only through answer-preserving steps, else empty. Opaque queries are
-        those where a name in the lineage is bound in a way the assignment map
-        cannot follow (_opaque_names). ([], set()) when the final query
+        """([(query index, expression, assigned name)], opaque queries) for
+        every expression the final query's `result` is computed from,
+        following names back through this and earlier queries. Opaque queries
+        are those where a name in the lineage is bound in a way the assignment
+        map cannot follow (_opaque_names). ([], set()) when the final query
         assigns no result."""
-        todo = [(last, v, "result", True) for v in self.assigns[last].get("result", [])]
+        todo = [(last, v, "result") for v in self.assigns[last].get("result", [])]
         out = []
         # `result = {}; result["m"] = ...` / `result.append(...)`
         opaque = {last} if todo and "result" in self.opaque[last] else set()
-        # Only the direct reading is pre-seeded: a later `result = result[...]
-        # .sum()` that reads an earlier `result` off the spine re-walks it
-        # with direct=False, so a ranked head there is not exempt.
-        seen = {("result", last, True)}
+        seen = {("result", last)}
         while todo:
-            j, expr, owner, direct = todo.pop()
-            spine = _spine(expr) if direct else set()
-            keys = _key_names(expr)
-            out.append((j, expr, owner, spine))
+            j, expr, owner = todo.pop()
+            out.append((j, expr, owner))
             for n in ast.walk(expr):
                 if not isinstance(n, ast.Name):
                     continue
-                # A lookup value's own expression is judged as if it were the
-                # answer: a ranked head feeding it unchanged is exempt, an
-                # aggregate over cut rows is not.
-                d = id(n) in spine or id(n) in keys
                 if n.id == owner:
                     same = [v for v in self.assigns[j].get(n.id, []) if v is not expr]
                     groups = [(j, same), self.resolve(n.id, j - 1)]
                 else:
                     groups = [self.resolve(n.id, j)]
                 for k, values in groups:
-                    if values and (n.id, k, d) not in seen:
-                        seen.add((n.id, k, d))
-                        todo += [(k, v, n.id, d) for v in values]
+                    if values and (n.id, k) not in seen:
+                        seen.add((n.id, k))
+                        todo += [(k, v, n.id) for v in values]
                 first = min(k for k, _ in groups)
                 opaque |= {
                     t for t in range(max(first, 0), j + 1) if n.id in self.opaque[t]
@@ -1143,6 +1027,45 @@ def _row_slice(node) -> bool:
     return isinstance(sl, ast.Slice) and (sl.lower is not None or sl.upper is not None)
 
 
+def _single_row(node) -> bool:
+    """head(1) / limit(1) / tail(1) / slice(k, 1) / [:1] / [k:k+1]."""
+    if isinstance(node, ast.Call):
+        args = node.args
+        n = args[1] if node.func.attr == "slice" and len(args) > 1 else None
+        if node.func.attr != "slice":
+            n = (
+                args[0]
+                if args
+                else next((kw.value for kw in node.keywords if kw.arg == "n"), None)
+            )
+        return isinstance(n, ast.Constant) and n.value == 1
+    sl = node.slice
+    if isinstance(sl, ast.Tuple) and sl.elts:
+        sl = sl.elts[0]
+    lo = (
+        sl.lower.value
+        if isinstance(sl.lower, ast.Constant)
+        else 0
+        if sl.lower is None
+        else None
+    )
+    hi = sl.upper.value if isinstance(sl.upper, ast.Constant) else None
+    return isinstance(lo, int) and isinstance(hi, int) and hi - lo == 1
+
+
+def _filtered(node) -> bool:
+    """Whether a method chain has a row filter below this point."""
+    while True:
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in ("filter", "query", "where"):
+                return True
+            node = node.func.value
+        elif isinstance(node, ast.Subscript | ast.Attribute):
+            node = node.value
+        else:
+            return False
+
+
 def _cut_label(node) -> str:
     if isinstance(node, ast.Call):
         return f".{node.func.attr}( at line {node.lineno}"
@@ -1165,11 +1088,9 @@ def _aggregated_after(node, parents: dict) -> bool:
         node = call
 
 
-def _cuts(lineage: _Lineage, j: int, expr, owner, skip: set[int], spine) -> list:
+def _cuts(lineage: _Lineage, j: int, expr, owner, skip: set[int]) -> list:
     """Row-cutting head/tail/limit/slice calls and positional slices
-    (_row_slice) inside `expr` (query j). A cut after a ranking step is
-    exempt only when it is on `spine` (its rows are the answer); `spine=None`
-    exempts it anywhere."""
+    (_row_slice) inside `expr` (query j), except ranked and tie-pick cuts."""
     found = []
     parents = {id(c): n for n in ast.walk(expr) for c in ast.iter_child_nodes(n)}
     for node in ast.walk(expr):
@@ -1191,7 +1112,12 @@ def _cuts(lineage: _Lineage, j: int, expr, owner, skip: set[int], spine) -> list
             continue
         if _is_expression(recv) and not _aggregated_after(node, parents):
             continue  # agg(pl.col('n').head(1)): top-n per group, not a cut
-        if (spine is None or id(node) in spine) and lineage.is_ranked(
+        # A cut after a ranking step is top-N selection, never sampling,
+        # whatever is computed from it: the first real run (pro-vs-flash,
+        # 250 trials) flagged 23 correct "among the N largest" answers and no
+        # real sample. A one-row cut of filtered rows is a tie pick
+        # (`filter(elevation == max).head(1)`).
+        if (_single_row(node) and _filtered(recv)) or lineage.is_ranked(
             recv, j, owner, set()
         ):
             continue
@@ -1205,21 +1131,20 @@ def _truncations(codes: list[str]) -> list[tuple[int, str]]:
     `.iloc[:100]`) that feeds the last code's `result`. codes are a turn's
     successful queries in order, up to the one that produced the answer.
 
-    Not counted: a head after sort/top_k/sorted value_counts (through
+    Not counted: a cut after sort/top_k/sorted value_counts (through
     order-preserving steps such as select/filter/with_columns/ordered unique,
-    and through names assigned in this or an earlier query) whose rows reach
-    `result` only through answer-preserving steps (_ANSWER_PRESERVING; an
-    aggregation over the top rows is partial data) or that only supplies a
-    lookup value (_key_names: `pl.col('id') == top_id`, `is_in(top_ids)`),
-    expression-level head inside an aggregation, `.str.slice`, and a
-    head that only feeds print()/display() or a value `result` does not use.
-    When the lineage uses a local function, a loop/comprehension/with target
-    or a container mutated in place (including `result` itself: `result = {}`
-    then `result["m"] = ...`), every non-displayed cut in the query that binds
-    it counts (no ranking exemption). When the last code assigns
-    no `result` (a plot-only call), every cut in it except displayed and
-    ranked ones counts. Falls back to a substring match on the last code if
-    it does not parse."""
+    and through names assigned in this or an earlier query), whatever is then
+    computed from it (top-N selection, not sampling); a one-row cut of
+    filtered rows (`filter(e == max).head(1)`, a tie pick); an
+    expression-level head inside an aggregation (top-n per group);
+    `.str.slice`; and a head that only feeds print()/display() or a value
+    `result` does not use. When the lineage uses a local function, a
+    loop/comprehension/with target or a container mutated in place
+    (including `result` itself: `result = {}` then `result["m"] = ...`),
+    every non-displayed cut in the query that binds it counts. When the last
+    code assigns no `result` (a plot-only call), every cut in it except
+    displayed and ranked ones counts. Falls back to a substring match on the
+    last code if it does not parse."""
     try:
         trees = [ast.parse(codes[-1])]
     except SyntaxError:
@@ -1238,13 +1163,13 @@ def _truncations(codes: list[str]) -> list[tuple[int, str]]:
     lineage = _Lineage(trees)
     exprs, opaque = lineage.answer_exprs(last)
     if not exprs:
-        work = [(last, trees[last], None, _displayed(trees[last]), None)]
+        work = [(last, trees[last], None, _displayed(trees[last]))]
     else:
-        work = [(j, e, owner, set(), spine) for j, e, owner, spine in exprs]
-    work += [(k, trees[k], None, _displayed(trees[k]), set()) for k in sorted(opaque)]
+        work = [(j, e, owner, set()) for j, e, owner in exprs]
+    work += [(k, trees[k], None, _displayed(trees[k])) for k in sorted(opaque)]
     hits = {}
-    for j, expr, owner, skip, spine in work:
-        for node in _cuts(lineage, j, expr, owner, skip, spine):
+    for j, expr, owner, skip in work:
+        for node in _cuts(lineage, j, expr, owner, skip):
             hits[id(node)] = (j, _cut_label(node))
     return sorted(set(hits.values()))
 

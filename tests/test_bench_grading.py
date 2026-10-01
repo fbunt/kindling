@@ -306,6 +306,32 @@ def test_normalize_name_and_dates():
             True,
             "ok",
         ),
+        (  # pro-vs-flash Flash A03 t2: slash-joined alternatives of one class
+            "A03",
+            _ex(
+                values={
+                    "Unburned to Low / Unburned": 6280344,
+                    "Low": 17922753,
+                    "Moderate": 6635897,
+                    "High": 4520632,
+                }
+            ),
+            True,
+            "ok",
+        ),
+        (  # alternatives naming two classes map to neither
+            "A03",
+            _ex(
+                values={
+                    "Low / Moderate": 6280344,
+                    "Low": 17922753,
+                    "Moderate": 6635897,
+                    "High": 4520632,
+                }
+            ),
+            False,
+            "missing_key",
+        ),
         (
             "A05",
             _ex(
@@ -590,17 +616,17 @@ def test_unit_only_fail_is_reviewed_without_regex():
         # Plot-only call (no result): every non-displayed head counts.
         ("plt.plot(lf.head(10).collect()['a'])", True),
         ("print(lf.head(10).collect())\nplt.plot([1])", False),
-        # The ranking exemption holds only while the top rows ARE the answer:
-        # an aggregation over them is partial data.
+        # A cut after a ranking step is top-N selection whatever is computed
+        # from it ("among the N largest ..."), never partial data.
         (
             "sub = lf.sort('Ig_Date').head(100000).collect()\n"
             "result = sub['acres'].sum()",
-            True,
+            False,
         ),
-        ("result = lf.sort('a').head(100).select(pl.col('b').sum())", True),
+        ("result = lf.sort('a').head(100).select(pl.col('b').sum())", False),
         (
             "sub = lf.sort('a').head(9).collect()\nsub = sub['b'].sum()\nresult = sub",
-            True,
+            False,
         ),
         (
             "top = lf.sort('a', descending=True).head(5).collect()\n"
@@ -633,21 +659,33 @@ def test_unit_only_fail_is_reviewed_without_regex():
             "result = frames['a'].sort('x').unique('E').head(1)",
             True,
         ),
-        # Expression-level cuts: top-n per group is fine, an aggregate over one is not.
+        # Expression-level cuts: an aggregate over an unranked one is partial.
         ("result = df.select(pl.col('a').head(100).mean())", True),
-        ("result = df.select(pl.col('a').sort().head(100).sum())", True),
-        # Row-subsetting after a ranked head makes the cut rows partial data.
+        ("result = df.select(pl.col('a').sort().head(100).sum())", False),
+        # Row-subsetting after a ranked head is still top-N selection.
         (
             "sub = lf.sort('Ig_Date').head(100000).collect()\n"
             "result = sub.filter(pl.col('a') > 1)",
-            True,
+            False,
         ),
-        ("result = lf.sort('Ig_Date').head(100000).collect().unique('Event_ID')", True),
+        (
+            "result = lf.sort('Ig_Date').head(100000).collect().unique('Event_ID')",
+            False,
+        ),
         (
             "sub = lf.sort('Ig_Date').head(100000).collect()\n"
             "result = sub.drop_nulls()",
-            True,
+            False,
         ),
+        # A one-row cut of filtered rows is a tie pick; of unfiltered rows it
+        # is an arbitrary row.
+        ("result = lf.filter(pl.col('e') == pl.col('e').max()).head(1)", False),
+        (
+            "m = lf.select(pl.col('e').max())\n"
+            "result = lf.filter(pl.col('e') == m).limit(1)",
+            False,
+        ),
+        ("result = lf.head(1).collect()['a']", True),
         ("result = lf.collect()['y'].value_counts(sort=True).head(1)", False),
         ("result = df['year'].value_counts(sort=False).head(1)", True),
         (
@@ -661,17 +699,18 @@ def test_unit_only_fail_is_reviewed_without_regex():
         ("result = {}\nresult['m'] = df.head(10)['a'].mean()", True),
         ("result = []\nresult.append(df.head(10)['a'].mean())", True),
         ("result = {}\nresult['m'] = df['a'].mean()\nprint(df.head())", False),
-        # A re-assignment of `result` that aggregates the ranked head's rows.
+        # Re-assignments that aggregate a ranked head's rows: still top-N.
         (
             "result = lf.sort('Ig_Date').head(100000).collect()\n"
             "result = result['acres'].sum()",
-            True,
+            False,
         ),
-        ("result = df.sort('a').head(10)['a'].to_list()\nresult = sum(result)", True),
+        ("result = df.sort('a').head(10)['a'].to_list()\nresult = sum(result)", False),
         (
             "top = df.sort('a').head(10)\nresult = top\nresult = result['a'].mean()",
-            True,
+            False,
         ),
+        ("sub = lf.head(100000).collect()\nresult = sub['a'].sum()", True),
         ("result = df.sort('a').head(10)\nresult = result.to_dicts()", False),
         # tail() and positional slices cut rows like head().
         ("result = df.tail(100)['a'].mean()", True),
@@ -750,8 +789,14 @@ def test_partial_data_checks_the_query_that_holds_the_answer():
     ext = _ex(value=29.2, unit="%")
     assert answer_query(BY_ID["M03"], trace, ext) == 0
     assert partial_data(trace, BY_ID["M03"], ext) == (False, [])
-    # Without an extraction it falls back to the last query, as before.
-    assert partial_data(trace) == (True, [".head( at line 1 in final query 1"])
+    # Without an extraction it falls back to the last query, as before (its
+    # head(1) of filtered rows is a tie pick, so nothing is flagged either way).
+    assert partial_data(trace) == (False, [])
+    unfiltered = _trace(
+        "M03", 0, "", [(M03_Q0, [{"pct": 29.2}]), ("r = lf.head(5)", [{}])]
+    )
+    assert partial_data(unfiltered) == (True, [".head( at line 1 in final query 1"])
+    assert partial_data(unfiltered, BY_ID["M03"], ext) == (False, [])
     # A cut in the answer query itself still counts.
     cut = _trace(
         "M03",
@@ -799,9 +844,9 @@ def test_small_integer_answers_do_not_locate_the_answer_query():
             "result = lf.filter(pl.col('id') == top).select(pl.len()).collect()",
             True,
         ),
-        # A key aggregated from cut rows is partial data.
+        # A key aggregated from unranked cut rows is partial data.
         (
-            "thr = lf.sort('a').head(100).collect()['a'].mean()\n"
+            "thr = lf.head(100).collect()['a'].mean()\n"
             "result = lf.filter(pl.col('a') > thr).select(pl.len()).collect()",
             True,
         ),

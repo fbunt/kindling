@@ -78,14 +78,12 @@ other event-count question says "Count every incident type". Subcommands (usage 
     `result` is built from (names followed back through earlier queries). The answer query is
     the latest successful one whose result holds the extracted answer (small integers under
     1000 don't locate it), else the last successful one; later queries, like a name lookup
-    after the answer, are not checked. A cut after sort/top_k/sorted value_counts is ranking,
-    not sampling, while its rows reach `result` through projections, conversions and row
-    access, or while it only supplies a lookup value (`pl.col('id') == top_id`,
-    `is_in(top_ids)`); aggregating, filtering or deduplicating the top rows is partial data,
-    as is an aggregate over an expression-level cut
-    (`pl.col('a').head(100).mean()`). An unknown frame library is treated as polars. Local
-    functions, loop targets and containers mutated in place make every non-print() cut in that
-    query count.
+    after the answer, are not checked. A cut after sort/top_k/sorted value_counts is top-N
+    selection, never partial data, whatever is computed from it ("among the 10 largest ...");
+    so is a one-row cut of filtered rows (`filter(e == max).head(1)`, a tie pick). An aggregate
+    over an unranked expression-level cut (`pl.col('a').head(100).mean()`) counts. An unknown
+    frame library is treated as polars. Local functions, loop targets and containers mutated
+    in place make every non-print() cut in that query count.
 
   `grounded` and the cross-checks are flags only. A trial goes to review (`review_reasons`) when
   the regex cross-check (numbers; expected-name token search on text/set; every count on A03)
