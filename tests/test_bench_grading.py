@@ -27,6 +27,7 @@ from bench.compare import (
 from bench.grading import (
     ADJUDICATION_FILE,
     ADJUDICATION_SOURCE,
+    _truncations,
     adjudication_index,
     answer_query,
     apply_adjudication,
@@ -753,6 +754,49 @@ def test_partial_data_only_final_query_for_head():
     )
     explore_df = ("df = lf.head(5).collect()", [{"a": 1}])
     assert partial_data(_trace("L03", 0, "", [explore_df, fresh])) == (False, [])
+
+
+# The real pro-vs-flash Flash L06 trial 1 answer query: a tie pick with room for
+# ten ties that found one row.
+L06_LIMIT10 = (
+    "result = (\n"
+    '    lf.filter(pl.col("elevation") == pl.col("elevation").max())\n'
+    '    .select("Event_ID", "Incid_Name", "year", "Ig_Date", "elevation")\n'
+    "    .limit(10)\n"
+    '    .collect(engine="streaming")\n)'
+)
+
+
+@pytest.mark.parametrize(
+    "code, rows, flagged",
+    [
+        (L06_LIMIT10, 1, False),
+        (L06_LIMIT10, 10, True),  # full: it may have dropped ties
+        (L06_LIMIT10, None, True),  # row count unknown
+        ("result = lf.filter(pl.col('s') == 'CA').head(100).collect()", 37, False),
+        ("result = lf.collect()[:50]", 37, False),
+        ("result = lf.head(100).collect()[:50]", 37, True),  # a cut on a cut
+        ("result = df.tail(100).sort('a')", 3, False),
+        # An aggregate after the cut: total_rows is not the cut's output.
+        ("result = lf.head(100).select(pl.col('a').mean()).collect()", 1, True),
+        ("result = lf.head(100).group_by('y').len().collect()", 5, True),
+        ("result = lf.limit(100).select(pl.col('a').sum().alias('s'))", 1, True),
+        # The cut feeds a name, or `result` is assigned twice.
+        ("sub = lf.head(100).collect()\nresult = sub", 3, True),
+        ("result = lf.head(100).collect()\nresult = result['a']", 3, True),
+        ("result = lf.slice(5, 100).collect()", 3, True),  # offset slice
+    ],
+)
+def test_unfilled_cut_drops_nothing(code, rows, flagged):
+    assert bool(_truncations([code], rows)) is flagged
+
+
+def test_partial_data_reads_the_answer_query_row_count():
+    trace = _trace("L06", 1, "", [(L06_LIMIT10, [{"elevation": 3786.15625}])])
+    trace["query_records"][0]["total_rows"] = 1
+    assert partial_data(trace) == (False, [])
+    trace["query_records"][0]["total_rows"] = 10
+    assert partial_data(trace)[0]
 
 
 # The real cost-pro M03 trial: the answer comes from query 0 (a ranked top-1

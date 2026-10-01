@@ -80,8 +80,11 @@ other event-count question says "Count every incident type". Subcommands (usage 
     1000 don't locate it), else the last successful one; later queries, like a name lookup
     after the answer, are not checked. A cut after sort/top_k/sorted value_counts is top-N
     selection, never partial data, whatever is computed from it ("among the 10 largest ...");
-    so is a one-row cut of filtered rows (`filter(e == max).head(1)`, a tie pick). An aggregate
-    over an unranked expression-level cut (`pl.col('a').head(100).mean()`) counts. An unknown
+    so is a one-row cut of filtered rows (`filter(e == max).head(1)`, a tie pick), and a cut
+    that came back short (fewer rows than its N in the answer query's `total_rows`, when it
+    feeds a sole `result` through row-keeping steps: `filter(e == max).limit(10)` -> 1 row).
+    An aggregate over an unranked expression-level cut (`pl.col('a').head(100).mean()`)
+    counts. An unknown
     frame library is treated as polars. Local functions, loop targets and containers mutated
     in place make every non-print() cut in that query count.
 

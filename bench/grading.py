@@ -62,7 +62,7 @@ from bench.usage import call_anomalies, terminal_model_error
 logger = logging.getLogger(__name__)
 
 # Bump on any change to the comparison, flag or regex logic in this module.
-GRADER_VERSION = 8
+GRADER_VERSION = 9
 
 ADJUDICATION_FILE = "adjudication.json"
 ADJUDICATION_SOURCE = "grader_review"
@@ -1067,6 +1067,111 @@ def _filtered(node) -> bool:
             return False
 
 
+# Frame steps between a cut and `result` that keep the row count, so the
+# result's total_rows is the cut's output size (select only when plain; see
+# _plain_select).
+_ROWS_KEPT = frozenset(
+    {
+        "collect",
+        "lazy",
+        "to_pandas",
+        "with_columns",
+        "with_column",
+        "rename",
+        "drop",
+        "cast",
+        "sort",
+        "sort_by",
+        "sort_values",
+        "with_row_index",
+        "with_row_count",
+        "reset_index",
+        "round",
+    }
+)
+
+
+def _cut_size(node) -> int | None:
+    """N for head(N) / limit(N) / tail(N) / [:N] / [-N:], else None (an offset
+    slice, a non-literal N)."""
+    if isinstance(node, ast.Call):
+        if node.func.attr == "slice":
+            return None
+        n = (
+            node.args[0]
+            if node.args
+            else next((kw.value for kw in node.keywords if kw.arg == "n"), None)
+        )
+        return n.value if isinstance(n, ast.Constant) and type(n.value) is int else None
+    sl = node.slice
+    if isinstance(sl, ast.Tuple) and sl.elts:
+        sl = sl.elts[0]
+    lo, hi = sl.lower, sl.upper
+    if lo is None or (isinstance(lo, ast.Constant) and lo.value == 0):
+        return (
+            hi.value if isinstance(hi, ast.Constant) and type(hi.value) is int else None
+        )
+    if (
+        hi is None
+        and isinstance(lo, ast.UnaryOp)
+        and isinstance(lo.op, ast.USub)
+        and isinstance(lo.operand, ast.Constant)
+        and type(lo.operand.value) is int
+    ):
+        return lo.operand.value
+    return None
+
+
+def _plain_select(call) -> bool:
+    """select() of bare columns (names, or pl.col(...) with at most .alias):
+    no aggregate that would change the row count."""
+
+    def plain(a) -> bool:
+        if isinstance(a, ast.Constant):
+            return isinstance(a.value, str)
+        if isinstance(a, ast.List | ast.Tuple):
+            return all(plain(e) for e in a.elts)
+        if (
+            isinstance(a, ast.Call)
+            and isinstance(a.func, ast.Attribute)
+            and a.func.attr == "alias"
+        ):
+            a = a.func.value
+        return (
+            isinstance(a, ast.Call)
+            and isinstance(a.func, ast.Attribute)
+            and isinstance(a.func.value, ast.Name)
+            and a.func.value.id == "pl"
+            and a.func.attr == "col"
+        )
+
+    return all(plain(a) for a in call.args) and all(
+        plain(kw.value) for kw in call.keywords
+    )
+
+
+def _unfilled(node, root, parents: dict, rows: int | None) -> bool:
+    """Whether a cut feeding `root` (the answer query's sole `result` value)
+    through row-count-keeping steps only returned fewer rows than its limit:
+    it dropped nothing (`filter(e == m).limit(10)` that found one row)."""
+    n = _cut_size(node)
+    if rows is None or n is None or rows >= n:
+        return False
+    while node is not root:
+        attr = parents.get(id(node))
+        if not (isinstance(attr, ast.Attribute) and attr.value is node):
+            return False
+        call = parents.get(id(attr))
+        if not (isinstance(call, ast.Call) and call.func is attr):
+            return False
+        if attr.attr not in _ROWS_KEPT and not (
+            attr.attr == "select" and _plain_select(call)
+        ):
+            return False
+        node = call
+    return True
+
+
 def _cut_label(node) -> str:
     if isinstance(node, ast.Call):
         return f".{node.func.attr}( at line {node.lineno}"
@@ -1089,9 +1194,13 @@ def _aggregated_after(node, parents: dict) -> bool:
         node = call
 
 
-def _cuts(lineage: _Lineage, j: int, expr, owner, skip: set[int]) -> list:
+def _cuts(
+    lineage: _Lineage, j: int, expr, owner, skip: set[int], rows: int | None = None
+) -> list:
     """Row-cutting head/tail/limit/slice calls and positional slices
-    (_row_slice) inside `expr` (query j), except ranked and tie-pick cuts."""
+    (_row_slice) inside `expr` (query j), except ranked, tie-pick and unfilled
+    cuts. `rows` is the result's total_rows when `expr` is the answer query's
+    sole `result` value, else None."""
     found = []
     parents = {id(c): n for n in ast.walk(expr) for c in ast.iter_child_nodes(n)}
     for node in ast.walk(expr):
@@ -1122,11 +1231,15 @@ def _cuts(lineage: _Lineage, j: int, expr, owner, skip: set[int]) -> list:
             recv, j, owner, set()
         ):
             continue
+        if _unfilled(node, expr, parents, rows):
+            continue
         found.append(node)
     return found
 
 
-def _truncations(codes: list[str]) -> list[tuple[int, str]]:
+def _truncations(
+    codes: list[str], last_rows: int | None = None
+) -> list[tuple[int, str]]:
     """(index into codes, '.head( at line N' / '[:100] at line N') for each
     row-cutting head/tail/limit/slice or positional slice (`df[:100]`,
     `.iloc[:100]`) that feeds the last code's `result`. codes are a turn's
@@ -1136,7 +1249,9 @@ def _truncations(codes: list[str]) -> list[tuple[int, str]]:
     order-preserving steps such as select/filter/with_columns/ordered unique,
     and through names assigned in this or an earlier query), whatever is then
     computed from it (top-N selection, not sampling); a one-row cut of
-    filtered rows (`filter(e == max).head(1)`, a tie pick); an
+    filtered rows (`filter(e == max).head(1)`, a tie pick); a cut that
+    returned fewer rows than its N (`last_rows`, the last code's total_rows,
+    when the cut feeds its sole `result` value through row-keeping steps); an
     expression-level head inside an aggregation (top-n per group);
     `.str.slice`; and a head that only feeds print()/display() or a value
     `result` does not use. When the lineage uses a local function, a
@@ -1164,13 +1279,23 @@ def _truncations(codes: list[str]) -> list[tuple[int, str]]:
     lineage = _Lineage(trees)
     exprs, opaque = lineage.answer_exprs(last)
     if not exprs:
-        work = [(last, trees[last], None, _displayed(trees[last]))]
+        work = [(last, trees[last], None, _displayed(trees[last]), None)]
     else:
-        work = [(j, e, owner, set()) for j, e, owner in exprs]
-    work += [(k, trees[k], None, _displayed(trees[k])) for k in sorted(opaque)]
+        sole = len(lineage.assigns[last].get("result", [])) == 1
+        work = [
+            (
+                j,
+                e,
+                owner,
+                set(),
+                last_rows if sole and j == last and owner == "result" else None,
+            )
+            for j, e, owner in exprs
+        ]
+    work += [(k, trees[k], None, _displayed(trees[k]), None) for k in sorted(opaque)]
     hits = {}
-    for j, expr, owner, skip in work:
-        for node in _cuts(lineage, j, expr, owner, skip):
+    for j, expr, owner, skip, rows in work:
+        for node in _cuts(lineage, j, expr, owner, skip, rows):
             hits[id(node)] = (j, _cut_label(node))
     return sorted(set(hits.values()))
 
@@ -1206,7 +1331,8 @@ def partial_data(
         upto = ok.index(found) + 1 if found is not None else len(ok)
         codes = [records[i].get("code") or "" for i in ok[:upto]]
         label = "answer query" if found is not None else "final query"
-        for j, msg in _truncations(codes):
+        rows = records[ok[upto - 1]].get("total_rows")
+        for j, msg in _truncations(codes, rows if type(rows) is int else None):
             where = label if j == upto - 1 else "query"
             evidence.append(f"{msg} in {where} {ok[j]}")
     return bool(evidence), evidence
