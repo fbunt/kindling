@@ -24,9 +24,6 @@ _Updated: 2026-10-01._
   `extraction` fields (if they drift, the review's fallback is voting plus a vote-split rate). Then
   `python -m bench audit --run-dir DIR` and fill `human_verdict` for the 10% sample so the report
   shows judge-human agreement. Run on `.bench-runs/pro-vs-flash` (all reviews adjudicated).
-- **Fill `failure_mode` in `.bench-runs/pro-vs-flash/gemini-3.8-flash/triage.json`.** A06 trials 0/1
-  are `domain_semantic_error` (hedged between eco1 6 and 10). T02 trial 1 (empty final response,
-  now `model_malformed`) fits none of the three modes: add a label or footnote it.
 - **Bench follow-ups from the 2026-10-01 trace audit (non-blocking; report in
   `.bench-runs/trace-audit-2026-10-01.md`).** A06 `grounded` requires the optional ecoregion name to
   appear in a result (9 of 35 grounded=False); the number cross-check can't read "Four"; report.md

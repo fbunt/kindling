@@ -71,7 +71,12 @@ ADJUDICATION_SOURCE = "grader_review"
 # (app/sandbox/worker.py, app/sandbox/pool.py).
 _RESOURCE_MARKERS = ("timed out", "terminated unexpectedly")
 
-FAILURE_MODES = ("logical_error", "domain_semantic_error", "performance_violation")
+FAILURE_MODES = (
+    "logical_error",
+    "domain_semantic_error",
+    "performance_violation",
+    "empty_response",
+)
 
 # Fields written by the pre-2026-09-29 3-vote judge; dropped on regrade.
 _LEGACY_FIELDS = (
@@ -1880,8 +1885,9 @@ def write_triage(run_dir: Path, traces: list[dict]) -> None:
     """triage.json: one entry per failed (non-accurate, non-infra) trial, for
     MANUAL failure_mode annotation (logical_error / domain_semantic_error /
     performance_violation = first point of divergence from the reference
-    query). Hand-filled failure_mode values survive re-grading; entries for
-    now-passing trials are dropped, and a trial whose regrade hit a grader
+    query; empty_response = no answer at all, e.g. an empty final
+    response). Hand-filled failure_mode values survive re-grading; entries
+    for now-passing trials are dropped, and a trial whose regrade hit a grader
     error keeps its previous entry unchanged."""
     triage_path = run_dir / "triage.json"
     existing = {}
