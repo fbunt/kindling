@@ -189,7 +189,11 @@ async def run_chat_turn(
     response_text = _extract_text(response)
     if not response_text:
         _log_empty_response(response, all_plots, all_queries)
-        response_text = "I ran out of tool-use rounds before producing an answer."
+        response_text = (
+            "I ran out of tool-use rounds before producing an answer."
+            if loop_exhausted
+            else "The model returned an empty response."
+        )
         if last_rejection:
             response_text += (
                 f" The last query failed with: `{last_rejection['error']}`. "

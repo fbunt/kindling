@@ -40,9 +40,9 @@ HARDER_PROMPT = (
     "per decade and fit a linear trend to it. Report the exact numbers."
 )
 
-# Leading text of run_chat_turn's fallback when the final call returns no
-# text (inline in app/chat_loop.py; tests/test_chat_loop.py matches the same
-# prefix).
+# Leading text of run_chat_turn's fallback when the loop-exhaustion final call
+# returns no text (inline in app/chat_loop.py; tests/test_chat_loop.py matches
+# the same prefix).
 FALLBACK_PREFIX = "I ran out of tool-use rounds"
 
 OUTCOME_CRITERION = (

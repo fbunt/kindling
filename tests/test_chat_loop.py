@@ -106,7 +106,8 @@ async def test_empty_final_response_keeps_fallback_text(monkeypatch):
 
 async def test_malformed_function_call_candidate_does_not_crash():
     """finish_reason=MALFORMED_FUNCTION_CALL comes back with content=None; the
-    turn must end with the fallback text instead of an AttributeError."""
+    turn must end with the fallback text instead of an AttributeError, and must
+    not claim the round budget ran out when it didn't."""
 
     class _Malformed:
         def generate_content(self, *, model, contents, config):
@@ -129,7 +130,8 @@ async def test_malformed_function_call_candidate_does_not_crash():
     ]
     done = events[-1]
     assert isinstance(done, DoneEvent)
-    assert done.result.text.startswith("I ran out of tool-use rounds")
+    assert done.result.text.startswith("The model returned an empty response.")
+    assert not done.result.loop_exhausted
     assert done.result.tool_calls == []
 
 
