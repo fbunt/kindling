@@ -19,11 +19,12 @@ _Updated: 2026-10-01._
 
 ## TODO
 
-- **Check the new grader on real traces (pending user runs).** The blind extractor's temperature-0
-  stability on Gemini 3.x is unmeasured: grade one real run twice with `--regrade` and diff the
-  `extraction` fields (if they drift, the review's fallback is voting plus a vote-split rate). Then
-  `python -m bench audit --run-dir DIR` and fill `human_verdict` for the 10% sample so the report
-  shows judge-human agreement. Run on `.bench-runs/pro-vs-flash` (all reviews adjudicated).
+- **Judge-human agreement (pending user run).** `python -m bench audit --run-dir
+  .bench-runs/pro-vs-flash` and fill `human_verdict` for the 10% sample so the report shows
+  agreement. Extractor stability is measured (2026-10-01, pro-vs-flash graded 3x at temperature 0):
+  0 verdict flips in 250 trials; 228 extractions identical; the drift is `unit` (19: 18 on questions
+  with no unit rule, one T03 null vs "times" that grades the same), name order (1) and value
+  rounding (2, both in band).
 - **Bench follow-ups from the 2026-10-01 trace audit (non-blocking; report in
   `.bench-runs/trace-audit-2026-10-01.md`).** A06 `grounded` requires the optional ecoregion name to
   appear in a result (9 of 35 grounded=False); the number cross-check can't read "Four"; report.md
