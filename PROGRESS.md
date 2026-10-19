@@ -19,6 +19,23 @@ _Updated: 2026-10-19._
 
 ## TODO
 
+- **Extended bench tier (E01-E14): the next substantive step.** The core 25 questions are at
+  ceiling for Pro and do not separate the models. Plan plus its review are in
+  `.bench-runs/extended-tier-plan.md` (gitignored). Revise the plan before building; the review's
+  two blockers: the "abstain" answer kind conflicts with the extractor's null-unless-answered rule,
+  and ground truth needs a memory cap (`systemd-run --user --scope -p MemoryMax=100G`). Keep the
+  extended tier's grader sha separate from the core tier's, since pro-vs-flash is already graded.
+- **Polars: on 1.41.2; 1.44.2 is the latest 1.x and 2.0.0 shipped 2026-10-06.** `pyproject.toml` has
+  only a floor (`>=1.38.1`), so `uv lock --upgrade` would jump to 2.0; cap at `<2` unless upgrading
+  on purpose. Upgrade between bench runs only, bumping `uv.lock` and the Containerfile pin together
+  and recomputing ground truth (`bench gt --force`).
+- **A06 wording is ambiguous; reword it before the next bench run.** "Most burned-pixel rows" counts
+  every row in the reference (eco1 6), but `bs` has an Unburned class, and reading "burned" as bs 2-4
+  makes eco1 10 win by 0.35%. Flash hedged between the two on A06 trials 0 and 1. Those stay fails in
+  pro-vs-flash (the strict rule was set before grading; relaxing it after seeing who it hurts would be
+  post hoc), labeled `question_ambiguity` in triage, and the paper should footnote them. Suggested
+  text: "the most rows (pixels of any burn-severity class)". This changes A06's `question_sha`, so
+  do it with the extended tier or the next run, not against the frozen pro-vs-flash run.
 - **Bench follow-ups from the 2026-10-01 trace audit (non-blocking; report in
   `.bench-runs/trace-audit-2026-10-01.md`).** A06 `grounded` requires the optional ecoregion name to
   appear in a result (9 of 35 grounded=False); the number cross-check can't read "Four"; report.md

@@ -76,6 +76,7 @@ FAILURE_MODES = (
     "domain_semantic_error",
     "performance_violation",
     "empty_response",
+    "question_ambiguity",
 )
 
 # Fields written by the pre-2026-09-29 3-vote judge; dropped on regrade.
@@ -1886,9 +1887,11 @@ def write_triage(run_dir: Path, traces: list[dict]) -> None:
     MANUAL failure_mode annotation (logical_error / domain_semantic_error /
     performance_violation = first point of divergence from the reference
     query; empty_response = no answer at all, e.g. an empty final
-    response). Hand-filled failure_mode values survive re-grading; entries
-    for now-passing trials are dropped, and a trial whose regrade hit a grader
-    error keeps its previous entry unchanged."""
+    response; question_ambiguity = a hedge across defensible readings of
+    the question's wording, failed by the strict rule). Hand-filled
+    failure_mode values survive re-grading; entries for now-passing trials
+    are dropped, and a trial whose regrade hit a grader error keeps its
+    previous entry unchanged."""
     triage_path = run_dir / "triage.json"
     existing = {}
     if triage_path.exists():
