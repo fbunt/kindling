@@ -25,9 +25,8 @@ _Updated: 2026-10-19._
   two blockers: the "abstain" answer kind conflicts with the extractor's null-unless-answered rule,
   and ground truth needs a memory cap (`systemd-run --user --scope -p MemoryMax=100G`). Keep the
   extended tier's grader sha separate from the core tier's, since pro-vs-flash is already graded.
-- **Polars: on 1.41.2; 1.44.2 is the latest 1.x and 2.0.0 shipped 2026-10-06.** `pyproject.toml` has
-  only a floor (`>=1.38.1`), so `uv lock --upgrade` would jump to 2.0; cap at `<2` unless upgrading
-  on purpose. Upgrade between bench runs only, bumping `uv.lock` and the Containerfile pin together
+- **Polars: on 1.41.2, capped `<2` in `pyproject.toml`; 1.44.2 is the latest 1.x and 2.0.0 shipped
+  2026-10-06.** Upgrade between bench runs only, bumping `uv.lock` and the Containerfile pin together
   and recomputing ground truth (`bench gt --force`).
 - **A06 wording is ambiguous; reword it before the next bench run.** "Most burned-pixel rows" counts
   every row in the reference (eco1 6), but `bs` has an Unburned class, and reading "burned" as bs 2-4

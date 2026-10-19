@@ -624,7 +624,7 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'worker'" },
     { name = "numpy", marker = "extra == 'worker'" },
     { name = "pandas", marker = "extra == 'worker'" },
-    { name = "polars", specifier = ">=1.38.1" },
+    { name = "polars", specifier = ">=1.38.1,<2" },
     { name = "pyarrow" },
     { name = "python-dotenv" },
     { name = "python-multipart" },

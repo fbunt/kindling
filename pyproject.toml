@@ -10,7 +10,7 @@ dependencies = [
     "itsdangerous",
     "python-dotenv",
     "python-multipart",
-    "polars>=1.38.1",
+    "polars>=1.38.1,<2",
     "pyarrow",
     "anyio>=4.13",
 ]
