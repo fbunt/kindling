@@ -18,7 +18,7 @@ uv add <package>                           # Add a dependency
 uv run pytest -q                           # Unit tests (no dataset/runtime needed; see Testing & CI)
 uv run pytest --run-evals tests/evals      # Model-behaviour evals: real Gemini calls, needs key+parquet+runtime
 uv run ruff check app/ tests/ && uv run ruff format   # Lint/format (CI gate; pre-commit runs both)
-uv run python -m bench {gt|run|grade|report|audit|compare}  # Paper accuracy benchmark (see Benchmark)
+uv run python -m bench {gt|run|grade|report|audit|audit-web|compare}  # Paper accuracy benchmark (see Benchmark)
 ```
 
 Even the plain local `uv run kindling` path needs a container runtime **and** a built
@@ -105,6 +105,12 @@ other event-count question says "Count every incident type". Subcommands (usage 
   in `bench/prices.py`; calls over Pro's 200k long-context tier are flagged, not repriced).
 - `audit --run-dir DIR [--fraction 0.1] [--seed 0]` samples graded trials into `DIR/audit.json`
   for a hand `human_verdict` (kept across re-runs); report shows judge-human agreement.
+- `audit-web --run-dir DIR [--port 8765]` serves those audit files on 127.0.0.1 as a review
+  page (`bench/audit_web.py` + `audit_web.html`): rendered response, expected value, the
+  model's queries and results; models shuffled together, the grader verdict and extraction
+  hidden until a verdict is recorded, the model name until every entry sharing that question
+  and trial is judged (the models share sample slots). Saves write `human_verdict`/`human_note`
+  into each run's audit.json (writes need an `X-Bench-Audit` header against cross-site posts).
 - `compare A B` (or `compare DIR` with two model subdirs) writes `compare-<A>-vs-<B>.md` next
   to A (`--out` overrides): macro pass@1 and pass^k, question-clustered bootstrap 95% CIs (10k
   seeded resamples), a Monte Carlo sign-flip test, disagreeing questions, descriptive

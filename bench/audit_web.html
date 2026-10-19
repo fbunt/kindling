@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bench Audit</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66;
+    --border: #e2e1dc; --accent: #2f5fb3; --pass: #2e7d4f; --fail: #b3412f;
+    --pass-bg: #e6f3eb; --fail-bg: #f8e7e3; --code-bg: #f1f0ec; --sel: #e9eefa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --panel: #1f1f1d; --text: #e8e7e3; --muted: #9a9993;
+      --border: #34342f; --accent: #7fa6ec; --pass: #6cc28f; --fail: #ec8a78;
+      --pass-bg: #1f3428; --fail-bg: #3a231f; --code-bg: #2a2a27; --sel: #26304a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; gap: 16px; align-items: center;
+           padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  header label { color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  .progress { color: var(--muted); font-size: 13px; }
+  .layout { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 49px); }
+  nav { border-right: 1px solid var(--border); background: var(--panel); overflow-y: auto;
+        max-height: calc(100vh - 49px); position: sticky; top: 49px; }
+  nav button { display: flex; width: 100%; gap: 8px; align-items: center; padding: 7px 14px;
+               border: 0; background: none; color: inherit; font: inherit; font-size: 14px;
+               text-align: left; cursor: pointer; }
+  nav button:hover { background: var(--code-bg); }
+  nav button.current { background: var(--sel); }
+  nav .dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; }
+  nav .dot.pass { background: var(--pass); border-color: var(--pass); }
+  nav .dot.fail { background: var(--fail); border-color: var(--fail); }
+  nav .who { color: var(--muted); font-size: 12px; margin-left: auto; }
+  main { padding: 20px 28px 80px; max-width: 1000px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+          padding: 16px 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+             margin: 0 0 8px; font-weight: 600; }
+  .question { font-size: 17px; }
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+  .response table, .tbl { border-collapse: collapse; margin: 8px 0; font-size: 14px; }
+  .response th, .response td, .tbl th, .tbl td { border: 1px solid var(--border); padding: 3px 9px; }
+  .response th, .tbl th { background: var(--code-bg); font-weight: 600; }
+  .tbl td.num, .tbl th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+  pre, code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto;
+        white-space: pre-wrap; word-break: break-word; margin: 6px 0; }
+  .response code { background: var(--code-bg); padding: 1px 4px; border-radius: 4px; }
+  .response pre code { background: none; padding: 0; }
+  details { border-top: 1px solid var(--border); padding: 8px 0; }
+  details:first-of-type { border-top: 0; }
+  summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  .err { color: var(--fail); }
+  .verdict { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+             background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+             padding: 12px 16px; box-shadow: 0 -4px 14px rgba(0,0,0,.06); }
+  .verdict button { font: inherit; font-weight: 600; padding: 7px 18px; border-radius: 6px; cursor: pointer;
+                    border: 1.5px solid var(--border); background: var(--panel); color: var(--text); }
+  .verdict button.pass.on { background: var(--pass-bg); border-color: var(--pass); color: var(--pass); }
+  .verdict button.fail.on { background: var(--fail-bg); border-color: var(--fail); color: var(--fail); }
+  .verdict button.ghost { font-weight: 400; color: var(--muted); }
+  .verdict textarea { flex: 1 1 260px; min-height: 38px; resize: vertical; font: inherit; font-size: 14px;
+                      padding: 6px 9px; border-radius: 6px; border: 1px solid var(--border);
+                      background: var(--bg); color: var(--text); }
+  .status { font-size: 13px; color: var(--muted); min-width: 60px; }
+  .status.bad { color: var(--fail); }
+  .reveal dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+  .reveal dt { color: var(--muted); }
+  .reveal dd { margin: 0; }
+  .agree { font-weight: 600; color: var(--pass); }
+  .disagree { font-weight: 600; color: var(--fail); }
+  .keys { color: var(--muted); font-size: 12px; }
+  kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px;
+        font-size: 11px; background: var(--code-bg); }
+  .empty { color: var(--muted); padding: 40px; }
+  @media (max-width: 720px) {
+    .layout { grid-template-columns: 1fr; }
+    nav { position: static; max-height: 180px; border-right: 0; border-bottom: 1px solid var(--border); }
+    main { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bench audit</h1>
+  <span class="progress" id="progress"></span>
+  <span class="spacer"></span>
+  <label title="Hide the grader's verdict until you record yours, and the model until both entries for a question and trial are judged">
+    <input type="checkbox" id="blind" checked> blind
+  </label>
+  <span class="keys"><kbd>p</kbd> pass <kbd>f</kbd> fail <kbd>j</kbd>/<kbd>k</kbd> next/prev</span>
+</header>
+<div class="layout">
+  <nav id="list"></nav>
+  <main id="main"><div class="empty">Loading…</div></main>
+</div>
+<script>
+"use strict";
+let items = [];
+let current = 0;
+const revealed = new Set();
+const $ = (id) => document.getElementById(id);
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+function markdown(text) {
+  if (window.marked && window.DOMPurify) {
+    return DOMPurify.sanitize(marked.parse(text), { FORBID_TAGS: ["style", "img", "svg", "math"] });
+  }
+  return `<pre>${esc(text)}</pre>`;
+}
+function fmtNum(v) {
+  if (typeof v !== "number") return esc(v);
+  return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+function isScalar(v) { return v === null || ["string", "number", "boolean"].includes(typeof v); }
+
+// A JSON value as a table when it has a table's shape, else as JSON.
+function renderValue(v, maxRows = 200) {
+  if (isScalar(v)) return `<div class="question">${fmtNum(v)}</div>`;
+  if (Array.isArray(v) && v.length && v.every((r) => r && typeof r === "object" && !Array.isArray(r))) {
+    const cols = [...new Set(v.flatMap((r) => Object.keys(r)))];
+    const rows = v.slice(0, maxRows);
+    const head = cols.map((c) => `<th>${esc(c)}</th>`).join("");
+    const body = rows.map((r) => "<tr>" + cols.map((c) => {
+      const x = r[c];
+      return `<td class="${typeof x === "number" ? "num" : ""}">${isScalar(x) ? fmtNum(x) : esc(JSON.stringify(x))}</td>`;
+    }).join("") + "</tr>").join("");
+    const more = v.length > rows.length ? `<div class="meta">${v.length - rows.length} more rows not shown</div>` : "";
+    return `<div class="scroll"><table class="tbl"><tr>${head}</tr>${body}</table></div>${more}`;
+  }
+  if (v && typeof v === "object" && !Array.isArray(v) && Object.values(v).every(isScalar)) {
+    const body = Object.entries(v).map(([k, x]) =>
+      `<tr><th>${esc(k)}</th><td class="${typeof x === "number" ? "num" : ""}">${fmtNum(x)}</td></tr>`).join("");
+    return `<div class="scroll"><table class="tbl">${body}</table></div>`;
+  }
+  if (Array.isArray(v) && v.every(isScalar)) return `<div>${v.map(fmtNum).join(", ")}</div>`;
+  return `<pre>${esc(JSON.stringify(v, null, 2))}</pre>`;
+}
+
+function renderQuery(q, i) {
+  let result;
+  if (q.error) {
+    result = `<pre class="err">${esc(q.error)}</pre>`;
+  } else if (q.data == null) {
+    result = `<div class="meta">no result</div>`;
+  } else {
+    let parsed;
+    try { parsed = typeof q.data === "string" ? JSON.parse(q.data) : q.data; } catch { parsed = undefined; }
+    result = parsed === undefined ? `<pre>${esc(q.data)}</pre>` : renderValue(parsed);
+  }
+  const notes = [];
+  if (q.total_rows != null) notes.push(`${q.total_rows.toLocaleString()} rows`);
+  if (q.truncated) notes.push("truncated to 100 rows for the model");
+  if (q.data_cut) notes.push("result text cut");
+  return `<details>
+    <summary>Query ${i + 1}${q.error ? ' <span class="err">(error)</span>' : ""}${notes.length ? " · " + esc(notes.join(", ")) : ""}</summary>
+    <pre>${esc(q.code)}</pre>${result}</details>`;
+}
+
+// Both models drew the same question/trial slots, so seeing one twin's model
+// names the other: in blind mode a model shows only once every entry sharing
+// its question and trial is judged. "Reveal anyway" shows the grader, not this.
+function modelVisible(it) {
+  if (!$("blind").checked) return true;
+  return items
+    .filter((t) => t.question_id === it.question_id && t.trial === it.trial)
+    .every((t) => t.human_verdict);
+}
+
+function verdictWord(v) { return v === true ? "pass" : v === false ? "fail" : "—"; }
+
+function renderReveal(it) {
+  const blind = $("blind").checked;
+  if (blind && !it.human_verdict && !revealed.has(it.id)) {
+    return `<div class="card reveal"><h2>Grader</h2>
+      <div class="meta">Hidden until you record a verdict.</div>
+      <button class="ghost" onclick="reveal()">Reveal anyway</button></div>`;
+  }
+  let agreement = "";
+  if (it.human_verdict && typeof it.grader_verdict === "boolean") {
+    const same = (it.human_verdict === "pass") === it.grader_verdict;
+    agreement = same ? '<span class="agree">agrees with you</span>' : '<span class="disagree">disagrees with you</span>';
+  }
+  return `<div class="card reveal"><h2>Grader</h2><dl>
+    <dt>model</dt><dd>${modelVisible(it) ? esc(it.model)
+      : '<span class="meta">hidden until every entry for this question and trial is judged</span>'}</dd>
+    <dt>grader verdict</dt><dd>${verdictWord(it.grader_verdict)} ${it.grader_reason ? "(" + esc(it.grader_reason) + ")" : ""} ${agreement}</dd>
+    <dt>partial data</dt><dd>${it.partial_data ? "yes" : "no"}</dd>
+    <dt>extraction</dt><dd><pre>${esc(JSON.stringify(it.extraction, null, 2))}</pre></dd>
+  </dl></div>`;
+}
+
+function renderList() {
+  $("list").innerHTML = items.map((it, i) => {
+    const who = modelVisible(it) ? esc(it.model.replace(/^gemini-/, "")) : "";
+    return `<button class="${i === current ? "current" : ""}" onclick="go(${i})">
+      <span class="dot ${esc(it.human_verdict)}"></span>${i + 1}. ${esc(it.question_id)} t${esc(it.trial)}
+      <span class="who">${who}</span></button>`;
+  }).join("");
+  const done = items.filter((it) => it.human_verdict).length;
+  $("progress").textContent = `${done} / ${items.length} judged`;
+}
+
+function render() {
+  renderList();
+  if (!items.length) {
+    $("main").innerHTML = '<div class="empty">No audit entries. Run <code>python -m bench audit --run-dir DIR</code> first.</div>';
+    return;
+  }
+  const it = items[current];
+  $("main").innerHTML = `
+    <div class="card"><h2>Question ${esc(it.question_id)} · trial ${esc(it.trial)} · ${current + 1} of ${items.length}</h2>
+      <div class="question">${esc(it.question)}</div></div>
+    <div class="card"><h2>Expected</h2>${renderValue(it.expected)}</div>
+    <div class="card"><h2>Response</h2><div class="response">${markdown(it.response)}</div></div>
+    <div class="card"><h2>Queries (${it.queries.length})</h2>
+      ${it.queries.length ? it.queries.map(renderQuery).join("") : '<div class="meta">none</div>'}</div>
+    ${renderReveal(it)}
+    <div class="verdict">
+      <button class="pass ${it.human_verdict === "pass" ? "on" : ""}" onclick="save('pass')">Pass</button>
+      <button class="fail ${it.human_verdict === "fail" ? "on" : ""}" onclick="save('fail')">Fail</button>
+      <button class="ghost" onclick="save('')">Clear</button>
+      <textarea id="note" placeholder="Note (optional)" onblur="saveNote()">${esc(it.human_note)}</textarea>
+      <span class="status" id="status"></span>
+    </div>`;
+}
+
+async function post(it, verdict, note) {
+  const status = $("status");
+  status.className = "status";
+  status.textContent = "saving…";
+  try {
+    const r = await fetch("/api/verdict", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Bench-Audit": "1" },
+      body: JSON.stringify({ id: it.id, human_verdict: verdict, human_note: note, response_sha: it.response_sha }),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || r.status);
+    it.human_verdict = body.human_verdict;
+    it.human_note = body.human_note;
+    return true;
+  } catch (e) {
+    status.className = "status bad";
+    status.textContent = "not saved: " + e.message;
+    return false;
+  }
+}
+
+async function save(verdict) {
+  const it = items[current];
+  const note = $("note").value;
+  if (await post(it, verdict, note)) {
+    render();
+    $("status").textContent = "saved";
+  }
+}
+async function saveNote() {
+  const it = items[current];
+  const note = $("note")?.value ?? "";
+  if (note === it.human_note) return;
+  if (await post(it, it.human_verdict, note)) $("status").textContent = "saved";
+}
+function go(i) {
+  if (i < 0 || i >= items.length) return;
+  current = i;
+  render();
+  window.scrollTo(0, 0);
+  try { localStorage.setItem("bench-audit-current", items[i].id); } catch {}
+}
+function reveal() { revealed.add(items[current].id); render(); }
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "p") save("pass");
+  else if (e.key === "f") save("fail");
+  else if (e.key === "j" || e.key === "ArrowRight") go(current + 1);
+  else if (e.key === "k" || e.key === "ArrowLeft") go(current - 1);
+});
+$("blind").addEventListener("change", () => {
+  try { localStorage.setItem("bench-audit-blind", $("blind").checked ? "1" : "0"); } catch {}
+  render();
+});
+
+(async () => {
+  try { if (localStorage.getItem("bench-audit-blind") === "0") $("blind").checked = false; } catch {}
+  try {
+    const r = await fetch("/api/items");
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || r.status);
+    items = body.items;
+  } catch (e) {
+    $("main").innerHTML = `<div class="empty err">Could not load the audit: ${esc(e.message)}</div>`;
+    return;
+  }
+  let last = null;
+  try { last = localStorage.getItem("bench-audit-current"); } catch {}
+  const at = items.findIndex((it) => it.id === last);
+  current = at >= 0 ? at : Math.max(0, items.findIndex((it) => !it.human_verdict));
+  render();
+})();
+</script>
+</body>
+</html>

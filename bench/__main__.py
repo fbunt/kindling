@@ -7,6 +7,7 @@
     python -m bench grade   --run-dir DIR [--regrade]
     python -m bench report  --run-dir DIR
     python -m bench audit   --run-dir DIR [--fraction 0.1] [--seed 0]
+    python -m bench audit-web --run-dir DIR [--port 8765]
     python -m bench compare A [B] [--out FILE] [--seed 0] [--resamples 10000]
 
 SPEC = comma-separated question ids ("L01,M04") or a category name
@@ -45,7 +46,9 @@ decided entries over the automated verdict, and grade never overwrites them.
 
 audit samples --fraction of the graded trials (seeded) into DIR/audit.json for
 a hand `human_verdict`; re-running keeps filled verdicts, and report shows
-judge-human agreement.
+judge-human agreement. audit-web serves those files on 127.0.0.1 as a review
+page (rendered responses, expected values, the queries and their results;
+blind to model and grader verdict until you judge) that saves verdicts back.
 
 compare A B takes two graded single-model run dirs (or one interleaved dir with
 exactly two model subdirs) and writes compare-<A>-vs-<B>.md next to A (or
@@ -134,6 +137,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_audit.add_argument("--fraction", type=float, default=0.1)
     p_audit.add_argument("--seed", type=int, default=0)
 
+    p_web = sub.add_parser("audit-web", help="review page for filling the audit")
+    p_web.add_argument("--run-dir", required=True)
+    p_web.add_argument("--port", type=int, default=8765)
+
     p_cmp = sub.add_parser("compare", help="paired comparison of two graded runs")
     p_cmp.add_argument("a", help="run dir A (or an interleaved dir of two models)")
     p_cmp.add_argument("b", nargs="?", default=None, help="run dir B")
@@ -187,6 +194,14 @@ def main() -> None:
             for d in expand_run_dirs(Path(args.run_dir)):
                 print(write_audit(d, fraction=args.fraction, seed=args.seed))
         except (AuditFileError, ValueError) as e:
+            sys.exit(str(e))
+    elif args.command == "audit-web":
+        from bench.audit import AuditFileError
+        from bench.audit_web import serve
+
+        try:
+            serve(expand_run_dirs(Path(args.run_dir)), port=args.port)
+        except (AuditFileError, OSError) as e:
             sys.exit(str(e))
     elif args.command == "compare":
         from bench.compare import CompareError, compare_runs, default_out, resolve_pair
