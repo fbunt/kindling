@@ -13,7 +13,13 @@ from google.genai import errors as genai_errors
 
 from app.config import LITE_MODEL
 from bench import judge, runner
-from bench.answers import ANSWERS, normalize_name, normalize_unit, parse_date
+from bench.answers import (
+    ANSWERS,
+    EXT_ANSWERS,
+    normalize_name,
+    normalize_unit,
+    parse_date,
+)
 from bench.audit import agreement, load_audit, write_audit
 from bench.compare import (
     CompareError,
@@ -986,6 +992,223 @@ def test_parse_extraction_rejects_malformed():
     assert series["values"] == {"Low": 3}
     with pytest.raises(judge.ExtractionError):
         judge.parse_extraction(_reply(names="FLATTOP"), "text")
+
+
+EXT_KINDS = ("abstain", "disclosure", "clarify_or_assume", "plot")
+
+# A well-formed reply per extended kind, and the extraction it parses to.
+EXT_REPLIES = {
+    "abstain": (
+        {"abstained": True, "value": None},
+        {"abstained": True, "value": None, "value_text": None},
+    ),
+    "disclosure": (
+        {"total_count": 507, "truncation_disclosed": True, "names": ["A", "", "B"]},
+        {"total_count": 507, "truncation_disclosed": True, "names": ["A", "", "B"]},
+    ),
+    "clarify_or_assume": (
+        {"readings": [{"level": "level1", "measure": "events", "answer": "6"}]},
+        {"readings": [{"level": "level1", "measure": "events", "answer": "6"}]},
+    ),
+    "plot": (
+        {"year": 2006, "value": 1278.0},
+        {"year": 2006, "value": 1278.0, "value_text": "1278.0"},
+    ),
+}
+
+
+@pytest.mark.parametrize("kind", EXT_KINDS)
+def test_extended_kind_schema_and_config(kind):
+    fields = list(judge._EXT_ANSWER_PROPS[kind])
+    schema = judge.response_schema(kind)
+    assert schema["property_ordering"] == [
+        "status",
+        *fields,
+        "unit",
+        "multiple_candidates",
+        "sampled_disclosed",
+    ]
+    assert schema["required"] == [
+        "status",
+        *fields,
+        "multiple_candidates",
+        "sampled_disclosed",
+    ]
+    cfg = judge.build_config(kind)
+    assert cfg.system_instruction == judge.SYSTEM_INSTRUCTION
+    assert cfg.temperature == 0 and cfg.response_mime_type == "application/json"
+    assert list(cfg.response_schema.properties) == schema["property_ordering"]
+    prompt = judge.build_prompt("q?", "r.", kind)
+    assert prompt.startswith(f"Answer kind: {judge._EXT_KIND_GUIDANCE[kind]}")
+    props = cfg.response_schema.properties
+    if kind == "disclosure":
+        assert props["names"].max_items == judge.EXT_NAMES_CAP == 10
+        assert props["total_count"].nullable
+    if kind == "clarify_or_assume":
+        item = props["readings"].items
+        assert item.properties["level"].enum == list(judge.READING_LEVELS)
+        assert item.properties["measure"].enum == list(judge.READING_MEASURES)
+        assert item.required == ["level", "measure", "answer"]
+
+
+def test_abstain_guidance_overrides_the_answer_only_rule():
+    guidance = judge._EXT_KIND_GUIDANCE["abstain"]
+    assert "whatever `status` is" in guidance and "overrides" in guidance
+    assert "proxy figure" in guidance and '"0 fires" is 0' in guidance
+
+
+# Expected values, or text derived from them, that no extended prompt may carry.
+_EXT_LEAKS = {
+    "E04": ("suppression-cost data",),
+    "E05": ("2022",),
+    "E06": ("AUGUST COMPLEX", "DIXIE", "OKS - STARBUCK"),
+    "E07": ("Mediterranean California", "Northwestern Forested Mountains"),
+    "E09": ("1278",),
+}
+
+
+@pytest.mark.parametrize("qid", sorted(_EXT_LEAKS))
+def test_extended_extractor_is_blind(qid):
+    q = BY_ID[qid]
+    reply = _reply(**EXT_REPLIES[q.answer_kind][0])
+    fake = FakeExtractor(lambda p: reply)
+    out = judge.extract(fake, q.text, "The answer is X.", q.answer_kind)
+    assert out["error"] is None and out["extraction"]["status"] == "answer"
+    (call,) = fake.calls
+    seen = call["contents"] + call["config"].system_instruction
+    assert q.text in call["contents"]
+    spec = EXT_ANSWERS[qid]
+    criterion = q.criterion.split("{expected}")[0]
+    for leak in (*_EXT_LEAKS[qid], criterion, spec.note, "expected", "tolerance"):
+        assert leak not in seen, leak
+
+
+@pytest.mark.parametrize("kind", EXT_KINDS)
+def test_extended_kind_parses_well_formed_reply(kind):
+    fields, expected = EXT_REPLIES[kind]
+    out = judge.parse_extraction(_reply(**fields), kind)
+    assert out == {
+        "status": "answer",
+        "multiple_candidates": False,
+        "sampled_disclosed": False,
+        "unit": None,
+        **expected,
+    }
+
+
+@pytest.mark.parametrize(
+    "kind, fields",
+    [
+        ("abstain", {"value": None}),  # abstained missing
+        ("abstain", {"abstained": "yes", "value": None}),
+        ("abstain", {"abstained": True, "value": "12"}),
+        ("abstain", {"abstained": True, "value": True}),
+        ("disclosure", {"total_count": 5, "names": []}),  # flag missing
+        ("disclosure", {"total_count": 5, "truncation_disclosed": 1, "names": []}),
+        ("disclosure", {"total_count": "5", "truncation_disclosed": False}),
+        ("disclosure", {"truncation_disclosed": False, "names": "A, B"}),
+        ("disclosure", {"truncation_disclosed": False, "names": ["A", 2]}),
+        ("clarify_or_assume", {}),  # readings missing
+        ("clarify_or_assume", {"readings": False}),
+        ("clarify_or_assume", {"readings": {}}),
+        ("clarify_or_assume", {"readings": {"level": "level1"}}),
+        ("clarify_or_assume", {"readings": ["level1"]}),
+        (
+            "clarify_or_assume",
+            {"readings": [{"level": "level4", "measure": "events", "answer": "6"}]},
+        ),
+        (
+            "clarify_or_assume",
+            {"readings": [{"level": "level1", "measure": "acres", "answer": "6"}]},
+        ),
+        (
+            "clarify_or_assume",
+            {"readings": [{"level": "level1", "measure": "events", "answer": 6}]},
+        ),
+        ("clarify_or_assume", {"readings": [{"level": "level1", "answer": "6"}]}),
+        ("clarify_or_assume", {"readings": [{"level": "level1", "measure": "events"}]}),
+        ("plot", {"year": "2006", "value": 1}),
+        ("plot", {"year": 2006, "value": False}),
+        ("plot", {"year": 2006, "value": 1, "multiple_candidates": None}),
+    ],
+)
+def test_extended_kind_rejects_malformed_reply(kind, fields):
+    with pytest.raises(judge.ExtractionError):
+        judge.parse_extraction(_reply(**fields), kind)
+
+
+def test_extended_kind_rejects_bad_status():
+    raw = _reply(status="abstained", abstained=True, value=None)
+    with pytest.raises(judge.ExtractionError):
+        judge.parse_extraction(raw, "abstain")
+
+
+def test_extended_kind_missing_nullable_fields_read_as_empty():
+    assert judge.parse_extraction(_reply(abstained=False), "abstain")["value"] is None
+    plot = judge.parse_extraction(_reply(), "plot")
+    assert plot["year"] is None and plot["value"] is None
+    out = judge.parse_extraction(_reply(truncation_disclosed=False), "disclosure")
+    assert out["total_count"] is None and out["names"] == []
+
+
+def test_disclosure_keeps_only_the_leading_names():
+    names = list("ABCDEFGHIJKL")
+    reply = _reply(truncation_disclosed=False, names=names)
+    out = judge.parse_extraction(reply, "disclosure")
+    assert out["names"] == names[: judge.EXT_NAMES_CAP]
+
+
+@pytest.mark.parametrize("status", judge.STATUSES)
+def test_abstain_fields_are_kept_under_every_status(status):
+    out = judge.parse_extraction(
+        _reply(status=status, abstained=True, value=12.5), "abstain"
+    )
+    assert out["status"] == status
+    assert out["abstained"] is True and out["value"] == 12.5
+    assert out["value_text"] == "12.5"
+
+
+@pytest.mark.parametrize("kind", EXT_KINDS)
+def test_extended_kind_no_answer_extraction(kind):
+    empty = {
+        "abstain": {"abstained": False, "value": None, "value_text": None},
+        "disclosure": {"total_count": None, "truncation_disclosed": False, "names": []},
+        "clarify_or_assume": {"readings": []},
+        "plot": {"year": None, "value": None, "value_text": None},
+    }[kind]
+    fake = FakeExtractor(lambda p: pytest.fail("no call expected"))
+    out = judge.extract(fake, "q?", "  ", kind)
+    assert out["extraction"] == judge.no_answer_extraction(kind)
+    assert out["extraction"] == {
+        "status": "no_answer",
+        "multiple_candidates": False,
+        "sampled_disclosed": False,
+        "unit": None,
+        **empty,
+    }
+    assert not fake.calls
+
+
+def test_extended_kinds_leave_the_core_fingerprint_alone(monkeypatch):
+    def snapshot(fp):  # the fingerprints share the module's dicts
+        return json.dumps(fp(), sort_keys=True)
+
+    core = judge.fingerprint()
+    assert not set(EXT_KINDS) & (set(core["guidance"]) | set(core["schemas"]))
+    assert grader_sha.__wrapped__() == "ee57b57a09b8"  # uncached: hashed now
+    core, ext = snapshot(judge.fingerprint), snapshot(judge.ext_fingerprint)
+    assert set(judge.ext_fingerprint()["schemas"]) == set(EXT_KINDS)
+    monkeypatch.setitem(
+        judge._EXT_KIND_GUIDANCE, "abstain", judge._EXT_KIND_GUIDANCE["abstain"] + "!"
+    )
+    assert snapshot(judge.ext_fingerprint) != ext
+    assert snapshot(judge.fingerprint) == core
+    monkeypatch.undo()
+    assert snapshot(judge.ext_fingerprint) == ext
+    monkeypatch.setitem(judge._EXT_ANSWER_PROPS["plot"], "year", {"type": "STRING"})
+    assert snapshot(judge.ext_fingerprint) != ext
+    assert snapshot(judge.fingerprint) == core
+    assert grader_sha.__wrapped__() == "ee57b57a09b8"
 
 
 def test_malformed_reply_retried_once_then_grader_error():

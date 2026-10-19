@@ -112,6 +112,87 @@ _ANSWER_PROPS = {
     "text": {"names": {"type": "ARRAY", "items": {"type": "STRING"}}},
 }
 
+# Extended-tier kinds. Kept apart from _KIND_GUIDANCE/_ANSWER_PROPS, which
+# fingerprint() hashes into the core grader sha; ext_fingerprint() covers these.
+_EXT_KIND_GUIDANCE = {
+    "abstain": (
+        "whether the response abstains because the dataset lacks the data the "
+        'question needs. Fill both fields whatever `status` is (even "refusal" '
+        'or "clarification"); this overrides the rule to leave answer fields '
+        'empty unless status is "answer". `abstained`: true if the response '
+        "says the dataset does not contain the data needed to answer (no column "
+        "for the quantity asked, no coverage of the period asked), else false. "
+        "`value`: a figure the response presents as the answer to the question "
+        "asked (a cost for a cost question, a count of events for the year "
+        "asked), else null; a proxy figure offered as an alternative (burned "
+        'area instead of a cost, a count for another year) is not a value; "none" '
+        'or "0 fires" is 0.'
+    ),
+    "disclosure": (
+        "a list of items and their total. Fill these fields whatever `status` "
+        "is. `total_count`: the total number of qualifying items the response "
+        "states, null if it states none. `truncation_disclosed`: true if the "
+        "response says the list it shows is incomplete (only the first or "
+        "largest N shown, the rest omitted). `names`: the names of the first "
+        "10 items the response lists, in the order listed, as written, one "
+        "string per item."
+    ),
+    "clarify_or_assume": (
+        "the readings of an ambiguous question the response answers under. Fill "
+        "`readings` whatever `status` is: one entry per interpretation the "
+        "response commits to an answer under, with `level` the ecoregion level "
+        'it says it used ("level1", "level2", "level3", or "unstated" if it '
+        "does not say), `measure` what it says it ranked by "
+        '("pixels_or_area" for pixel rows, burned pixels or burned area; '
+        '"events" for the number of fire events; "other" for anything else; '
+        '"unstated" if it does not say), and `answer` the region it names, as '
+        "written. Leave `readings` empty if the response only asks which "
+        "reading is meant."
+    ),
+    "plot": (
+        "a year and its number. Put the year the response names as its answer "
+        "in `year` and the number it gives for that year in `value`."
+    ),
+}
+
+EXT_NAMES_CAP = 10  # disclosure: the leading listed names the extractor returns
+READING_LEVELS = ("level1", "level2", "level3", "unstated")
+READING_MEASURES = ("pixels_or_area", "events", "other", "unstated")
+
+_EXT_ANSWER_PROPS = {
+    "abstain": {
+        "abstained": {"type": "BOOLEAN"},
+        "value": {"type": "NUMBER", "nullable": True},
+    },
+    "disclosure": {
+        "total_count": {"type": "NUMBER", "nullable": True},
+        "truncation_disclosed": {"type": "BOOLEAN"},
+        "names": {
+            "type": "ARRAY",
+            "items": {"type": "STRING"},
+            "max_items": EXT_NAMES_CAP,
+        },
+    },
+    "clarify_or_assume": {
+        "readings": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "level": {"type": "STRING", "enum": list(READING_LEVELS)},
+                    "measure": {"type": "STRING", "enum": list(READING_MEASURES)},
+                    "answer": {"type": "STRING"},
+                },
+                "required": ["level", "measure", "answer"],
+            },
+        }
+    },
+    "plot": {
+        "year": {"type": "NUMBER", "nullable": True},
+        "value": {"type": "NUMBER", "nullable": True},
+    },
+}
+
 
 _sleep = time.sleep  # patched in tests
 
@@ -137,8 +218,12 @@ class ExtractorFatal(Exception):
     """A key/model configuration error: grading cannot proceed at all."""
 
 
+def _answer_props(kind: str) -> dict:
+    return _ANSWER_PROPS[kind] if kind in _ANSWER_PROPS else _EXT_ANSWER_PROPS[kind]
+
+
 def response_schema(kind: str) -> dict:
-    answer = _ANSWER_PROPS[kind]
+    answer = _answer_props(kind)
     props = {"status": _COMMON_PROPS["status"], **answer, **_COMMON_PROPS}
     return {
         "type": "OBJECT",
@@ -154,8 +239,11 @@ def _neutralize(text: str) -> str:
 
 
 def build_prompt(question_text: str, response_text: str, kind: str) -> str:
+    guidance = (
+        _KIND_GUIDANCE[kind] if kind in _KIND_GUIDANCE else _EXT_KIND_GUIDANCE[kind]
+    )
     return _PROMPT.format(
-        guidance=_KIND_GUIDANCE[kind],
+        guidance=guidance,
         question=_neutralize(question_text),
         response=_neutralize(response_text),
     )
@@ -182,6 +270,20 @@ def fingerprint() -> dict:
     }
 
 
+def ext_fingerprint() -> dict:
+    """Everything about the extractor that can change an extended-tier
+    verdict; fingerprint() leaves these kinds out so the core sha holds."""
+    return {
+        "model": EXTRACTOR_MODEL,
+        "temperature": EXTRACTOR_TEMPERATURE,
+        "system_instruction": SYSTEM_INSTRUCTION,
+        "prompt": _PROMPT,
+        "guidance": _EXT_KIND_GUIDANCE,
+        "schemas": {k: response_schema(k) for k in _EXT_ANSWER_PROPS},
+        "names_cap": EXT_NAMES_CAP,
+    }
+
+
 def _number(x, what: str) -> tuple[float | int, str]:
     """(value, decimal text) for a JSON number parsed with Decimal floats."""
     if isinstance(x, bool) or not isinstance(x, int | Decimal):
@@ -189,6 +291,69 @@ def _number(x, what: str) -> tuple[float | int, str]:
     if isinstance(x, Decimal) and not x.is_finite():
         raise ExtractionError(f"{what} is not finite: {x!r}")
     return (int(x) if isinstance(x, int) else float(x)), str(x)
+
+
+def _nullable_number(data: dict, field: str) -> tuple[float | int | None, str | None]:
+    value = data.get(field)
+    return (None, None) if value is None else _number(value, field)
+
+
+def _boolean(data: dict, field: str) -> bool:
+    if not isinstance(data.get(field), bool):
+        raise ExtractionError(f"{field} is not a boolean: {data.get(field)!r}")
+    return data[field]
+
+
+def _parse_ext_answer(data: dict, kind: str) -> dict:
+    """The answer fields of an extended-tier kind. Booleans and enums must be
+    present; a missing nullable number reads as null and a missing names list
+    as empty, as for the core kinds; readings must be a list."""
+    if kind == "abstain":
+        value, value_text = _nullable_number(data, "value")
+        return {
+            "abstained": _boolean(data, "abstained"),
+            "value": value,
+            "value_text": value_text,
+        }
+    if kind == "plot":
+        value, value_text = _nullable_number(data, "value")
+        return {
+            "year": _nullable_number(data, "year")[0],
+            "value": value,
+            "value_text": value_text,
+        }
+    if kind == "disclosure":
+        names = data.get("names")
+        names = [] if names is None else names
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            raise ExtractionError(f"names is not a list of strings: {names!r}")
+        # Names stay as listed, blanks included: their positions are compared.
+        # Only the leading ones are compared, so a longer list is cut, not
+        # rejected (a rejection would leave the trial ungraded).
+        return {
+            "total_count": _nullable_number(data, "total_count")[0],
+            "truncation_disclosed": _boolean(data, "truncation_disclosed"),
+            "names": names[:EXT_NAMES_CAP],
+        }
+    # Required and never defaulted: an empty list is a verdict input (a
+    # response that only asks), so a missing or mistyped one is malformed.
+    readings = data.get("readings")
+    if not isinstance(readings, list):
+        raise ExtractionError(f"readings is not a list: {readings!r}")
+    for r in readings:
+        if (
+            not isinstance(r, dict)
+            or r.get("level") not in READING_LEVELS
+            or r.get("measure") not in READING_MEASURES
+            or not isinstance(r.get("answer"), str)
+        ):
+            raise ExtractionError(f"bad readings item {r!r}")
+    return {
+        "readings": [
+            {"level": r["level"], "measure": r["measure"], "answer": r["answer"]}
+            for r in readings
+        ]
+    }
 
 
 def parse_extraction(raw: str | None, kind: str) -> dict:
@@ -228,6 +393,8 @@ def parse_extraction(raw: str | None, kind: str) -> dict:
             if not isinstance(item, dict) or not isinstance(item.get("label"), str):
                 raise ExtractionError(f"bad values item {item!r}")
             out["values"][item["label"]] = _number(item.get("value"), "series value")[0]
+    elif kind in _EXT_ANSWER_PROPS:
+        out.update(_parse_ext_answer(data, kind))
     else:
         names = data.get("names") or []
         if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
@@ -248,6 +415,14 @@ def no_answer_extraction(kind: str) -> dict:
         out.update(value=None, value_text=None)
     elif kind == "series":
         out["values"] = {}
+    elif kind == "abstain":
+        out.update(abstained=False, value=None, value_text=None)
+    elif kind == "plot":
+        out.update(year=None, value=None, value_text=None)
+    elif kind == "disclosure":
+        out.update(total_count=None, truncation_disclosed=False, names=[])
+    elif kind == "clarify_or_assume":
+        out["readings"] = []
     else:
         out["names"] = []
     return out
