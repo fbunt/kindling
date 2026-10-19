@@ -6,7 +6,7 @@ Architecture, invariants, and run/deploy wiring live in `CLAUDE.md`; user-facing
 `README.md`; the *what changed* history in `git log` (commit messages are detailed). This file
 holds only what those don't: in-flight work, the *why* behind non-obvious decisions, and blockers.
 
-_Updated: 2026-10-01._
+_Updated: 2026-10-19._
 
 > **Maintaining this file.** New work is appended to _Recently done_ with a date. When that
 > section passes ~10 items, compact it: fold anything that would stop someone redoing or
@@ -19,12 +19,6 @@ _Updated: 2026-10-01._
 
 ## TODO
 
-- **Judge-human agreement (pending user run).** `python -m bench audit --run-dir
-  .bench-runs/pro-vs-flash` and fill `human_verdict` for the 10% sample so the report shows
-  agreement. Extractor stability is measured (2026-10-01, pro-vs-flash graded 3x at temperature 0):
-  0 verdict flips in 250 trials; 228 extractions identical; the drift is `unit` (19: 18 on questions
-  with no unit rule, one T03 null vs "times" that grades the same), name order (1) and value
-  rounding (2, both in band).
 - **Bench follow-ups from the 2026-10-01 trace audit (non-blocking; report in
   `.bench-runs/trace-audit-2026-10-01.md`).** A06 `grounded` requires the optional ecoregion name to
   appear in a result (9 of 35 grounded=False); the number cross-check can't read "Four"; report.md
@@ -46,6 +40,7 @@ _Updated: 2026-10-01._
 
 ## Recently done
 
+- **2026-10-19 — Hand audit of pro-vs-flash: judge-human agreement 26/26** (13 per model, filled blind in `bench audit-web`; Clopper-Pearson 95% lower bound 86.8%). Every sampled trial was a grader pass, so this bounds false passes only; all three grader fails were hand-adjudicated separately. Extractor stability was measured earlier (3 grades, 0 verdict flips), so the core-tier numbers (Pro 125/125, Flash 122/125) are final.
 - **2026-10-01 — First real bench: 3.1 Pro 125/125, 3.8 Flash 122/125 (5 trials, $5.53 of chat calls).** The core tier is at ceiling for Pro; the paired gap is +2.4 pp, 95% CI [0, +6.4], p = 0.51, so it does not separate the models (disagreements: Flash A06 hedges between eco1 6 and 10 on 2 trials, T02 one empty response). `DEFAULT_CHAT_MODEL` stays Pro; the extended tier (plan + review in `.bench-runs/extended-tier-plan.md`) is what can separate them. The first grade flagged 23 correct answers as partial data and no real sample, so the row-cut rule now exempts ranked, tie-pick and short (fewer rows than N) cuts, and judges the query that holds the answer. Hedge policy for adjudication: a reply that names a different answer under another reading fails; a hedge whose candidates all grade correct passes. A trace-consistency audit over all 275 traces (every field recomputed, every response read) found the two things the code reviews missed: an empty STOP response was graded executable, and the chat loop said "ran out of tool-use rounds" for any empty reply; both fixed, and decided adjudications now keep the flags they answered. Lesson: review real traces for cross-field consistency, not just code against spec with fakes.
 - **2026-09-29 — Bench grading redesign (review items 5, 6, 7, 10).** The 3-vote flash-lite yes/no judge is gone: one blind extractor call (never sees the expected value) returns status/value/unit/multiple_candidates/sampled_disclosed as JSON and Python decides accuracy, so a verdict is reproducible from the stored extraction. Grading rules live in `bench/answers.py`, not on `Question`, so existing traces keep their hashes and stay gradable. Strict accuracy fails clarifications (new executability reason `clarified`) and partial-data answers. Deviation from the review's literal partial-data rule: a static-analysis heuristic follows `result` back through the turn's queries and counts only cuts that feed it, exempting ranked top-N rows only while they are the answer. It has known gaps (it is not a sandbox-level row count), so anything it is unsure of, plus unit-only fails, unsure name readings and regex disagreements, goes to `adjudication.json` for review rather than a silent verdict. `audit` samples 10% for hand verdicts; `compare` gives question-clustered bootstrap CIs and a sign-flip test and refuses mismatched grader/ground-truth/dataset hashes. Built over three review rounds; unverified: extractor stability at temperature 0 and judge-human agreement (see TODO).
 - **2026-09-29 — Benchmark fixed before its first run.** A 4-lens review (all 25 references correct) found the questions ambiguous on incident-type scope, 4 lookups answerable from the prompt's stats table, and a degenerate M05; rewritten with full-parquet ground truth matching every value the review claimed. The system prompt's examples no longer teach the non-deduplicated pixel-sum error two questions grade. The harness now buckets failures (model-caused failures stay in denominators), fingerprints runs and refuses drifted resumes, captures per-call tokens, interleaves models, and holds a host-wide lock (two 80-90 GB queries would exceed the 125 GB host). Worker polars/pyarrow now match uv.lock, so ground truth and model queries run the same polars.
