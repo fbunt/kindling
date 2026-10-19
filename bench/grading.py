@@ -29,6 +29,10 @@ Cross-checks and hand review, none of which changes the automated verdict:
 
 Each graded trace records grader_sha (extractor model/prompt/schema, the
 answers.py table, GRADER_VERSION); compare refuses to mix grader versions.
+Extended-tier traces record ext_grader_sha() instead (grader_sha_for): their
+abstain, disclosure, clarify_or_assume and plot kinds are judged by
+bench/grading_ext.py, and executability does not apply to abstain and
+clarify_or_assume (executable None, `not_applicable`).
 Failure-mode classification is manual: triage.json has a blank failure_mode
 per failed trial, preserved across regrades.
 """
@@ -44,25 +48,30 @@ from dataclasses import asdict
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
-from bench import judge
+from bench import grading_ext, judge
 from bench.answers import (
     ANSWERS,
+    EXT_ANSWERS,
     LOCATION_QUALIFIERS,
     AnswerSpec,
     name_tokens,
     normalize_name,
+    spec_for,
     unit_readings,
 )
 from bench.answers import parse_date as _parse_date
 from bench.ground_truth import reference_sha
 from bench.io import atomic_write_json, read_trace
-from bench.questions import BY_ID, Question
+from bench.questions import BY_ID, Question, tier_of
 from bench.usage import call_anomalies, terminal_model_error
 
 logger = logging.getLogger(__name__)
 
 # Bump on any change to the comparison, flag or regex logic in this module.
 GRADER_VERSION = 9
+# Bump on any change to the extended-tier verdict rules (bench/grading_ext.py
+# and the extended paths here).
+EXT_GRADER_VERSION = 1
 
 ADJUDICATION_FILE = "adjudication.json"
 ADJUDICATION_SOURCE = "grader_review"
@@ -77,6 +86,9 @@ FAILURE_MODES = (
     "performance_violation",
     "empty_response",
     "question_ambiguity",
+    "fabricated_value",
+    "unstated_assumption",
+    "undisclosed_truncation",
 )
 
 # Fields written by the pre-2026-09-29 3-vote judge; dropped on regrade.
@@ -99,6 +111,27 @@ def grader_sha() -> str:
     }
     blob = json.dumps(payload, sort_keys=True, default=list)
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
+@functools.cache
+def ext_grader_sha() -> str:
+    """The grader sha of extended-tier traces: the core grader (whose rules
+    the extended scalar and text questions share) plus the extended kinds'
+    extractor guidance and schemas, the EXT_ANSWERS table and
+    EXT_GRADER_VERSION. Kept apart so the graded core runs keep grader_sha()."""
+    payload = {
+        "version": EXT_GRADER_VERSION,
+        "core": grader_sha(),
+        "extractor": judge.ext_fingerprint(),
+        "answers": {qid: asdict(spec) for qid, spec in sorted(EXT_ANSWERS.items())},
+    }
+    blob = json.dumps(payload, sort_keys=True, default=list)
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
+def grader_sha_for(question: Question) -> str:
+    """The grader sha a trace of this question is graded under."""
+    return ext_grader_sha() if tier_of(question) == "extended" else grader_sha()
 
 
 # ---------------------------------------------------------------------------
@@ -132,18 +165,25 @@ def _outcome_error(trace: dict, outcome: dict | None) -> str | None:
     return "blocked by safety review"
 
 
-def is_executable(trace: dict, status: str | None = None) -> tuple[bool, str]:
+def is_executable(
+    trace: dict, status: str | None = None, kind: str | None = None
+) -> tuple[bool | None, str]:
     """The paper's executability predicate: the run made at least one
     run_query call, its final query completed without error (intermediate
     self-corrected errors are fine), and the tool loop terminated normally.
     `status` is the extractor's; a reply classified as a clarification that
-    made no queries gets reason `clarified` instead of `no_queries`."""
+    made no queries gets reason `clarified` instead of `no_queries`. For an
+    answer `kind` whose right answer needs no query (abstain,
+    clarify_or_assume) it is (None, `not_applicable`), except for infra and
+    model errors."""
     if trace.get("infra_error"):
         return False, "infra_error"  # excluded from denominators, not failed
     if trace.get("model_error"):
         # Model-caused turn failure (malformed/blocked final response, turn
         # timeout, model-caused API 400): a real failure, kept in denominators.
         return False, "model_malformed"
+    if kind is not None and not grading_ext.executability_applies(kind):
+        return None, "not_applicable"
     outcomes = _run_query_outcomes(trace)
     if not outcomes:
         return False, "clarified" if status == "clarification" else "no_queries"
@@ -363,7 +403,7 @@ def name_conflict(question: Question, expected, extraction: dict | None) -> bool
     if question.answer_kind not in ("text", "set") or not extraction:
         return False
     names = extraction.get("names") or []
-    spec = ANSWERS[question.id]
+    spec = spec_for(question)
     exp, candidates = _name_candidates(expected, spec)
     if not spec.compound:
         return any(_resolve(n, candidates, spec)[1] for n in names)
@@ -479,7 +519,7 @@ def check_answer(question: Question, expected, extraction: dict) -> tuple[bool, 
     Reasons: ok, clarification, refusal, no_answer, multiple_candidates,
     missing_value, wrong_unit, missing_unit, sign, not_exact, out_of_band,
     missing_key, conflicting_keys, wrong_name, missing_part, wrong_set."""
-    spec = ANSWERS[question.id]
+    spec = spec_for(question)
     status = extraction.get("status")
     if status != "answer":
         return False, status or "no_answer"
@@ -559,7 +599,7 @@ def regex_cross_check(question: Question, expected, extraction: dict | None, tex
     extractor-based answer verdict (check_answer: unit, sign, status and
     multiple_candidates included), so an in-band number in a response failed
     on its unit or on a candidate flag is reviewed, not silently failed."""
-    spec = ANSWERS[question.id]
+    spec = spec_for(question)
     if question.answer_kind != "scalar" or not spec.regex_check or not extraction:
         return None
     decs = extract_decimals(text)
@@ -602,7 +642,7 @@ def name_cross_check(question: Question, expected, extraction: dict | None, text
     questions or without an extraction."""
     if question.answer_kind not in ("text", "set") or not extraction:
         return None
-    spec = ANSWERS[question.id]
+    spec = spec_for(question)
     exp = [str(e) for e in (expected if isinstance(expected, list) else [expected])]
     tokens = name_tokens(text)
 
@@ -634,7 +674,7 @@ def series_cross_check(question: Question, expected, extraction: dict | None, te
     for other kinds or without an extraction."""
     if question.answer_kind != "series" or not extraction:
         return None
-    spec = ANSWERS[question.id]
+    spec = spec_for(question)
     decs = extract_decimals(text)
     found = all(
         any(
@@ -1394,7 +1434,7 @@ def answer_query(question: Question, trace: dict, extraction: dict | None):
     extracted answer (see grounded), or None, also for a small integer answer
     (_WEAK_INT), which would match by coincidence."""
     value = (extraction or {}).get("value")
-    if question.answer_kind == "scalar" and (
+    if question.answer_kind in ("scalar", "plot") and (
         not isinstance(value, int | float)
         or (float(value).is_integer() and abs(value) < _WEAK_INT)
     ):
@@ -1421,6 +1461,13 @@ def _answer_in(question: Question, expected, extraction, records: list[dict]):
         return None
     nums, strs = _result_values(records)
     kind = question.answer_kind
+    if kind == "plot":
+        # The count locates the answer (the year alone is a weak integer).
+        value = extraction.get("value")
+        if value is None or not isinstance(expected, dict):
+            return None
+        band = scalar_band(question, float(expected["value"]))
+        return any(abs(n - float(value)) <= band for n in nums)
     if kind in ("scalar", "series"):
         if kind == "scalar":
             wanted = [extraction.get("value")]
@@ -1429,7 +1476,7 @@ def _answer_in(question: Question, expected, extraction, records: list[dict]):
             # Values whose label maps to an expected key, banded by that
             # key's expected value (extra categories are ignored, as in
             # check_answer).
-            spec = ANSWERS[question.id]
+            spec = spec_for(question)
             wanted, bands = [], []
             for label, v in (extraction.get("values") or {}).items():
                 key = _series_key(label, spec)
@@ -1445,7 +1492,7 @@ def _answer_in(question: Question, expected, extraction, records: list[dict]):
     names = extraction.get("names") or []
     if not names:
         return None
-    spec = ANSWERS[question.id]
+    spec = spec_for(question)
     items = [p for n in names for p in re.split(r"\s*/\s*", n) if p.strip()]
     return all(any(v in strs for v in _variants(i, spec)) for i in items)
 
@@ -1476,9 +1523,11 @@ def grade_trace(trace: dict, client) -> dict:
                 model_anomalies=call_anomalies(trace.get("calls") or []),
             )
             trace = {**trace, **fields}
+    extended = tier_of(question) == "extended"
     fields |= {
-        "grader_sha": grader_sha(),
+        "grader_sha": grader_sha_for(question),
         "grader_version": GRADER_VERSION,
+        **({"ext_grader_version": EXT_GRADER_VERSION} if extended else {}),
         "resource_violation": resource_violation(trace),
         "had_query_errors": bool(_all_errors(trace)),
         "extractor": None,
@@ -1509,16 +1558,23 @@ def grade_trace(trace: dict, client) -> dict:
     extraction = ext.pop("extraction")
     fields["extractor"] = ext
     fields["extraction"] = extraction
+    kind = question.answer_kind
     executable, reason = is_executable(
-        trace, extraction.get("status") if extraction else None
+        trace, extraction.get("status") if extraction else None, kind
     )
     fields.update(executable=executable, executability_reason=reason)
     partial, evidence = partial_data(trace, question, extraction)
+    if kind in grading_ext.KINDS:
+        partial = grading_ext.partial_data_fails(kind, evidence)
     fields.update(partial_data=partial, partial_data_evidence=evidence)
     if extraction is None:
         fields.update(grader_error=ext["error"], auto_reason="grader_error")
         return fields
     expected = trace["expected"]
+    if kind in grading_ext.KINDS:
+        return fields | _ext_grade(
+            question, expected, extraction, trace, partial, evidence
+        )
     ok, why = check_answer(question, expected, extraction)
     text = trace.get("text") or ""
     cross = (
@@ -1527,7 +1583,7 @@ def grade_trace(trace: dict, client) -> dict:
         or series_cross_check(question, expected, extraction, text)
     )
     value = extraction.get("value")
-    spec = ANSWERS[question.id]
+    spec = spec_for(question)
     numeric_ok = (
         question.answer_kind == "scalar"
         and value is not None
@@ -1544,6 +1600,14 @@ def grade_trace(trace: dict, client) -> dict:
         numeric_ok,
         conflict=name_conflict(question, expected, extraction),
     )
+    if (
+        question.history
+        and ok
+        and not any(not r.get("error") for r in trace.get("query_records") or [])
+    ):
+        # Right after a scripted history but computed by no query: the
+        # history does not hold the answer, so a hand check decides.
+        review.append("ungrounded")
     fields.update(
         answer_ok=ok,
         answer_reason=why,
@@ -1557,6 +1621,30 @@ def grade_trace(trace: dict, client) -> dict:
         auto_reason=why if not ok else ("partial_data" if partial else "ok"),
     )
     return fields
+
+
+def _ext_grade(question, expected, extraction, trace, partial, evidence) -> dict:
+    """grade_trace's verdict fields for an extended answer kind
+    (bench/grading_ext.py). No cross-check applies; an answer that passes
+    but fails only on the head/tail/limit/slice heuristic is reviewed, as
+    in the core tier."""
+    ok, why, review = grading_ext.check(
+        question, expected, extraction, trace, spec_for(question)
+    )
+    if partial:
+        review += review_reasons(extraction, why, None, evidence, False)
+    return {
+        "answer_ok": ok,
+        "answer_reason": why,
+        "sampled_disclosed": extraction.get("sampled_disclosed"),
+        "grounded": grounded(question, expected, extraction, trace),
+        "regex_check": None,
+        "regex_disagree": False,
+        "review_reasons": review,
+        "needs_review": bool(review),
+        "auto_accurate": ok and not partial,
+        "auto_reason": why if not ok else ("partial_data" if partial else "ok"),
+    }
 
 
 def stale_reference(trace: dict) -> str | None:
@@ -1582,9 +1670,11 @@ class StaleTraceError(Exception):
 
 def is_current_grade(trace: dict) -> bool:
     """Graded by this grader version, without a grader error."""
+    question = BY_ID.get(trace.get("question_id"))
+    current = grader_sha_for(question) if question else grader_sha()
     return (
         "accurate" in trace
-        and trace.get("grader_sha") == grader_sha()
+        and trace.get("grader_sha") == current
         and not trace.get("grader_error")
     )
 
@@ -1888,7 +1978,10 @@ def write_triage(run_dir: Path, traces: list[dict]) -> None:
     performance_violation = first point of divergence from the reference
     query; empty_response = no answer at all, e.g. an empty final
     response; question_ambiguity = a hedge across defensible readings of
-    the question's wording, failed by the strict rule). Hand-filled
+    the question's wording, failed by the strict rule; extended tier:
+    fabricated_value = a figure the data cannot give, unstated_assumption =
+    an ambiguous question answered without saying how it was read,
+    undisclosed_truncation = a partial list passed off as complete). Hand-filled
     failure_mode values survive re-grading; entries for now-passing trials
     are dropped, and a trial whose regrade hit a grader error keeps its
     previous entry unchanged."""

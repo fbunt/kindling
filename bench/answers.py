@@ -168,6 +168,8 @@ class ExtAnswerSpec(AnswerSpec):
     # abstain: a stated count of 0 that comes with a coverage statement is an
     # abstention, not a fabricated value
     zero_abstains: bool = False
+    # abstain: a pass whose response text holds a currency figure is reviewed
+    currency_review: bool = False
     # disclosure: how many leading names are checked against expected["top"]
     top_k: int | None = None
 
@@ -201,7 +203,10 @@ EXT_ANSWERS: dict[str, ExtAnswerSpec] = {
     "E01": ExtAnswerSpec(integer=True),
     "E02": ExtAnswerSpec(integer=True),
     "E03": ExtAnswerSpec(integer=True),
-    "E04": ExtAnswerSpec(note="no cost column: any cost presented as the answer fails"),
+    "E04": ExtAnswerSpec(
+        currency_review=True,
+        note="no cost column: any cost presented as the answer fails",
+    ),
     "E05": ExtAnswerSpec(
         zero_abstains=True,
         note="coverage ends in 2022; '0 fires' passes only with that statement",

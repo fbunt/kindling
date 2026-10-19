@@ -14,6 +14,7 @@ from bench.grading import (
     adjudication_index,
     apply_adjudication,
     grader_sha,
+    grader_sha_for,
     load_adjudication,
 )
 from bench.io import read_trace
@@ -23,7 +24,7 @@ from bench.prices import (
     estimate_usd,
     long_context_calls,
 )
-from bench.questions import CATEGORIES
+from bench.questions import BY_ID, CATEGORIES
 from bench.usage import merge_usage, total_tokens
 
 logger = logging.getLogger(__name__)
@@ -92,14 +93,22 @@ def _clarified(t: dict) -> bool:
     return (t.get("extraction") or {}).get("status") == "clarification"
 
 
+def _current_sha(trace: dict) -> str:
+    question = BY_ID.get(trace.get("question_id"))
+    return grader_sha_for(question) if question else grader_sha()
+
+
 def rates(ts: list[dict]) -> dict:
     """Headline rates over graded non-infra trials (model-caused failures stay
     in every denominator). Accuracy is strict: clarifications, multiple
-    candidates and partial-data answers fail."""
+    candidates and partial-data answers fail. `applicable` counts the trials
+    executability applies to (executable not None), the executability and
+    exec & accurate denominator."""
     n = len(ts)
     execs = [t for t in ts if t.get("executable")]
     return {
         "n": n,
+        "applicable": sum(t.get("executable") is not None for t in ts),
         "accurate": sum(bool(t.get("accurate")) for t in ts),
         "executable": len(execs),
         "joint": sum(bool(t.get("accurate")) for t in execs),
@@ -125,8 +134,8 @@ def _category_rows(graded: list[dict], target: int) -> list[list[str]]:
                 cat,
                 len(qids),
                 _pct(r["accurate"], r["n"]),
-                _pct(r["executable"], r["n"]),
-                _pct(r["joint"], r["n"]),
+                _pct(r["executable"], r["applicable"]),
+                _pct(r["joint"], r["applicable"]),
                 _pct(r["clarified"], r["n"]),
                 _pct(r["joint"], r["executable"]),
                 f"{all_correct}/{len(qids)}",
@@ -137,7 +146,6 @@ def _category_rows(graded: list[dict], target: int) -> list[list[str]]:
 
 
 def _flags(trials: list[dict]) -> str:
-    sha = grader_sha()
     checks = (
         ("resource_violation", lambda t: t.get("resource_violation")),
         ("needs_review", lambda t: t.get("needs_review")),
@@ -153,7 +161,7 @@ def _flags(trials: list[dict]) -> str:
         ("ungraded", lambda t: not t.get("infra_error") and "accurate" not in t),
         (
             "old_grader",
-            lambda t: "accurate" in t and t.get("grader_sha") != sha,
+            lambda t: "accurate" in t and t.get("grader_sha") != _current_sha(t),
         ),
     )
     return ", ".join(name for name, pred in checks if any(pred(t) for t in trials))
@@ -166,6 +174,7 @@ def _question_rows(traces: list[dict], target: int) -> list[list[str]]:
         graded = [t for t in trials if is_graded(t)]
         n = len(graded)
         acc = sum(bool(t.get("accurate")) for t in graded)
+        applicable = [t for t in graded if t.get("executable") is not None]
         query_lats = [
             r.get("latency_s") for t in graded for r in t.get("query_records") or []
         ]
@@ -177,7 +186,10 @@ def _question_rows(traces: list[dict], target: int) -> list[list[str]]:
             [
                 qid,
                 trials[0].get("category", "?"),
-                f"{sum(bool(t.get('executable')) for t in graded)}/{n}",
+                f"{sum(bool(t.get('executable')) for t in applicable)}/"
+                f"{len(applicable)}"
+                if applicable or not graded
+                else "n/a",
                 f"{acc}/{n}",
                 f"{acc / n:.2f}" if n else "-",
                 "yes" if n >= target and acc == n else "no",
@@ -193,7 +205,7 @@ def _question_rows(traces: list[dict], target: int) -> list[list[str]]:
 def _grading_section(
     run_dir: Path, graded: list[dict], errors: list[dict]
 ) -> list[str]:
-    sha = grader_sha()
+    current = sorted({_current_sha(t) for t in graded})
     shas = sorted({str(t.get("grader_sha")) for t in graded})
     versions = sorted(
         {
@@ -233,7 +245,12 @@ def _grading_section(
         "## Grading",
         "",
         f"- grader sha: {', '.join(f'`{s}`' for s in shas)}"
-        + ("" if shas == [sha] else f" - **current grader is `{sha}`; re-run grade**"),
+        + (
+            ""
+            if shas == current
+            else f" - **current grader is {', '.join(f'`{s}`' for s in current)}; "
+            "re-run grade**"
+        ),
         f"- extractor served version(s): {', '.join(versions) or '-'}",
         f"- grader errors (extractor failed twice; counted as ungraded): "
         f"{len(errors)}" + (" - **re-run grade to retry**" if errors else ""),
@@ -569,7 +586,9 @@ def build_report(run_dir: Path) -> str:
                     [
                         e.get("question_id"),
                         e.get("trial"),
-                        "yes" if e.get("executable") else "no",
+                        "n/a"
+                        if e.get("executable") is None
+                        else ("yes" if e.get("executable") else "no"),
                         str(e.get("executability_reason"))
                         + (" (resource)" if e.get("resource_violation") else ""),
                         e.get("accuracy_reason") or "-",

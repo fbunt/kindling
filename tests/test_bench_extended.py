@@ -86,7 +86,8 @@ def test_every_question_has_its_tier_answer_spec():
     assert all(type(spec) is AnswerSpec for spec in ANSWERS.values())
     assert all(isinstance(spec, ExtAnswerSpec) for spec in EXT_ANSWERS.values())
     core_fields = {f.name for f in dataclasses.fields(AnswerSpec)}
-    assert not {"zero_abstains", "top_k"} & core_fields  # hashed into grader_sha
+    ext_only = {"zero_abstains", "currency_review", "top_k"}
+    assert not ext_only & core_fields  # hashed into grader_sha
     for q in QUESTIONS:
         assert spec_for(q) is ANSWERS[q.id]
     for q in EXTENDED:
