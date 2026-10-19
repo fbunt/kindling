@@ -21,7 +21,7 @@ from app.config import CHAT_MODEL_IDS, LITE_MODEL, MAX_TOOL_ROUNDS
 from app.sandbox.pool import SandboxBusy
 from bench import provenance
 from bench.__main__ import build_parser
-from bench.grading import is_executable, stale_reference
+from bench.grading import grader_sha, is_executable, stale_reference
 from bench.ground_truth import parquet_identity, reference_sha
 from bench.io import atomic_write_json, move_aside, read_trace
 from bench.questions import BY_ID, QUESTIONS
@@ -258,6 +258,33 @@ def test_question_sha_tracks_wording_not_reference():
     recoded = type(q)(**{**q.__dict__, "reference_code": q.reference_code + "\n"})
     assert provenance.question_sha(recoded) == provenance.question_sha(q)
     assert reference_sha(recoded) != reference_sha(q)
+
+
+# The run behind the paper's core numbers. A change below means the core tier
+# no longer matches it; update these only for an intended change and say so in
+# the commit (decision 0004).
+ARCHIVE = Path(__file__).parent.parent / "bench" / "results" / "pro-vs-flash-2026-10"
+ARCHIVE_MODELS = ("gemini-3.1-pro-preview", "gemini-3.8-flash")
+# Reworded since the archived run.
+REWORDED_SINCE_ARCHIVE: set[str] = set()
+
+
+@pytest.mark.parametrize("model", ARCHIVE_MODELS)
+def test_core_wording_matches_the_archived_run(model):
+    shas = json.loads((ARCHIVE / model / "run_meta.json").read_text())["question_shas"]
+    assert set(shas) == {q.id for q in QUESTIONS}
+    changed = {q.id for q in QUESTIONS if provenance.question_sha(q) != shas[q.id]}
+    assert changed == REWORDED_SINCE_ARCHIVE
+
+
+def test_core_references_match_the_archived_ground_truth():
+    cache = json.loads((ARCHIVE / "ground_truth" / "29d168015b13.json").read_text())
+    for q in QUESTIONS:
+        assert reference_sha(q) == cache[q.id]["reference_sha"], q.id
+
+
+def test_core_grader_matches_the_archived_run():
+    assert grader_sha() == "ee57b57a09b8"
 
 
 def test_prompt_sha_covers_prompt_and_tools():
