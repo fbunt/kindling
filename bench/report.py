@@ -12,6 +12,7 @@ from bench.audit import AuditFileError, agreement, load_audit
 from bench.grading import (
     AdjudicationFileError,
     adjudication_index,
+    answer_query,
     apply_adjudication,
     grader_sha,
     grader_sha_for,
@@ -24,10 +25,16 @@ from bench.prices import (
     estimate_usd,
     long_context_calls,
 )
-from bench.questions import BY_ID, CATEGORIES
+from bench.questions import BY_ID, CATEGORIES, EXTENDED_CATEGORIES, tier_of
 from bench.usage import merge_usage, total_tokens
 
 logger = logging.getLogger(__name__)
+
+# Version of the undisclosed-truncation definition printed with the figure.
+# It is computed here, not by the grader, so changing it moves no grader sha.
+UNDISCLOSED_TRUNCATION_VERSION = 1
+# Answer kinds in the order the per-kind table lists them.
+ANSWER_KINDS = ("scalar", "text", "abstain", "disclosure", "clarify_or_assume", "plot")
 
 
 def load_run(run_dir: Path) -> tuple[dict, list[dict], list[dict], list[str]]:
@@ -98,6 +105,51 @@ def _current_sha(trace: dict) -> str:
     return grader_sha_for(question) if question else grader_sha()
 
 
+def trace_tier(trace: dict) -> str:
+    """'core' or 'extended', from the question registry (the trace's own
+    `tier` for an id the registry no longer has; core when neither says)."""
+    question = BY_ID.get(trace.get("question_id"))
+    return tier_of(question) if question else trace.get("tier") or "core"
+
+
+def run_tier(meta: dict, traces: list[dict]) -> str:
+    """The tier a run dir holds: its traces' tier ('mixed' if they disagree),
+    else run_meta `tier` (absent in runs from before tiers: core)."""
+    tiers = {trace_tier(t) for t in traces}
+    if len(tiers) > 1:
+        return "mixed"
+    return tiers.pop() if tiers else meta.get("tier") or "core"
+
+
+def _answer_kind(trace: dict) -> str:
+    question = BY_ID.get(trace.get("question_id"))
+    return question.answer_kind if question else trace.get("answer_kind") or "?"
+
+
+def undisclosed_truncation(graded: list[dict]) -> list[dict]:
+    """Trials whose answer query (grading.answer_query) returned a result cut
+    for the model (`truncated`) while the response does not disclose working
+    from partial data (extraction `sampled_disclosed` false) or, for a
+    disclosure question, that its list is incomplete (`truncation_disclosed`).
+    Trials with no located answer query (abstain, clarify_or_assume, a small
+    integer answer) are not counted. A report-only figure
+    (UNDISCLOSED_TRUNCATION_VERSION); no verdict depends on it."""
+    out = []
+    for t in graded:
+        question = BY_ID.get(t.get("question_id"))
+        extraction = t.get("extraction") or {}
+        disclosed = extraction.get("sampled_disclosed") or extraction.get(
+            "truncation_disclosed"
+        )
+        if question is None or disclosed:
+            continue
+        found = answer_query(question, t, extraction)
+        records = t.get("query_records") or []
+        if found is not None and records[found].get("truncated") is True:
+            out.append(t)
+    return out
+
+
 def rates(ts: list[dict]) -> dict:
     """Headline rates over graded non-infra trials (model-caused failures stay
     in every denominator). Accuracy is strict: clarifications, multiple
@@ -116,9 +168,16 @@ def rates(ts: list[dict]) -> dict:
     }
 
 
-def _category_rows(graded: list[dict], target: int) -> list[list[str]]:
+def _applicable_pct(num: int, den: int, r: dict) -> str:
+    """_pct, or n/a when executability applies to none of the trials."""
+    return "n/a" if r["n"] and not r["applicable"] else _pct(num, den)
+
+
+def _category_rows(
+    graded: list[dict], target: int, categories: tuple[str, ...] = CATEGORIES
+) -> list[list[str]]:
     rows = []
-    cats = [c for c in CATEGORIES if any(t["category"] == c for t in graded)]
+    cats = [c for c in categories if any(t["category"] == c for t in graded)]
     for cat in [*cats, "overall"]:
         ts = graded if cat == "overall" else [t for t in graded if t["category"] == cat]
         qids = sorted({t["question_id"] for t in ts})
@@ -134,12 +193,77 @@ def _category_rows(graded: list[dict], target: int) -> list[list[str]]:
                 cat,
                 len(qids),
                 _pct(r["accurate"], r["n"]),
-                _pct(r["executable"], r["applicable"]),
-                _pct(r["joint"], r["applicable"]),
+                _applicable_pct(r["executable"], r["applicable"], r),
+                _applicable_pct(r["joint"], r["applicable"], r),
                 _pct(r["clarified"], r["n"]),
-                _pct(r["joint"], r["executable"]),
+                _applicable_pct(r["joint"], r["executable"], r),
                 f"{all_correct}/{len(qids)}",
                 _median_or_dash([t.get("turn_latency_s") for t in ts]),
+            ]
+        )
+    return rows
+
+
+def _kind_detail(kind: str, ts: list[dict]) -> str:
+    """What the trials of an extended answer kind did, beyond the verdict."""
+    exs = [t.get("extraction") or {} for t in ts]
+
+    def share(pred) -> str:
+        return _pct(sum(bool(pred(e)) for e in exs), len(exs))
+
+    if kind == "abstain":
+        return (
+            f"abstained {share(lambda e: e.get('abstained'))}; value given "
+            f"{share(lambda e: e.get('value') is not None)}"
+        )
+    if kind == "disclosure":
+        return (
+            f"total stated {share(lambda e: e.get('total_count') is not None)}; "
+            f"truncation disclosed {share(lambda e: e.get('truncation_disclosed'))}"
+        )
+    if kind == "clarify_or_assume":
+        asked = share(
+            lambda e: e.get("status") == "clarification" and not e.get("readings")
+        )
+        return (
+            f"asked only {asked}; committed to a reading "
+            f"{share(lambda e: e.get('readings'))}"
+        )
+    if kind == "plot":
+        copied = sum(
+            any(
+                not c.get("missing")
+                for r in t.get("query_records") or []
+                if not r.get("error")
+                for c in r.get("plot_copies") or ()
+            )
+            for t in ts
+        )
+        return f"plot copied {_pct(copied, len(ts))}"
+    return "-"
+
+
+def _kind_rows(graded: list[dict]) -> list[list[str]]:
+    kinds = {_answer_kind(t) for t in graded}
+    rows = []
+    for kind in [
+        *(k for k in ANSWER_KINDS if k in kinds),
+        *sorted(kinds - set(ANSWER_KINDS)),
+    ]:
+        ts = [t for t in graded if _answer_kind(t) == kind]
+        r = rates(ts)
+        reasons: dict[str, int] = {}
+        for t in ts:
+            if not t.get("accurate") and t.get("accuracy_reason"):
+                reasons[t["accuracy_reason"]] = reasons.get(t["accuracy_reason"], 0) + 1
+        rows.append(
+            [
+                kind,
+                ", ".join(sorted({t["question_id"] for t in ts})),
+                _pct(r["accurate"], r["n"]),
+                _applicable_pct(r["executable"], r["applicable"], r),
+                _kind_detail(kind, ts),
+                ", ".join(f"{k} x{v}" for k, v in sorted(reasons.items())) or "-",
             ]
         )
     return rows
@@ -217,6 +341,7 @@ def _grading_section(
     n = len(graded)
     partial = [t for t in graded if t.get("partial_data")]
     disclosed = sum(bool(t.get("sampled_disclosed")) for t in partial)
+    truncated = undisclosed_truncation(graded)
     partial_passed = sum(
         1 for t in partial if t.get("adjudicated") and t.get("accurate")
     )
@@ -261,6 +386,16 @@ def _grading_section(
             f"{partial_passed} adjudicated to pass)"
             if partial_passed
             else "(strict accuracy fails all of them)"
+        ),
+        f"- undisclosed truncation (definition v{UNDISCLOSED_TRUNCATION_VERSION}: "
+        "answer query truncated, not disclosed; report only, no verdict): "
+        f"{_pct(len(truncated), n)}"
+        + (
+            " ("
+            + ", ".join(f"{t['question_id']} trial {t['trial']}" for t in truncated)
+            + ")"
+            if truncated
+            else ""
         ),
         f"- grounded (answer appears in a query result): {_pct(grounded, len(judged))}",
         f"- adjudicated: {len(adjudicated)} ({to_pass} overridden to pass, "
@@ -449,6 +584,59 @@ def _cost_section(traces: list[dict], accurate: int) -> list[str]:
     return parts
 
 
+def _category_section(
+    graded: list[dict],
+    infra: list[dict],
+    target: int,
+    categories: tuple[str, ...],
+    level: str,
+) -> list[str]:
+    acc = sum(bool(t.get("accurate")) for t in graded)
+    not_applicable = any(t.get("executable") is None for t in graded)
+    return [
+        f"{level} Per category",
+        "",
+        _md_table(
+            [
+                "category",
+                "questions",
+                "accuracy (strict)",
+                "executability",
+                "exec & accurate",
+                "clarification",
+                "exec-gated accuracy",
+                "all-trials-correct",
+                "median turn latency (s)",
+            ],
+            _category_rows(graded, target, categories),
+        ),
+        "",
+        "Accuracy is strict and not gated on executability: a clarification, "
+        "a multiple-candidate answer or a partial-data answer fails even if a "
+        "number lands in the band. Exec-gated accuracy (accurate among "
+        "executable trials) is secondary.",
+        "",
+        *(
+            [
+                "Executability does not apply to a question whose right answer "
+                "needs no query (abstain, clarify_or_assume): n/a, and left out "
+                "of the executability, exec & accurate and exec-gated "
+                "denominators (a model error still counts as not executable).",
+                "",
+            ]
+            if not_applicable
+            else []
+        ),
+        f"Sensitivity, infra errors counted as wrong: accuracy "
+        f"{_pct(acc, len(graded) + len(infra))}.",
+        "",
+        "Latency medians include failed trials and start after sandbox "
+        "checkout; infra-error trials are excluded everywhere else. "
+        "Model-caused failures (model_malformed) stay in every denominator.",
+        "",
+    ]
+
+
 def build_report(run_dir: Path) -> str:
     meta, traces, triage, corrupt = load_run(run_dir)
     target = _trial_target(meta, traces)
@@ -465,8 +653,10 @@ def build_report(run_dir: Path) -> str:
         if t.get("error_bucket"):
             buckets[t["error_bucket"]] = buckets.get(t["error_bucket"], 0) + 1
 
+    tier = run_tier(meta, traces)
     parts = [
-        f"# Benchmark report - {run_dir.name}",
+        f"# Benchmark report - {run_dir.name}"
+        + ("" if tier == "core" else f" ({tier} tier)"),
         "",
         f"- model: `{meta.get('model', '?')}`"
         + (
@@ -488,6 +678,12 @@ def build_report(run_dir: Path) -> str:
         f"- error buckets: {buckets or 'none'}",
         "",
     ]
+    if tier == "mixed":
+        parts += [
+            "**This run dir holds trials of both tiers** (a run dir is meant "
+            "to hold one); the core and extended rates below are kept apart.",
+            "",
+        ]
     if corrupt:
         parts += [
             f"**{len(corrupt)} unreadable file(s) skipped:**",
@@ -509,37 +705,44 @@ def build_report(run_dir: Path) -> str:
             "",
         ]
 
-    if graded:
-        acc = sum(bool(t.get("accurate")) for t in graded)
+    core = [t for t in graded if trace_tier(t) == "core"]
+    if core:
+        parts += _category_section(
+            core,
+            [t for t in infra if trace_tier(t) == "core"],
+            target,
+            CATEGORIES,
+            "##",
+        )
+    extended = [t for t in graded if trace_tier(t) == "extended"]
+    if extended:
         parts += [
-            "## Per category",
+            "## Extended tier (reported separately)",
+            "",
+            "The extended questions are scored and reported apart from the core "
+            "tier: none of these rates is part of the core headline, and they "
+            "are never pooled with a core run's.",
+            "",
+            *_category_section(
+                extended,
+                [t for t in infra if trace_tier(t) == "extended"],
+                target,
+                EXTENDED_CATEGORIES,
+                "###",
+            ),
+            "### Per answer kind",
             "",
             _md_table(
                 [
-                    "category",
+                    "kind",
                     "questions",
                     "accuracy (strict)",
                     "executability",
-                    "exec & accurate",
-                    "clarification",
-                    "exec-gated accuracy",
-                    "all-trials-correct",
-                    "median turn latency (s)",
+                    "what the trials did",
+                    "fail reasons",
                 ],
-                _category_rows(graded, target),
+                _kind_rows(extended),
             ),
-            "",
-            "Accuracy is strict and not gated on executability: a clarification, "
-            "a multiple-candidate answer or a partial-data answer fails even if a "
-            "number lands in the band. Exec-gated accuracy (accurate among "
-            "executable trials) is secondary.",
-            "",
-            f"Sensitivity, infra errors counted as wrong: accuracy "
-            f"{_pct(acc, len(graded) + len(infra))}.",
-            "",
-            "Latency medians include failed trials and start after sandbox "
-            "checkout; infra-error trials are excluded everywhere else. "
-            "Model-caused failures (model_malformed) stay in every denominator.",
             "",
         ]
     if traces:

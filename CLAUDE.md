@@ -49,7 +49,8 @@ live in `[project.optional-dependencies] worker` — the host/app never import t
 
 `bench/` is the ICFFR paper's 25-question accuracy harness (4 categories: lookup, aggregation,
 trend, multistep). Trend questions (T01-T05) count wildfire only (`Incid_Type == 1`); every
-other event-count question says "Count every incident type". Subcommands (usage in
+other event-count question says "Count every incident type". An extended tier (E01-E14, see
+Extended tier below) is run, graded and reported apart. Subcommands (usage in
 `bench/__main__.py`):
 
 - `gt [--force]` precomputes reference-Polars ground truth, cached under
@@ -65,7 +66,8 @@ other event-count question says "Count every incident type". Subcommands (usage 
   seeded shuffle and writes one standard run dir per model (`DIR/<model>/`). `--model(s)` must
   be in `CHAT_MODEL_IDS`; `--max-rounds` defaults to `MAX_TOOL_ROUNDS` (a parity test pins
   bench, evals and `run_chat_turn` to it). Pool/sandbox settings come from the same
-  `KINDLING_SANDBOX_*` / `KINDLING_POOL_SIZE` env as the app (2 warm / 3 max).
+  `KINDLING_SANDBOX_*` / `KINDLING_POOL_SIZE` env as the app (2 warm / 3 max). SPEC: `core`
+  (default, the 25), `extended`, `all` (`gt` only), a category name, or ids (`L01,E04`).
 - `grade --run-dir DIR [--regrade]` makes one blind extractor call per non-infra trial
   (`bench/judge.py`: `LITE_MODEL`, temperature 0, JSON schema; sees question + response, never
   the expected value; not `tests/evals/judge.py`) and decides accuracy in Python
@@ -103,24 +105,64 @@ other event-count question says "Count every incident type". Subcommands (usage 
   clarification rate, exec-gated accuracy (secondary), partial data disclosed/undisclosed,
   grounded rate, adjudication and audit status, and tokens/cost (list prices as of 2026-09-24
   in `bench/prices.py`; calls over Pro's 200k long-context tier are flagged, not repriced).
-- `audit --run-dir DIR [--fraction 0.1] [--seed 0]` samples graded trials into `DIR/audit.json`
-  for a hand `human_verdict` (kept across re-runs); report shows judge-human agreement.
+  A core run renders as archived; an extended run gets an "(extended tier)" title and an
+  "Extended tier (reported separately)" section (extended category rows, a per-answer-kind
+  table, executability n/a where it does not apply) instead of the core headline. Both tiers
+  print an undisclosed-truncation line (answer query returned `truncated`; neither
+  `sampled_disclosed` nor, for disclosure, `truncation_disclosed`), tagged with its definition version (`UNDISCLOSED_TRUNCATION_VERSION`): report-only,
+  no grader sha moves.
+- `audit --run-dir DIR [--fraction 0.1] [--seed 0] [--full IDS]` samples graded trials into
+  `DIR/audit.json` for a hand `human_verdict` (kept across re-runs); report shows judge-human
+  agreement. `--full E04,E09` takes every graded trial of those questions, `--fraction` of the
+  rest; entries carry the trace's `history` and `plots` (copied plot paths, missing ones left
+  out).
 - `audit-web --run-dir DIR [--port 8765]` serves those audit files on 127.0.0.1 as a review
-  page (`bench/audit_web.py` + `audit_web.html`): rendered response, expected value, the
-  model's queries and results; models shuffled together, the grader verdict and extraction
-  hidden until a verdict is recorded, the model name until every entry sharing that question
-  and trial is judged (the models share sample slots). Saves write `human_verdict`/`human_note`
-  into each run's audit.json (writes need an `X-Bench-Audit` header against cross-site posts).
+  page (`bench/audit_web.py` + `audit_web.html`): rendered response (below any scripted
+  history, marked as earlier turns), expected value, plots, the model's queries and results.
+  `GET /api/plot?key=<entry key>&index=N` serves an entry's Nth recorded plot path, resolved
+  under that run dir (escapes and non-PNGs 403); the key is a per-process keyed hash of the
+  entry id, so a plot URL does not name the model. Models shuffled together, the grader verdict
+  and extraction hidden until a verdict is recorded, the model name until every entry sharing
+  that question and trial is judged (the models share sample slots). Saves write
+  `human_verdict`/`human_note` into each run's audit.json (writes need an `X-Bench-Audit`
+  header against cross-site posts).
 - `compare A B` (or `compare DIR` with two model subdirs) writes `compare-<A>-vs-<B>.md` next
   to A (`--out` overrides): macro pass@1 and pass^k, question-clustered bootstrap 95% CIs (10k
   seeded resamples), a Monte Carlo sign-flip test, disagreeing questions, descriptive
   per-category rows, tokens/cost/latency, and pending/unparseable/stale adjudication counts per
-  run. Refuses differing parquet identity, `reference_sha`, `grader_sha` or question sets, and
-  ungraded trials. grade, report and audit also accept an interleaved run's parent `DIR`.
+  run. Refuses differing tiers, parquet identity, `reference_sha`, `grader_sha` or question
+  sets, and ungraded trials; two extended runs compare as "(extended tier, descriptive)".
+  grade, report and audit also accept an interleaved run's parent `DIR`.
 
 Runs behind published numbers are archived under `bench/results/<run>/` (reports, hand-filled
 adjudication/audit/triage, run_meta, ground truth, and every trace in `traces.tar.gz`; its README
 says how to restore and re-report). Scoring rules and why: `docs/decisions/0004-*.md`.
+
+**Extended tier** (`EXTENDED`, categories `ext_semantics`/`ext_behavior`/`ext_interaction`/
+`ext_multistep`): one tier per run dir (`run` refuses a mixed SPEC; resume refuses a tier change
+even with `--allow-drift`; run_meta `tier` absent = core). E08 carries a scripted `history`
+(sent as earlier turns through the app's history path, recorded in the trace); each plot a query
+makes is copied at run time to `DIR/<qid>/plots/trial_NN-<name>.png` (`plot_copies` in the
+query record; `plots/` itself is pruned and per-process). Extended traces are graded under
+`ext_grader_sha()` (`EXT_GRADER_VERSION` + the core sha + the extended extractor kinds +
+`EXT_ANSWERS`; `grader_sha_for` picks per question), so the core sha stays `ee57b57a09b8`.
+Scalar/text questions grade through the core rules; four kinds have their own
+(`bench/grading_ext.py`):
+- **abstain** (E04, E05): pass iff the reply says the data is missing and presents no value
+  (E05: a stated 0 with the abstention passes), whatever its status; partial data never fails.
+- **disclosure** (E06): an answer with an in-band total if any, the leading names in order
+  (A05 aliases), and the total stated, truncation disclosed, or every item as a markdown table
+  row; only `.sample(`/`.fetch(`/`.gather_every(` count as partial data.
+- **clarify_or_assume** (E07): asking with no committed reading passes; else every reading
+  needs a stated measure and level and an answer in that reading's accepted set.
+- **plot** (E09): right year and count plus a plot copied from a successful query.
+
+Executability is n/a (`executable: None`) for abstain and clarify_or_assume, except infra and
+model errors, and is left out of those denominators. Review routes (to adjudication.json) add
+`abstained_with_value`, `declined_not_abstained`, `abstain_zero`, `currency_in_text`,
+`multiple_candidates` (abstain, disclosure), `clarification_with_total`, `wrong_items`,
+`no_table`, `other_measure`, `reading_conflict`, `plot_not_referenced` and `ungrounded` (E08
+right with no query).
 
 `gt` and `run` hold a host-wide `fcntl` lock (`$KINDLING_BENCH_LOCK`, default
 `/tmp/kindling-bench.lock`): one bench per host. Output goes to `.bench-runs/<run-dir>/`.

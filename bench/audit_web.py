@@ -1,15 +1,20 @@
 """Local web page for filling the hand audit (`python -m bench audit-web`).
 
 Serves every audit.json under the given run dirs on 127.0.0.1 as one review
-queue: the response rendered as markdown, the expected value, and the queries
-the model ran with their results. Judging is blind by default: entries from
-all models are shuffled together (a fixed order from a hash of each id); the
-grader's verdict and the extraction stay hidden until a verdict is recorded
-(or revealed on request), and the model name until every entry sharing that
-question and trial is judged (the models share sample slots, so one twin's
-model would name the other). Saving writes `human_verdict`
-and `human_note` straight into that run's audit.json, so `report` picks them
-up with no copy step.
+queue: the response rendered as markdown (below the scripted earlier turns,
+for a question asked with a history), the expected value, the queries the
+model ran with their results, and the plots copied into the run dir. A plot
+is served by an opaque entry key (a keyed hash of the entry id, so its URL
+does not name the model) and an index, from the path recorded in that audit
+entry, resolved under its run dir; a path that leads outside it is refused.
+
+Judging is blind by default: entries from all models are shuffled together
+(a fixed order from a hash of each id); the grader's verdict and the
+extraction stay hidden until a verdict is recorded (or revealed on request),
+and the model name until every entry sharing that question and trial is
+judged (the models share sample slots, so one twin's model would name the
+other). Saving writes `human_verdict` and `human_note` straight into that
+run's audit.json, so `report` picks them up with no copy step.
 
 Writes need an `X-Bench-Audit` header, which a cross-site form or simple
 fetch cannot send without a preflight this server never answers, so another
@@ -17,12 +22,15 @@ page open in the browser cannot change verdicts.
 """
 
 import hashlib
+import hmac
 import json
 import logging
+import secrets
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from bench.audit import AUDIT_FILE, AuditFileError, load_audit
 from bench.io import atomic_write_json, read_trace
@@ -86,6 +94,17 @@ class AuditStore:
     def __init__(self, run_dirs: list[Path]):
         self.run_dirs = {d.name: d for d in run_dirs}
         self.lock = threading.Lock()
+        # Plot URLs carry a keyed hash of the entry id, never the id itself:
+        # the id names the model, which must stay hidden while judging blind.
+        self._plot_secret = secrets.token_bytes(32)
+
+    def plot_key(self, entry_id: str) -> str:
+        return hmac.new(
+            self._plot_secret, entry_id.encode(), hashlib.sha256
+        ).hexdigest()[:32]
+
+    def plot_url(self, entry_id: str, index: int) -> str:
+        return f"/api/plot?key={self.plot_key(entry_id)}&index={index}"
 
     def items(self) -> list[dict]:
         items = []
@@ -109,6 +128,11 @@ class AuditStore:
                         "grader_verdict": e.get("grader_verdict"),
                         "grader_reason": e.get("grader_reason"),
                         "partial_data": e.get("partial_data"),
+                        "history": e.get("history") or [],
+                        "plots": [
+                            self.plot_url(_entry_id(model, e), i)
+                            for i in range(len(e.get("plots") or []))
+                        ],
                         "human_verdict": e.get("human_verdict") or "",
                         "human_note": e.get("human_note") or "",
                         "queries": _queries(trace),
@@ -116,6 +140,35 @@ class AuditStore:
                 )
         items.sort(key=lambda i: hashlib.sha256(i["id"].encode()).hexdigest())
         return items
+
+    def plot_file(self, key: str, index: int) -> Path:
+        """The PNG behind the index-th recorded plot of the entry whose
+        plot_key is `key`. Raises KeyError (no such entry, index or file) or
+        PermissionError (the recorded path is not a .png inside the entry's
+        run dir)."""
+        found = None
+        for model, run_dir in self.run_dirs.items():
+            for e in (load_audit(run_dir) or {}).get("entries", []):
+                if hmac.compare_digest(self.plot_key(_entry_id(model, e)), key):
+                    found = run_dir, e
+                    break
+            if found:
+                break
+        if found is None:
+            raise KeyError(key)
+        run_dir, entry = found
+        plots = entry.get("plots") or []
+        if not 0 <= index < len(plots):
+            raise KeyError(key)
+        if not isinstance(plots[index], str):
+            raise PermissionError(key)
+        root = run_dir.resolve()
+        path = (root / plots[index]).resolve()
+        if not path.is_relative_to(root) or path.suffix.lower() != ".png":
+            raise PermissionError(key)
+        if not path.is_file():
+            raise KeyError(key)
+        return path
 
     def save(self, payload: dict) -> dict:
         """Set one entry's human_verdict / human_note. Raises ValueError (bad
@@ -152,6 +205,8 @@ class AuditStore:
 
 def make_handler(store: AuditStore):
     class Handler(BaseHTTPRequestHandler):
+        store_ref = store
+
         def log_message(self, fmt, *args):
             logger.debug("%s " + fmt, self.address_string(), *args)
 
@@ -176,8 +231,27 @@ def make_handler(store: AuditStore):
                     self._json(HTTPStatus.OK, {"items": store.items()})
                 except AuditFileError as e:
                     self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"detail": str(e)})
+            elif urlsplit(self.path).path == "/api/plot":
+                self._plot(parse_qs(urlsplit(self.path).query))
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"detail": "not found"})
+
+        def _plot(self, query: dict) -> None:
+            key = (query.get("key") or [""])[0]
+            index = (query.get("index") or [""])[0]
+            try:
+                path = store.plot_file(key, int(index))
+                body = path.read_bytes()
+            except (KeyError, ValueError, OSError) as e:
+                if isinstance(e, PermissionError):
+                    self._json(HTTPStatus.FORBIDDEN, {"detail": "plot path refused"})
+                else:
+                    self._json(HTTPStatus.NOT_FOUND, {"detail": "no such plot"})
+                return
+            except AuditFileError as e:
+                self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"detail": str(e)})
+                return
+            self._send(HTTPStatus.OK, body, "image/png")
 
         def do_POST(self):
             if self.path != "/api/verdict":

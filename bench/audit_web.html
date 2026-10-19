@@ -83,6 +83,11 @@
   kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px;
         font-size: 11px; background: var(--code-bg); }
   .empty { color: var(--muted); padding: 40px; }
+  .history { border-style: dashed; background: var(--bg); }
+  .turn { border-left: 3px solid var(--border); padding: 2px 0 2px 12px; margin: 8px 0; }
+  .turn .role { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .plots img { display: block; max-width: 100%; height: auto; margin: 8px 0;
+               border: 1px solid var(--border); border-radius: 6px; background: #fff; }
   @media (max-width: 720px) {
     .layout { grid-template-columns: 1fr; }
     nav { position: static; max-height: 180px; border-right: 0; border-bottom: 1px solid var(--border); }
@@ -148,6 +153,21 @@ function renderValue(v, maxRows = 200) {
   }
   if (Array.isArray(v) && v.every(isScalar)) return `<div>${v.map(fmtNum).join(", ")}</div>`;
   return `<pre>${esc(JSON.stringify(v, null, 2))}</pre>`;
+}
+
+// Scripted turns that came before the question (the model saw them as the
+// conversation so far); they are not part of the response being judged.
+function renderHistory(turns) {
+  if (!turns || !turns.length) return "";
+  const body = turns.map((t) => `<div class="turn"><div class="role">${esc(t.role)}</div>
+    <div class="response">${markdown(t.text || "")}</div></div>`).join("");
+  return `<div class="card history"><h2>Earlier turns (scripted history, before the question)</h2>${body}</div>`;
+}
+
+function renderPlots(urls) {
+  if (!urls || !urls.length) return "";
+  const imgs = urls.map((u, i) => `<img src="${esc(u)}" alt="plot ${i + 1}" loading="lazy">`).join("");
+  return `<div class="card plots"><h2>Plots (${urls.length})</h2>${imgs}</div>`;
 }
 
 function renderQuery(q, i) {
@@ -225,7 +245,9 @@ function render() {
     <div class="card"><h2>Question ${esc(it.question_id)} · trial ${esc(it.trial)} · ${current + 1} of ${items.length}</h2>
       <div class="question">${esc(it.question)}</div></div>
     <div class="card"><h2>Expected</h2>${renderValue(it.expected)}</div>
+    ${renderHistory(it.history)}
     <div class="card"><h2>Response</h2><div class="response">${markdown(it.response)}</div></div>
+    ${renderPlots(it.plots)}
     <div class="card"><h2>Queries (${it.queries.length})</h2>
       ${it.queries.length ? it.queries.map(renderQuery).join("") : '<div class="meta">none</div>'}</div>
     ${renderReveal(it)}

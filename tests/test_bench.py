@@ -6,6 +6,7 @@ import inspect
 import json
 import os
 import shutil
+import tarfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,6 +22,7 @@ from app.config import CHAT_MODEL_IDS, LITE_MODEL, MAX_TOOL_ROUNDS
 from app.sandbox.pool import SandboxBusy
 from bench import provenance
 from bench.__main__ import build_parser
+from bench.compare import compare_runs, resolve_pair
 from bench.grading import grader_sha, is_executable, stale_reference
 from bench.ground_truth import parquet_identity, reference_sha
 from bench.io import atomic_write_json, move_aside, read_trace
@@ -351,6 +353,27 @@ def test_core_references_match_the_archived_ground_truth():
 
 def test_core_grader_matches_the_archived_run():
     assert grader_sha() == "ee57b57a09b8"
+
+
+def test_archived_run_reports_as_archived(tmp_path, monkeypatch):
+    """report and compare render the archived core run exactly as archived;
+    the one addition is the report-only undisclosed-truncation line."""
+    with tarfile.open(ARCHIVE / "traces.tar.gz") as tar:
+        tar.extractall(tmp_path / ".bench-runs", filter="data")
+    run = Path(".bench-runs") / "pro-vs-flash"
+    monkeypatch.chdir(tmp_path)  # compare prints the run dirs as given
+    for model in ARCHIVE_MODELS:
+        lines = build_report(run / model).splitlines()
+        added = [line for line in lines if line.startswith("- undisclosed truncation")]
+        assert added == [
+            "- undisclosed truncation (definition v1: answer query truncated, not "
+            "disclosed; report only, no verdict): 0/125 (0%)"
+        ]
+        archived = (ARCHIVE / model / "report.md").read_text().splitlines()
+        assert [line for line in lines if line not in added] == archived
+    text = compare_runs(*resolve_pair(run, None))
+    archived = ARCHIVE / "compare-gemini-3.1-pro-preview-vs-gemini-3.8-flash.md"
+    assert text.splitlines() == archived.read_text().splitlines()
 
 
 def test_prompt_sha_covers_prompt_and_tools():

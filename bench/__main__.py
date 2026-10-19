@@ -6,7 +6,7 @@
                            [--run-dir DIR] [--max-rounds 20] [--allow-drift]
     python -m bench grade   --run-dir DIR [--regrade]
     python -m bench report  --run-dir DIR
-    python -m bench audit   --run-dir DIR [--fraction 0.1] [--seed 0]
+    python -m bench audit   --run-dir DIR [--fraction 0.1] [--seed 0] [--full IDS]
     python -m bench audit-web --run-dir DIR [--port 8765]
     python -m bench compare A [B] [--out FILE] [--seed 0] [--resamples 10000]
 
@@ -47,19 +47,30 @@ slice heuristic) become pending entries in DIR/adjudication.json:
 fill `verdict` (pass/fail), `reason` and `adjudicator`; grade and report apply
 decided entries over the automated verdict, and grade never overwrites them.
 
+report writes DIR/report.md. A run dir holds one tier: a core run reports as
+the core headline; an extended run gets its own "Extended tier (reported
+separately)" section (extended categories, a per-answer-kind table,
+executability n/a where the right answer needs no query). Both print an
+undisclosed-truncation line (the answer query's result was cut and the
+response does not say so), a report-only figure tagged with its definition
+version.
+
 audit samples --fraction of the graded trials (seeded) into DIR/audit.json for
-a hand `human_verdict`; re-running keeps filled verdicts, and report shows
-judge-human agreement. audit-web serves those files on 127.0.0.1 as a review
-page (rendered responses, expected values, the queries and their results;
-blind to model and grader verdict until you judge) that saves verdicts back.
+a hand `human_verdict`; --full E04,E09 adds every graded trial of those
+questions (the fraction is then drawn from the rest). Re-running keeps filled
+verdicts, and report shows judge-human agreement. audit-web serves those files
+on 127.0.0.1 as a review page (rendered responses below any scripted history,
+expected values, copied plots, the queries and their results; blind to model
+and grader verdict until you judge) that saves verdicts back.
 
 compare A B takes two graded single-model run dirs (or one interleaved dir with
 exactly two model subdirs) and writes compare-<A>-vs-<B>.md next to A (or
 --out): macro pass@1 and pass^k, question-clustered bootstrap 95% CIs, a
 sign-flip permutation test on per-question differences, the questions where
-the models disagree, and tokens/cost/latency. It refuses runs whose parquet
-identity, reference_shas, grader_sha or question sets differ, or that have
-ungraded trials.
+the models disagree, and tokens/cost/latency. It refuses runs whose tier,
+parquet identity, reference_shas, grader_sha or question sets differ, or that
+have ungraded trials; a comparison of two extended runs is labelled
+descriptive.
 """
 
 import argparse
@@ -139,6 +150,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_audit.add_argument("--run-dir", required=True)
     p_audit.add_argument("--fraction", type=float, default=0.1)
     p_audit.add_argument("--seed", type=int, default=0)
+    p_audit.add_argument(
+        "--full",
+        default=None,
+        metavar="IDS",
+        help="comma-separated question ids whose every graded trial is audited "
+        "(--fraction samples the rest)",
+    )
 
     p_web = sub.add_parser("audit-web", help="review page for filling the audit")
     p_web.add_argument("--run-dir", required=True)
@@ -195,7 +213,11 @@ def main() -> None:
 
         try:
             for d in expand_run_dirs(Path(args.run_dir)):
-                print(write_audit(d, fraction=args.fraction, seed=args.seed))
+                print(
+                    write_audit(
+                        d, fraction=args.fraction, seed=args.seed, full=args.full
+                    )
+                )
         except (AuditFileError, ValueError) as e:
             sys.exit(str(e))
     elif args.command == "audit-web":

@@ -14,8 +14,11 @@ independent:
 
 compare refuses runs that are not comparable: different parquet identity,
 different reference_sha for any question, different grader_sha, different
-question sets, or any ungraded / grader-error trial. Per-category rows are
-descriptive only (a handful of questions each; no interval). A review-status
+question sets, runs of different tiers (core vs extended), or any ungraded /
+grader-error trial. Per-category rows are descriptive only (a handful of
+questions each; no interval), and so is a whole extended-tier comparison: its
+questions probe chosen behaviours, so its interval and p-value describe those
+questions rather than test the models. A review-status
 table shows, per run, the flagged trials still pending review and the
 unparseable / stale adjudications, since the headline rates use automated
 verdicts for all of those.
@@ -27,8 +30,8 @@ from pathlib import Path
 from statistics import mean, median
 
 from bench.prices import estimate_usd
-from bench.questions import BY_ID, CATEGORIES
-from bench.report import _md_table, is_graded, load_run, pending_review
+from bench.questions import BY_ID, CATEGORIES, EXTENDED_CATEGORIES
+from bench.report import _md_table, is_graded, load_run, pending_review, run_tier
 from bench.usage import merge_usage, total_tokens
 
 DEFAULT_RESAMPLES = 10_000
@@ -69,6 +72,13 @@ def _one(values: set, what: str) -> object:
 
 
 def check_comparable(runs: list[tuple[Path, dict, list[dict]]]) -> None:
+    tiers = [run_tier(meta, ts) for _, meta, ts in runs]
+    if tiers[0] != tiers[1] or "mixed" in tiers:
+        raise CompareError(
+            f"runs are not of one tier (A: {tiers[0]}, B: {tiers[1]}); "
+            "compare two runs of one tier (the extended tier is reported apart "
+            "from the core)"
+        )
     identities = {meta.get("parquet_identity") for _, meta, _ in runs}
     identities |= {t.get("parquet_identity") for _, _, ts in runs for t in ts}
     identities.discard(None)
@@ -225,6 +235,7 @@ def compare_runs(
     meta_a, ta = _load(a)
     meta_b, tb = _load(b)
     check_comparable([(a, meta_a, ta), (b, meta_b, tb)])
+    extended = run_tier(meta_a, ta) == "extended"
     name_a = meta_a.get("model") or a.name
     name_b = meta_b.get("model") or b.name
     if name_a == name_b:
@@ -251,8 +262,20 @@ def compare_runs(
         review_rows.append([name, *map(str, counts)])
 
     parts = [
-        f"# Compare - {name_a} vs {name_b}",
+        f"# Compare - {name_a} vs {name_b}"
+        + (" (extended tier, descriptive)" if extended else ""),
         "",
+        *(
+            [
+                "Extended tier: a descriptive comparison, reported apart from the "
+                "core headline. Its questions probe chosen behaviours, so the "
+                "interval and p-value below describe these questions; they are "
+                "not a test of which model is better.",
+                "",
+            ]
+            if extended
+            else []
+        ),
         f"- A: `{a}` ({len(ta)} graded trials)",
         f"- B: `{b}` ({len(tb)} graded trials)",
         f"- {len(qids)} questions; parquet identity "
@@ -325,7 +348,7 @@ def compare_runs(
             "",
         ]
     rows = []
-    for cat in CATEGORIES:
+    for cat in (*CATEGORIES, *EXTENDED_CATEGORIES):
         cq = [i for i, q in enumerate(qids) if BY_ID[q].category == cat]
         if not cq:
             continue

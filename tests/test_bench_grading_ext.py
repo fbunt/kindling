@@ -1,8 +1,8 @@
 """Bench grading of the extended tier: the abstain, disclosure,
 clarify_or_assume and plot verdicts, their review routes, not-applicable
-executability, the extended grader sha, and report/compare over extended
-traces. No dataset, no API key, no container runtime: extractions are
-hand-built and the extractor is a scripted fake."""
+executability, the extended grader sha, report/compare over extended traces,
+and the audit sample. No dataset, no API key, no container runtime:
+extractions are hand-built and the extractor is a scripted fake."""
 
 import dataclasses
 import json
@@ -999,3 +999,255 @@ def test_report_and_compare_survive_not_applicable_executability(tmp_path):
     text = compare_runs(a, b, resamples=200, permutations=200)
     assert "| E04 | ext_behavior | 2/2 | 1/2 | +50.0 pp |" in text
     assert f"grader `{ext_grader_sha()}`" in text
+
+
+def _graded(qid, trial, accurate, extraction, records=(), **extra):
+    """A trace graded by the current extended grader (fields set by hand)."""
+    executable = None if BY_ID[qid].answer_kind in grading_ext.NO_QUERY_KINDS else True
+    return _trace(
+        qid,
+        trial,
+        records=records,
+        grader_sha=ext_grader_sha(),
+        grader_error=None,
+        extraction=_ex(**extraction),
+        executable=executable,
+        executability_reason="ok" if executable else "not_applicable",
+        auto_accurate=accurate,
+        auto_reason="ok" if accurate else extra.get("accuracy_reason"),
+        accurate=accurate,
+        accuracy_reason="ok" if accurate else extra.pop("accuracy_reason"),
+        **extra,
+    )
+
+
+def _every_kind_run(run_dir):
+    truncated = {
+        "code": "result = share",
+        "error": None,
+        "data": json.dumps([{"share": 20.78}]),
+        "latency_s": 1,
+        "truncated": True,
+        "total_rows": 400,
+    }
+    traces = [
+        _graded("E01", 0, True, {"value": 317}),
+        _graded("E10", 0, True, {"value": 20.78}, [truncated]),
+        _graded("E08", 0, True, {"names": ["NORTH COMPLEX"]}),
+        _graded("E04", 0, True, {"abstained": True, "value": None}),
+        _graded(
+            "E06",
+            0,
+            True,
+            {"total_count": 500, "truncation_disclosed": False, "names": TOP10},
+        ),
+        _graded("E07", 0, True, {"status": "clarification", "readings": []}),
+        _graded(
+            "E09",
+            0,
+            False,
+            {"year": 2006, "value": 1278},
+            [_plot_record(missing=True)],
+            accuracy_reason="no_plot",
+        ),
+    ]
+    _write_run(run_dir, traces)
+    return run_dir
+
+
+def test_extended_report_renders_its_own_sections(tmp_path):
+    report = build_report(_every_kind_run(tmp_path / "flash"))
+    lines = report.splitlines()
+    assert lines[0] == "# Benchmark report - flash (extended tier)"
+    assert "## Extended tier (reported separately)" in lines
+    assert "## Per category" not in lines  # no core headline
+    assert "### Per category" in lines and "### Per answer kind" in lines
+    # E04 and E07 need no query: left out of the executability denominator.
+    assert "| ext_behavior | 3 | 3/3 (100%) | 1/1 (100%) | 1/1 (100%) |" in report
+    assert "Executability does not apply" in report
+    for row in (
+        "| scalar | E01, E10 | 2/2 (100%) | 2/2 (100%) | - | - |",
+        "| text | E08 | 1/1 (100%) | 1/1 (100%) | - | - |",
+        "| abstain | E04 | 1/1 (100%) | n/a | abstained 1/1 (100%); value given "
+        "0/1 (0%) | - |",
+        "| disclosure | E06 | 1/1 (100%) | 1/1 (100%) | total stated 1/1 (100%); "
+        "truncation disclosed 0/1 (0%) | - |",
+        "| clarify_or_assume | E07 | 1/1 (100%) | n/a | asked only 1/1 (100%); "
+        "committed to a reading 0/1 (0%) | - |",
+        "| plot | E09 | 0/1 (0%) | 1/1 (100%) | plot copied 0/1 (0%) | no_plot x1 |",
+    ):
+        assert row in lines, row
+    assert (
+        "- undisclosed truncation (definition v1: answer query truncated, not "
+        "disclosed; report only, no verdict): 1/7 (14%) (E10 trial 0)"
+    ) in lines
+
+
+def test_category_with_no_applicable_trial_shows_not_applicable(tmp_path):
+    report = build_report(_extended_run(tmp_path, "gemini-3.8-flash", 2))
+    (row,) = [line for line in report.splitlines() if line.startswith("| ext_behavior")]
+    cells = row.split(" | ")
+    assert cells[3:5] == ["n/a", "n/a"] and cells[6] == "n/a"
+
+
+def test_undisclosed_truncation_needs_the_answer_query_cut(tmp_path):
+    from tests.test_bench_grading import _graded_trace
+    from tests.test_bench_grading import _write_run as _write_core_run
+
+    answer = [("result = n", {"n": 2523051})]
+    cut = {"truncated": True, "total_rows": 5000}
+    traces = []
+    for trial, (disclosed, records) in enumerate(
+        [
+            (False, answer),  # counted
+            (True, answer),  # disclosed
+            (False, [("result = rows", [{"x": 1}]), *answer]),  # cut is not the answer
+        ]
+    ):
+        t = _graded_trace(
+            "L08",
+            trial,
+            True,
+            extraction=_ex(value=2523051, sampled_disclosed=disclosed),
+        )
+        t["query_records"] = [
+            {"code": c, "error": None, "data": json.dumps(d), "latency_s": 1}
+            for c, d in records
+        ]
+        t["query_records"][0].update(cut)
+        t["expected"] = 2523051
+        traces.append(t)
+    _write_core_run(tmp_path, traces)
+    report = build_report(tmp_path)
+    assert report.splitlines()[0] == f"# Benchmark report - {tmp_path.name}"
+    assert (
+        "- undisclosed truncation (definition v1: answer query truncated, not "
+        "disclosed; report only, no verdict): 1/3 (33%) (L08 trial 0)"
+    ) in report.splitlines()
+    assert grader_sha() == "ee57b57a09b8"
+
+
+def test_a_disclosed_list_cut_is_not_undisclosed_truncation():
+    from bench.report import undisclosed_truncation
+
+    def trace(truncation_disclosed):
+        return {
+            "question_id": "E06",
+            "trial": 0,
+            "expected": EXT["E06"],
+            "extraction": _ex(
+                names=TOP10[:3],
+                truncation_disclosed=truncation_disclosed,
+                sampled_disclosed=False,
+            ),
+            "query_records": [
+                {
+                    "code": "result = ev",
+                    "error": None,
+                    "data": json.dumps([{"Incid_Name": n} for n in TOP10[:3]]),
+                    "truncated": True,
+                }
+            ],
+        }
+
+    assert undisclosed_truncation([trace(True)]) == []
+    assert len(undisclosed_truncation([trace(False)])) == 1
+
+
+def test_compare_two_extended_runs_is_descriptive(tmp_path):
+    a = _extended_run(tmp_path / "pro", "gemini-3.1-pro-preview", 2)
+    b = _extended_run(tmp_path / "flash", "gemini-3.8-flash", 1)
+    text = compare_runs(a, b, resamples=200, permutations=200)
+    lines = text.splitlines()
+    assert lines[0] == (
+        "# Compare - gemini-3.1-pro-preview vs gemini-3.8-flash "
+        "(extended tier, descriptive)"
+    )
+    assert any(
+        line.startswith("Extended tier: a descriptive comparison") for line in lines
+    )
+    assert "| ext_behavior | 2 | 75.0% | 50.0% | +25.0 pp |" in lines
+    assert "| ext_semantics | 1 | 100.0% | 100.0% | +0.0 pp |" in lines
+
+
+def test_compare_refuses_core_against_extended(tmp_path):
+    from bench.compare import CompareError
+    from tests.test_bench_grading import _run
+
+    core = _run(tmp_path / "core", "gemini-3.1-pro-preview", {"L03": 2})
+    ext = _extended_run(tmp_path / "ext", "gemini-3.8-flash", 2)
+    with pytest.raises(CompareError, match=r"not of one tier \(A: core, B: extended\)"):
+        compare_runs(core, ext)
+
+
+# ---------------------------------------------------------------------------
+# audit over extended traces
+# ---------------------------------------------------------------------------
+
+
+def _audit_run(run_dir):
+    plot = _plot_record()
+    plot["plot_copies"].append({"name": "plot-004", "path": None, "missing": True})
+    history = [
+        {"role": "user", "text": "What were the 5 largest fires of 2020?"},
+        {"role": "model", "text": "| Incid_Name |\n|---|\n| AUGUST COMPLEX |"},
+    ]
+    traces = [
+        _graded("E09", i, True, {"year": 2006, "value": 1278}, [plot]) for i in range(2)
+    ]
+    traces += [
+        _graded("E08", i, True, {"names": ["NORTH COMPLEX"]}, history=history)
+        for i in range(2)
+    ]
+    traces += [_graded("E01", i, True, {"value": 317}) for i in range(10)]
+    _write_run(run_dir, traces)
+    return run_dir
+
+
+def test_audit_full_takes_every_trial_of_the_named_questions(tmp_path):
+    from bench.audit import load_audit, write_audit
+
+    _audit_run(tmp_path)
+    write_audit(tmp_path, fraction=0.2, seed=1, full="E09,E08")
+    audit = load_audit(tmp_path)
+    keys = [(e["question_id"], e["trial"]) for e in audit["entries"]]
+    assert keys[:4] == [("E08", 0), ("E08", 1), ("E09", 0), ("E09", 1)]
+    assert [k[0] for k in keys[4:]] == ["E01", "E01"]  # ceil(0.2 * 10)
+    assert audit["full"] == ["E08", "E09"] and audit["eligible"] == 14
+    e08, e09 = audit["entries"][0], audit["entries"][2]
+    assert e08["history"][0]["role"] == "user" and e08["plots"] == []
+    assert e09["plots"] == ["E09/plots/trial_00-plot-003.png"]  # missing copy left out
+    assert e09["history"] == []
+    with pytest.raises(ValueError, match="unknown question id"):
+        write_audit(tmp_path, full="E09,Z99")
+
+
+def test_audit_full_keeps_hand_filled_fields(tmp_path):
+    from bench.audit import load_audit, write_audit
+
+    path = write_audit(_audit_run(tmp_path), fraction=0.1, full="E09")
+    data = json.loads(path.read_text())
+    (e09,) = [
+        e for e in data["entries"] if (e["question_id"], e["trial"]) == ("E09", 1)
+    ]
+    e09.update(human_verdict="fail", human_note="no line in the plot")
+    atomic_write_json(path, data)
+    write_audit(tmp_path, fraction=0.1, seed=7)  # E09 no longer taken in full
+    (kept,) = [
+        e
+        for e in load_audit(tmp_path)["entries"]
+        if (e["question_id"], e["trial"]) == ("E09", 1)
+    ]
+    assert (kept["human_verdict"], kept["human_note"]) == (
+        "fail",
+        "no line in the plot",
+    )
+    assert kept["plots"] == ["E09/plots/trial_00-plot-003.png"]
+
+
+def test_cli_audit_full_flag():
+    from bench.__main__ import build_parser
+
+    args = build_parser().parse_args(["audit", "--run-dir", "x", "--full", "E04,E05"])
+    assert args.full == "E04,E05"
+    assert build_parser().parse_args(["audit", "--run-dir", "x"]).full is None

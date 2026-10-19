@@ -3,13 +3,17 @@
 `python -m bench audit --run-dir DIR` writes <run_dir>/audit.json with a
 random `fraction` (default 10%) of the graded non-infra trials. Selection
 ranks trials by sha256(seed, question, trial), so the same seed picks the
-same trials as long as the graded set is unchanged. Fill `human_verdict`
-(pass/fail) per entry; re-running keeps every filled verdict, including for
-trials that fall outside a new sample. report compares the filled verdicts
-with the grader's automated verdict (`auto_accurate`, before adjudication).
-Each entry records the trace's response_sha; a filled entry keeps the
-response it was judged on, and one whose trace has changed since (a trial
-re-run on resume) is stale and left out of the agreement.
+same trials as long as the graded set is unchanged. `--full IDS` puts every
+graded trial of those questions in the audit and draws the fraction from the
+other questions' trials. Each entry carries the trace's scripted `history`
+and the run-dir paths of its copied plots (`plots`) for the review page.
+Fill `human_verdict` (pass/fail) per entry; re-running keeps every filled
+verdict, including for trials that fall outside a new sample. report
+compares the filled verdicts with the grader's automated verdict
+(`auto_accurate`, before adjudication). Each entry records the trace's
+response_sha; a filled entry keeps the response it was judged on, and one
+whose trace has changed since (a trial re-run on resume) is stale and left
+out of the agreement.
 """
 
 import hashlib
@@ -55,6 +59,17 @@ def eligible(traces: list[dict]) -> list[dict]:
     return [t for t in traces if not t.get("infra_error") and is_current_grade(t)]
 
 
+def plot_paths(trace: dict) -> list[str]:
+    """The run-dir-relative paths of a trace's copied plots, in query order
+    (copies recorded as missing have no file and are left out)."""
+    return [
+        c["path"]
+        for r in trace.get("query_records") or []
+        for c in r.get("plot_copies") or ()
+        if not c.get("missing") and isinstance(c.get("path"), str)
+    ]
+
+
 def _entry(trace: dict) -> dict:
     return {
         "question_id": trace["question_id"],
@@ -68,17 +83,20 @@ def _entry(trace: dict) -> dict:
         "grader_verdict": trace.get("auto_accurate"),
         "grader_reason": trace.get("auto_reason"),
         "partial_data": trace.get("partial_data"),
+        "history": trace.get("history") or [],
+        "plots": plot_paths(trace),
         "human_verdict": "",
         "human_note": "",
     }
 
 
 def _keep_judged(entry: dict, prev: dict) -> dict:
-    """entry with prev's hand-filled fields and the response (and hash) the
-    human judged; a prev without a hash stays without one."""
+    """entry with prev's hand-filled fields and the response (with its hash,
+    history and plots) the human judged; a field prev lacks is dropped."""
     entry["human_verdict"] = prev.get("human_verdict", "")
     entry["human_note"] = prev.get("human_note", "")
-    for f in ("response", "response_sha"):
+    # The plots shown with the judged response are that response's own.
+    for f in ("response", "response_sha", "history", "plots"):
         if f in prev:
             entry[f] = prev[f]
         else:
@@ -86,10 +104,18 @@ def _keep_judged(entry: dict, prev: dict) -> dict:
     return entry
 
 
-def write_audit(run_dir: Path, *, fraction: float = 0.1, seed: int = 0) -> Path:
+def write_audit(
+    run_dir: Path, *, fraction: float = 0.1, seed: int = 0, full: str | None = None
+) -> Path:
+    """Write the audit sample: every eligible trial of the questions in
+    `full` (comma-separated ids), plus a seeded `fraction` of the rest."""
     run_dir = Path(run_dir)
     if not 0 < fraction <= 1:
         raise ValueError(f"fraction must be in (0, 1], got {fraction}")
+    full_ids = sorted({i.strip() for i in (full or "").split(",") if i.strip()})
+    unknown = [i for i in full_ids if i not in BY_ID]
+    if unknown:
+        raise ValueError(f"--full: unknown question id(s) {unknown}")
     old = load_audit(run_dir)
     traces = []
     for path in sorted(run_dir.glob("*/trial_*.json")):
@@ -98,8 +124,18 @@ def write_audit(run_dir: Path, *, fraction: float = 0.1, seed: int = 0) -> Path:
             trace["_path"] = str(path)
             traces.append(trace)
     pool = eligible(traces)
-    k = math.ceil(fraction * len(pool)) if pool else 0
-    picked = sorted(pool, key=lambda t: _rank(seed, t["question_id"], t["trial"]))[:k]
+    whole = sorted(
+        (t for t in pool if t["question_id"] in full_ids),
+        key=lambda t: (t["question_id"], t["trial"]),
+    )
+    for qid in sorted(set(full_ids) - {t["question_id"] for t in whole}):
+        logger.warning("--full %s: no graded trial of it in %s", qid, run_dir)
+    rest = [t for t in pool if t["question_id"] not in full_ids]
+    k = math.ceil(fraction * len(rest)) if rest else 0
+    picked = (
+        whole
+        + sorted(rest, key=lambda t: _rank(seed, t["question_id"], t["trial"]))[:k]
+    )
     by_key = {(t["question_id"], t["trial"]): t for t in pool}
     kept = {}
     for e in (old or {}).get("entries", []):
@@ -120,7 +156,13 @@ def write_audit(run_dir: Path, *, fraction: float = 0.1, seed: int = 0) -> Path:
     path = run_dir / AUDIT_FILE
     atomic_write_json(
         path,
-        {"seed": seed, "fraction": fraction, "eligible": len(pool), "entries": entries},
+        {
+            "seed": seed,
+            "fraction": fraction,
+            **({"full": full_ids} if full_ids else {}),
+            "eligible": len(pool),
+            "entries": entries,
+        },
     )
     logger.info(
         "audit: %d of %d graded trials -> %s (fill human_verdict with pass/fail)",
