@@ -93,6 +93,25 @@ def test_parquet_identity_single_file(tmp_path):
     assert parquet_identity(f) != ident
 
 
+def test_ground_truth_cache_records_peak_memory(tmp_path, monkeypatch):
+    from bench import ground_truth
+
+    monkeypatch.setattr(ground_truth, "CACHE_DIR", tmp_path / "gt")
+    f = tmp_path / "a.parquet"
+    pl.DataFrame(
+        {
+            "__null_dask_index__": [0, 1, 2],
+            "Event_ID": ["a", "a", "b"],
+            "Incid_Type": [2, 2, 2],
+            "year": [2020] * 3,
+        }
+    ).write_parquet(f)
+    assert ground_truth.get_expected(BY_ID["E01"], f) == 2
+    (cached,) = (tmp_path / "gt").glob("*.json")
+    entry = json.loads(cached.read_text())["E01"]
+    assert entry["peak_rss_gb"] > 0
+
+
 def test_parquet_identity_rejects_non_parquet(tmp_path):
     from bench.ground_truth import GroundTruthError
 

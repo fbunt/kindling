@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import resource
 import time
 from collections.abc import Sequence
 from datetime import date, datetime
@@ -28,6 +29,12 @@ CACHE_DIR = Path(".bench-runs/ground_truth")
 
 class GroundTruthError(Exception):
     pass
+
+
+def peak_rss_gb() -> float:
+    """This process's peak resident memory so far, in GB (Linux reports KB).
+    A per-question figure needs one `gt` invocation per heavy question."""
+    return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2)
 
 
 _PARQUET_MAGIC = b"PAR1"
@@ -170,11 +177,19 @@ def get_expected(question: Question, parquet_path: Path | str, *, force: bool = 
         return entry["expected"]
     lf = _build_lazyframe(parquet_path)
     expected, elapsed = compute_expected(question, lf)
-    logger.info("ground truth %s: %.1fs -> %r", question.id, elapsed, expected)
+    peak = peak_rss_gb()
+    logger.info(
+        "ground truth %s: %.1fs, process peak RSS %.2f GB -> %r",
+        question.id,
+        elapsed,
+        peak,
+        expected,
+    )
     cache[question.id] = {
         "expected": expected,
         "reference_sha": reference_sha(question),
         "elapsed_s": round(elapsed, 2),
+        "peak_rss_gb": peak,
         "computed_at": datetime.now().isoformat(timespec="seconds"),
     }
     _store_cache(identity, cache)
