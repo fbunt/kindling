@@ -61,6 +61,8 @@ def question_sha(q: Question) -> str:
         "tolerance_rel": q.tolerance_rel,
         "tolerance_abs": q.tolerance_abs,
     }
+    if q.history:  # absent when empty, so questions without one keep their sha
+        payload["history"] = [list(turn) for turn in q.history]
     return _sha(json.dumps(payload, sort_keys=True))[:12]
 
 

@@ -49,7 +49,7 @@ from bench.grading import (
 )
 from bench.ground_truth import reference_sha
 from bench.io import atomic_write_json, read_trace
-from bench.questions import BY_ID
+from bench.questions import BY_ID, QUESTIONS
 from bench.report import build_report
 
 # Full-parquet ground truth (bench gt, 2026-09-29).
@@ -176,7 +176,7 @@ def _trace(qid, trial, text, records=(), **extra):
 
 
 def test_every_question_has_answer_metadata():
-    assert set(ANSWERS) == set(BY_ID)
+    assert set(ANSWERS) == {q.id for q in QUESTIONS}
     for qid, spec in ANSWERS.items():
         for unit in spec.units or ():
             assert normalize_unit(unit) == unit, (qid, unit)

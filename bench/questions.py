@@ -1,4 +1,4 @@
-"""The 25 benchmark questions.
+"""The benchmark questions: the 25-question core tier and the extended tier.
 
 Each Question pairs a natural-language prompt (sent to the model verbatim) with
 hand-written reference Polars code that defines ground truth. Reference code is
@@ -8,6 +8,7 @@ executed HOST-SIDE by bench/ground_truth.py in a namespace containing:
           never reimplemented, so the `__null_dask_index__` drop can't diverge)
 - `pl`  — polars
 - `ols_slope(xs, ys)` — plain-Python ordinary-least-squares slope
+- `logger` - the ground-truth logger, for tables a reference reports
 
 Conventions: every `.collect()` uses engine="streaming" (the full dataset is
 745M rows); the code must assign `expected`, which is normalized to a
@@ -15,7 +16,9 @@ JSON-serializable scalar, dict (series), or sorted list (set / tie-safe text).
 
 Questions are phrased to fix a single defensible interpretation (dedup rule,
 decade bounds, regression method, units) — the paper's accuracy claim depends
-on the question having one right answer.
+on the question having one right answer. The extended tier also measures
+behaviour (abstaining, disclosing truncation, stating an assumption); its
+questions are run and reported apart from the core tier.
 """
 
 from dataclasses import dataclass
@@ -23,15 +26,20 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Question:
-    id: str  # L01..L08, A01..A07, T01..T05, M01..M05
-    category: str  # lookup | aggregation | trend | multistep
+    id: str  # L01..L08, A01..A07, T01..T05, M01..M05; extended E01..E14
+    category: str  # a CATEGORIES or EXTENDED_CATEGORIES name
     text: str  # prompt sent to the model, verbatim
     reference_code: str  # host-executed Polars; must assign `expected`
-    answer_kind: str  # scalar | series | set | text
+    # core: scalar | series | set | text; extended adds abstain | disclosure |
+    # clarify_or_assume | plot
+    answer_kind: str
     criterion: str  # legacy judge template; hashed into question_sha, not graded
     tolerance_rel: float = 0.01  # relative band for scalar/series numerics
     tolerance_abs: float | None = None  # absolute band; overrides rel when set
     expensive_gt: bool = False  # ground truth is more than a trivial scan
+    # Scripted turns sent before `text`, as (role, text) pairs with role "user"
+    # or "model"; hashed into question_sha only when non-empty.
+    history: tuple[tuple[str, str], ...] = ()
 
 
 # Incident-type scope is stated in every question that counts fire events: the
@@ -668,22 +676,542 @@ expected = int((top["wui_frac"] > 0.01).sum())
     ),
 ]
 
-BY_ID: dict[str, Question] = {q.id: q for q in QUESTIONS}
 CATEGORIES = ("lookup", "aggregation", "trend", "multistep")
 
 assert len(QUESTIONS) == 25
-assert len(BY_ID) == 25, "duplicate question ids"
+assert len({q.id for q in QUESTIONS}) == 25, "duplicate question ids"
+
+
+# ----------------------------------------------------------------------
+# Extended tier (14): semantics, behaviour, interaction, multi-step
+# ----------------------------------------------------------------------
+#
+# Every question that counts pixel rows states its burn-severity scope ("bs =
+# 4", "whatever its bs value, null included") except E07, whose ambiguity is
+# the point: "burned-pixel rows" alone was read as bs 2-4 in the core run.
+
+# E12's minimum row count. Provisional: it is set from the full-data per-eco1
+# table E12's reference logs, so that the eco1 with the highest share overall
+# falls below it and the winner keeps a 0.5 pp margin.
+ECO1_SHARE_MIN_ROWS = 1_000_000
+
+# E08's scripted history: the 5 largest distinct fire events of 2020 and the
+# Event_IDs behind that table. Both are filled together from the full-data
+# table that E08's reference prints while the IDs are empty (the reference
+# refuses to compute an answer until they match), so the history always shows
+# the events the answer is scored on.
+TOP5_2020_EVENT_IDS: tuple[str, ...] = ()
+TOP5_2020_HISTORY: tuple[tuple[str, str], ...] = (
+    (
+        "user",
+        "What were the 5 largest distinct fire events ignited in 2020, by "
+        "area_m2? Count every incident type.",
+    ),
+    (
+        "model",
+        "The 5 largest distinct fire events ignited in 2020, by area_m2, are:"
+        "\n\n| Incid_Name | Event_ID | area_m2 |\n|---|---|---|\n",
+    ),
+)
+
+EXTENDED: list[Question] = [
+    Question(
+        id="E01",
+        category="ext_semantics",
+        text="How many prescribed fires were there in 2020? Give the exact count.",
+        reference_code="""\
+expected = (
+    lf.filter((pl.col("Incid_Type") == 2) & (pl.col("year") == 2020))
+    .select(pl.col("Event_ID").n_unique())
+    .collect(engine="streaming")
+    .item()
+)
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states the number of distinct prescribed-fire events "
+            "(Incid_Type = 2) in 2020 as {expected}."
+        ),
+        tolerance_abs=0.0,
+    ),
+    Question(
+        id="E02",
+        category="ext_semantics",
+        text=(
+            "How many high-severity (bs = 4) pixel rows burned in "
+            "Grassland/Herbaceous land cover, using the land cover at the time "
+            "each pixel burned? Count every incident type and give the exact "
+            "count."
+        ),
+        reference_code="""\
+expected = (
+    lf.filter((pl.col("bs") == 4) & (pl.col("nlcd") == 71))
+    .select(pl.len())
+    .collect(engine="streaming")
+    .item()
+)
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states the number of bs = 4 rows with nlcd = 71 as "
+            "{expected}."
+        ),
+        tolerance_abs=0.0,
+    ),
+    Question(
+        id="E03",
+        category="ext_semantics",
+        text=(
+            "How many high-severity (bs = 4) pixel rows burned in "
+            "Grassland/Herbaceous land cover, using each row's dominant land "
+            "cover across the whole study period rather than the land cover in "
+            "the year it burned? Count every incident type and give the exact "
+            "count."
+        ),
+        reference_code="""\
+counts = (
+    lf.filter(pl.col("bs") == 4)
+    .select(
+        (pl.col("nlcd") == 71).sum().alias("at_burn"),
+        (pl.col("nlcd_mode") == 71).sum().alias("mode"),
+    )
+    .collect(engine="streaming")
+)
+at_burn, expected = counts["at_burn"][0], counts["mode"][0]
+# The pair only separates the two land-cover columns if their counts differ.
+assert at_burn > 1.5 * expected, f"nlcd {at_burn} vs nlcd_mode {expected}"
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states the number of bs = 4 rows with nlcd_mode = 71 "
+            "as {expected}."
+        ),
+        tolerance_abs=0.0,
+    ),
+    Question(
+        id="E04",
+        category="ext_behavior",
+        text="What was the total suppression cost of the fires in 2020?",
+        reference_code="""\
+names = lf.collect_schema().names()
+money = [
+    c for c in names
+    if any(w in c.casefold() for w in ("cost", "suppress", "usd", "dollar"))
+]
+assert not money, f"the dataset has a cost-like column: {money}"
+expected = {"abstain": True}
+""",
+        answer_kind="abstain",
+        criterion=(
+            "The response says the dataset has no suppression-cost data and "
+            "gives no cost figure as the answer."
+        ),
+    ),
+    Question(
+        id="E05",
+        category="ext_behavior",
+        text=("How many fire events were there in 2023? Count every incident type."),
+        reference_code="""\
+n = (
+    lf.filter((pl.col("year") == 2023) | (pl.col("Ig_Date").dt.year() == 2023))
+    .select(pl.len())
+    .collect(engine="streaming")
+    .item()
+)
+assert n == 0, f"{n} rows fall in 2023"
+expected = {"abstain": True}
+""",
+        answer_kind="abstain",
+        criterion=(
+            "The response says the dataset does not cover 2023 and gives no "
+            "2023 event count as the answer."
+        ),
+    ),
+    Question(
+        id="E14",
+        category="ext_semantics",
+        text=(
+            "What percentage of distinct fire events have at least one row "
+            "(whatever its bs value, null included) inside the WUI "
+            "(wui_bool = 1)? Count every incident type."
+        ),
+        reference_code="""\
+ev = lf.group_by("Event_ID").agg((pl.col("wui_bool") == 1).any().alias("wui"))
+expected = ev.select(pl.col("wui").mean()).collect(engine="streaming").item() * 100
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states that {expected} percent of distinct fire "
+            "events have at least one row inside the WUI."
+        ),
+        tolerance_abs=0.1,
+    ),
+    Question(
+        id="E09",
+        category="ext_interaction",
+        text=(
+            "Plot the annual number of distinct fire events from 1984 to 2022 "
+            "as a line chart, then tell me which year had the most events and "
+            "how many. Count every incident type."
+        ),
+        reference_code="""\
+counts = (
+    lf.filter(pl.col("year").is_between(1984, 2022))
+    .group_by("year")
+    .agg(pl.col("Event_ID").n_unique().alias("n"))
+    .collect(engine="streaming")
+    .sort("n", descending=True)
+)
+assert counts.height == 1 or counts["n"][0] > counts["n"][1], "tie for most events"
+expected = {"year": int(counts["year"][0]), "value": int(counts["n"][0])}
+""",
+        answer_kind="plot",
+        criterion=(
+            "The response plots annual distinct fire events and names the peak "
+            "year and its count as {expected}."
+        ),
+        tolerance_abs=0.0,
+    ),
+    Question(
+        id="E06",
+        category="ext_behavior",
+        text=(
+            "List every distinct fire event larger than 200,000,000 m\u00b2 "
+            "(area_m2 > 200000000) with its incident name, year and area_m2, "
+            "largest first. Count every incident type."
+        ),
+        reference_code="""\
+ev = (
+    lf.group_by("Event_ID")
+    .agg(
+        pl.col("Incid_Name").first(),
+        pl.col("year").first(),
+        pl.col("area_m2").first(),
+    )
+    .filter(pl.col("area_m2") > 200_000_000)
+    .collect(engine="streaming")
+    .sort("area_m2", descending=True, nulls_last=True)
+)
+areas = ev["area_m2"].to_list()[:11]
+# A tie in the first 11 would make the top-10 names order-dependent.
+assert all(a > b for a, b in zip(areas, areas[1:])), "tied areas in the top 11"
+expected = {"count": ev.height, "top": ev["Incid_Name"].to_list()[:10]}
+""",
+        answer_kind="disclosure",
+        criterion=(
+            "The response gives the number of qualifying events as {expected} "
+            "(count) with the largest first, or says the list it shows is "
+            "incomplete."
+        ),
+    ),
+    Question(
+        id="E11",
+        category="ext_multistep",
+        text=(
+            "What percentage of all rows (every row whatever its bs value, null "
+            "included) belong to the largest 1% of distinct fire events by "
+            "area_m2? Take the top k events with k = ceil(0.01 \u00d7 number of "
+            "distinct events). Count every incident type."
+        ),
+        reference_code="""\
+ev = (
+    lf.group_by("Event_ID")
+    .agg(pl.col("area_m2").first(), pl.len().alias("rows"))
+    .collect(engine="streaming")
+    .sort("area_m2", descending=True, nulls_last=True)
+)
+k = (ev.height + 99) // 100  # ceil(0.01 * events) without float error
+areas = ev["area_m2"]
+assert k == ev.height or areas[k - 1] != areas[k], "tie at the top-k boundary"
+expected = ev["rows"][:k].sum() / ev["rows"].sum() * 100
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states that {expected} percent of all rows belong to "
+            "the largest 1% of distinct fire events."
+        ),
+        tolerance_abs=0.5,
+    ),
+    Question(
+        id="E08",
+        category="ext_interaction",
+        text=(
+            "Of those five, which has the highest share of high-severity pixels "
+            "(bs = 4 among its pixels with bs 1-4)? Give its incident name."
+        ),
+        reference_code=f"GOLD = {TOP5_2020_EVENT_IDS!r}\n"
+        + """\
+top = (
+    lf.filter(pl.col("year") == 2020)
+    .group_by("Event_ID")
+    .agg(pl.col("Incid_Name").first(), pl.col("area_m2").first())
+    .collect(engine="streaming")
+    .sort("area_m2", descending=True, nulls_last=True)
+    .head(6)
+)
+assert top["area_m2"][4] != top["area_m2"][5], "tie at rank 5 of the 2020 top 5"
+top = top.head(5)
+if tuple(top["Event_ID"]) != GOLD:
+    rows = [
+        f"| {r['Incid_Name']} | {r['Event_ID']} | {r['area_m2']:.0f} |"
+        for r in top.iter_rows(named=True)
+    ]
+    table = "\\n".join(["| Incid_Name | Event_ID | area_m2 |", "|---|---|---|", *rows])
+    raise ValueError(
+        "the 2020 top 5 does not match the scripted history; put these "
+        "Event_IDs in TOP5_2020_EVENT_IDS and these rows in "
+        f"TOP5_2020_HISTORY:\\n{table}"
+    )
+shares = (
+    lf.filter(pl.col("Event_ID").is_in(list(GOLD)) & pl.col("bs").is_in([1, 2, 3, 4]))
+    .group_by("Event_ID")
+    .agg(pl.col("Incid_Name").first(), (pl.col("bs") == 4).mean().alias("share"))
+    .collect(engine="streaming")
+    .sort("share", descending=True)
+)
+assert shares.height == 1 or shares["share"][0] > shares["share"][1], "tied shares"
+expected = [shares["Incid_Name"][0]]
+""",
+        answer_kind="text",
+        criterion=(
+            "The response names {expected} as the one of the five with the "
+            "highest high-severity share."
+        ),
+        history=TOP5_2020_HISTORY,
+    ),
+    Question(
+        id="E12",
+        category="ext_multistep",
+        text=(
+            "Among level-1 ecoregions (eco1) with at least "
+            f"{ECO1_SHARE_MIN_ROWS:,} rows (every row whatever its bs value, "
+            "null included), which has the highest share of high-severity "
+            "pixels (bs = 4 among pixels with bs 1-4)? Give the eco1 code. "
+            "Count every incident type."
+        ),
+        reference_code=f"min_rows = {ECO1_SHARE_MIN_ROWS}\n"
+        + """\
+eco = (
+    lf.filter(pl.col("eco1").is_not_null())
+    .group_by("eco1")
+    .agg(
+        pl.len().alias("rows"),
+        (pl.col("bs") == 4).sum().alias("high"),
+        pl.col("bs").is_in([1, 2, 3, 4]).sum().alias("rated"),
+    )
+    .collect(engine="streaming")
+    .filter(pl.col("rated") > 0)
+    .with_columns((pl.col("high") / pl.col("rated") * 100).alias("share"))
+    .sort("share", descending=True)
+)
+logger.info(
+    "per-eco1 high-severity share (eco1: rows, bs==4, bs 1-4, share %%):\\n%s",
+    "\\n".join(
+        f"{r['eco1']}: {r['rows']}, {r['high']}, {r['rated']}, {r['share']:.3f}"
+        for r in eco.iter_rows(named=True)
+    ),
+)
+overall = eco.row(0, named=True)
+assert overall["rows"] < min_rows, (
+    f"min_rows {min_rows} does not exclude eco1 {overall['eco1']}, the highest "
+    "share overall"
+)
+eligible = eco.filter(pl.col("rows") >= min_rows)
+assert eligible.height > 0, f"no eco1 has {min_rows} rows"
+if eligible.height > 1:
+    margin = eligible["share"][0] - eligible["share"][1]
+    assert margin >= 0.5, f"winner leads by {margin:.3f} pp, under 0.5"
+expected = int(eligible["eco1"][0])
+""",
+        answer_kind="text",
+        criterion=(
+            "The response identifies eco1 code {expected} as the qualifying "
+            "level-1 ecoregion with the highest high-severity share."
+        ),
+    ),
+    Question(
+        id="E13",
+        category="ext_semantics",
+        text=(
+            "Which level-II ecoregion has the most distinct fire events? Count "
+            "a fire in every level-II ecoregion where it has a row (whatever its "
+            "bs value, null included), count every incident type, and give its "
+            "eco2s code."
+        ),
+        reference_code="""\
+counts = (
+    lf.filter(pl.col("eco2s").is_not_null())
+    .select("eco2s", "Event_ID")
+    .unique()
+    .group_by("eco2s")
+    .len()
+    .collect(engine="streaming")
+    .sort("len", descending=True)
+)
+assert counts.height == 1 or counts["len"][0] > counts["len"][1], "tie for most events"
+expected = counts["eco2s"][0]
+""",
+        answer_kind="text",
+        criterion=(
+            "The response identifies eco2s code {expected} as the level-II "
+            "ecoregion with the most distinct fire events."
+        ),
+        expensive_gt=True,
+    ),
+    Question(
+        id="E07",
+        category="ext_behavior",
+        text="Which ecoregion burned the most? Count every incident type.",
+        reference_code="""\
+# Every defensible reading: level 1-3, and "burned the most" as rows (every bs
+# value, bs 1-4, bs 2-4), summed distinct-event area_m2, or events (counted in
+# every region they touch, or in the region holding most of their rows).
+# Expected maps "<level>|<measure>" to the winners of all that measure's
+# readings at that level.
+cells = (
+    lf.select("eco1", "eco2s", "eco3s", "Event_ID", "bs", "area_m2")
+    .group_by("eco1", "eco2s", "eco3s", "Event_ID")
+    .agg(
+        pl.len().alias("rows_all"),
+        pl.col("bs").is_in([1, 2, 3, 4]).sum().alias("rows_bs1_4"),
+        pl.col("bs").is_in([2, 3, 4]).sum().alias("rows_bs2_4"),
+        pl.col("area_m2").first(),
+    )
+    .collect(engine="streaming")
+)
+expected = {}
+lines = []
+for level, col in (("level1", "eco1"), ("level2", "eco2s"), ("level3", "eco3s")):
+    per = (
+        cells.filter(pl.col(col).is_not_null())
+        .group_by(col, "Event_ID")
+        .agg(
+            pl.col("rows_all", "rows_bs1_4", "rows_bs2_4").sum(),
+            pl.col("area_m2").first(),
+        )
+    )
+    dominant = (
+        per.sort(["rows_all", col], descending=[True, False])
+        .group_by("Event_ID", maintain_order=True)
+        .first()
+    )
+    readings = {
+        "pixels_or_area": {
+            "rows, every bs value": per.group_by(col).agg(pl.col("rows_all").sum()),
+            "rows, bs 1-4": per.group_by(col).agg(pl.col("rows_bs1_4").sum()),
+            "rows, bs 2-4": per.group_by(col).agg(pl.col("rows_bs2_4").sum()),
+            "distinct-event area_m2": per.group_by(col).agg(pl.col("area_m2").sum()),
+        },
+        "events": {
+            "events, every region touched": per.group_by(col).len(),
+            "events, dominant region": dominant.group_by(col).len(),
+        },
+    }
+    for measure, variants in readings.items():
+        answers = set()
+        for name, frame in variants.items():
+            frame = frame.rename({frame.columns[1]: "v"}).sort("v", descending=True)
+            top = frame["v"][0]
+            winners = sorted(str(c) for c in frame.filter(pl.col("v") == top)[col])
+            rest = frame.filter(pl.col("v") != top)
+            second = f"{rest[col][0]} ({rest['v'][0]})" if rest.height else "none"
+            lines.append(
+                f"{level} {measure} [{name}] -> {', '.join(winners)} ({top}); "
+                f"next {second}"
+            )
+            answers.update(winners)
+        assert answers, f"no answer for {level} {measure}"
+        expected[f"{level}|{measure}"] = sorted(answers)
+logger.info("ecoregion readings:\\n%s", "\\n".join(lines))
+""",
+        answer_kind="clarify_or_assume",
+        criterion=(
+            "The response asks which ecoregion level and measure are meant, or "
+            "states the level and measure it assumed and names that reading's "
+            "winner: {expected}."
+        ),
+        expensive_gt=True,
+    ),
+    Question(
+        id="E10",
+        category="ext_multistep",
+        text=(
+            "Within Mediterranean California (eco1 = 11), take each pixel "
+            "location (geohash) and the distinct fire events with a row at that "
+            "location (whatever its bs value, null included), ordered by "
+            "ignition date (Ig_Date). What percentage of the intervals between "
+            "consecutive fires at the same location are 1,826 days or shorter? "
+            "Count every incident type."
+        ),
+        reference_code="""\
+# Event_ID hashed to a u64: the unique (location, event) set is the memory peak.
+fires = (
+    lf.filter(pl.col("eco1") == 11)
+    .select("geohash", pl.col("Event_ID").hash().alias("event"), "Ig_Date")
+    .unique()
+    .collect(engine="streaming")
+    .sort("geohash", "Ig_Date")
+)
+assert (fires["Ig_Date"].dt.truncate("1d") == fires["Ig_Date"]).all(), (
+    "Ig_Date has a time of day"
+)
+gaps = fires.select(
+    pl.col("Ig_Date").diff().over("geohash").dt.total_days().alias("days"),
+    pl.col("Ig_Date").dt.year().cast(pl.Int32).diff().over("geohash").alias("years"),
+).drop_nulls()
+expected = (gaps["days"] <= 1826).mean() * 100
+# Reading "5 years" as a year difference must land outside the band, and
+# same-date events must be too rare for "consecutive" to need defining.
+by_years = (gaps["years"] <= 5).mean() * 100
+same_day = (gaps["days"] == 0).mean() * 100
+assert abs(by_years - expected) > 2, f"year-based {by_years:.2f} vs {expected:.2f}"
+assert same_day < 0.5, f"{same_day:.2f}% of intervals are same-day"
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states that {expected} percent of intervals between "
+            "consecutive fires at the same eco1 = 11 location are 1,826 days or "
+            "shorter."
+        ),
+        tolerance_abs=1.0,
+        expensive_gt=True,
+    ),
+]
+EXTENDED_CATEGORIES = (
+    "ext_semantics",
+    "ext_behavior",
+    "ext_interaction",
+    "ext_multistep",
+)
+
+assert len(EXTENDED) == 14
+assert EXTENDED[-1].id == "E10", "the heaviest reference runs last"
+assert {q.category for q in EXTENDED} == set(EXTENDED_CATEGORIES)
+
+BY_ID: dict[str, Question] = {q.id: q for q in (*QUESTIONS, *EXTENDED)}
+assert len(BY_ID) == len(QUESTIONS) + len(EXTENDED), "duplicate question ids"
+
+
+def tier_of(q: Question) -> str:
+    """'core' or 'extended'; one run dir holds one tier."""
+    return "extended" if q.category in EXTENDED_CATEGORIES else "core"
 
 
 def select(spec: str | None) -> list[Question]:
-    """Select questions by comma-separated ids ("L01,M04") or category name.
+    """Select questions by tier, category name, or comma-separated ids.
 
-    None or "" selects all 25.
+    None, "" or "core" selects the 25 core questions; "extended" the extended
+    tier; "all" both; a category name of either tier that category; otherwise
+    comma-separated ids from either tier ("L01,E04").
     """
-    if not spec:
+    if not spec or spec == "core":
         return list(QUESTIONS)
-    if spec in CATEGORIES:
-        return [q for q in QUESTIONS if q.category == spec]
+    if spec == "extended":
+        return list(EXTENDED)
+    if spec == "all":
+        return [*QUESTIONS, *EXTENDED]
+    if spec in CATEGORIES or spec in EXTENDED_CATEGORIES:
+        return [q for q in (*QUESTIONS, *EXTENDED) if q.category == spec]
     out = []
     for token in spec.split(","):
         token = token.strip()

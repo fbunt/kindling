@@ -123,7 +123,7 @@ def reference_sha(question: Question) -> str:
 
 def compute_expected(question: Question, lf: pl.LazyFrame) -> tuple[object, float]:
     """Execute reference code; return (normalized expected, elapsed seconds)."""
-    ns = {"lf": lf, "pl": pl, "ols_slope": ols_slope}
+    ns = {"lf": lf, "pl": pl, "ols_slope": ols_slope, "logger": logger}
     t0 = time.monotonic()
     try:
         exec(question.reference_code, ns)

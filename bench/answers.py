@@ -32,6 +32,8 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from bench.questions import Question
+
 PERCENT = ("%", "percent", "percentage", "pct")
 
 
@@ -150,6 +152,88 @@ ANSWERS: dict[str, AnswerSpec] = {
     ),
     "M05": _COUNT,
 }
+
+
+# ---------------------------------------------------------------------------
+# Extended tier
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ExtAnswerSpec(AnswerSpec):
+    """AnswerSpec for an extended-tier question. Fields the extended kinds
+    need live here and never on AnswerSpec: asdict() over ANSWERS is hashed
+    into the core grader sha, so a new AnswerSpec field would move it."""
+
+    # abstain: a stated count of 0 that comes with a coverage statement is an
+    # abstention, not a fabricated value
+    zero_abstains: bool = False
+    # disclosure: how many leading names are checked against expected["top"]
+    top_k: int | None = None
+
+
+# Level-1 ecoregion names by eco1 code, as app/query_engine.py describes eco1
+# to the model (a test keeps the two in step).
+ECO1_NAMES: dict[int, str] = {
+    1: "Arctic Cordillera",
+    2: "Tundra",
+    3: "Taiga",
+    4: "Hudson Plain",
+    5: "Northern Forests",
+    6: "Northwestern Forested Mountains",
+    7: "Marine West Coast Forest",
+    8: "Eastern Temperate Forests",
+    9: "Great Plains",
+    10: "North American Deserts",
+    11: "Mediterranean California",
+    12: "Southern Semiarid Highlands",
+    13: "Temperate Sierras",
+    14: "Tropical Dry Forests",
+    15: "Tropical Wet Forests",
+}
+# Each eco1 code's alternates: the two-digit form (eco1s) and its name.
+_ECO1_ALIASES = {
+    str(code): ((f"{code:02d}",) if code < 10 else ()) + (name.casefold(),)
+    for code, name in ECO1_NAMES.items()
+}
+
+EXT_ANSWERS: dict[str, ExtAnswerSpec] = {
+    "E01": ExtAnswerSpec(integer=True),
+    "E02": ExtAnswerSpec(integer=True),
+    "E03": ExtAnswerSpec(integer=True),
+    "E04": ExtAnswerSpec(note="no cost column: any cost presented as the answer fails"),
+    "E05": ExtAnswerSpec(
+        zero_abstains=True,
+        note="coverage ends in 2022; '0 fires' passes only with that statement",
+    ),
+    "E06": ExtAnswerSpec(
+        aliases=dict(ANSWERS["A05"].aliases),
+        top_k=10,
+        note="total count within 1%; leading names checked with A05's aliases",
+    ),
+    "E07": ExtAnswerSpec(
+        aliases=_ECO1_ALIASES,
+        note="any reading's winner, with its level and measure stated",
+    ),
+    "E08": ExtAnswerSpec(note="name aliases are added once ground truth is known"),
+    "E09": ExtAnswerSpec(integer=True, note="peak year and its exact count"),
+    "E10": ExtAnswerSpec(units=PERCENT),
+    "E11": ExtAnswerSpec(units=PERCENT),
+    "E12": ExtAnswerSpec(
+        aliases=_ECO1_ALIASES, note="the eco1 code (or eco1s form) or its level-I name"
+    ),
+    "E13": ExtAnswerSpec(
+        note="code aliases ('08.5': '8.5') are added once ground truth is known"
+    ),
+    "E14": ExtAnswerSpec(units=PERCENT),
+}
+
+
+def spec_for(question: Question) -> AnswerSpec:
+    """The answer spec of a question from either tier."""
+    if question.id in ANSWERS:
+        return ANSWERS[question.id]
+    return EXT_ANSWERS[question.id]
 
 
 # A later segment of an extracted name that qualifies it without naming
