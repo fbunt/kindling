@@ -264,6 +264,52 @@ def test_allow_drift_never_waives_model_or_dataset(tmp_path, key):
     assert meta[key] == f"v-{key}" and "resumes" not in meta
 
 
+def test_legacy_run_meta_without_tier_resumes_as_core(tmp_path):
+    d = tmp_path / "run"
+    runner.open_run_dir(d, _meta(), allow_drift=False)
+    assert "tier" not in json.loads((d / "run_meta.json").read_text())
+    meta = runner.open_run_dir(
+        d, _meta(tier="core", started_at="t1"), allow_drift=False
+    )
+    assert meta["resumes"][-1]["drift"] == []
+    assert meta["tier"] == "core"
+
+
+@pytest.mark.parametrize("allow_drift", [False, True])
+@pytest.mark.parametrize("stored", [None, "core"])
+def test_resume_into_another_tier_is_refused(tmp_path, stored, allow_drift):
+    d = tmp_path / "run"
+    meta = _meta() if stored is None else _meta(tier=stored)
+    runner.open_run_dir(d, meta, allow_drift=False)
+    before = (d / "run_meta.json").read_text()
+    with pytest.raises(runner.BenchAbort, match="core tier, not extended"):
+        runner.open_run_dir(d, _meta(tier="extended"), allow_drift=allow_drift)
+    # Checked before the model/dataset identity, so a tier change names itself.
+    with pytest.raises(runner.BenchAbort, match="tier"):
+        runner.open_run_dir(
+            d, _meta(tier="extended", model="other"), allow_drift=allow_drift
+        )
+    assert (d / "run_meta.json").read_text() == before
+
+
+@pytest.mark.parametrize("spec", ["all", "L01,E01"])
+async def test_run_refuses_questions_from_both_tiers(spec):
+    args = SimpleNamespace(
+        models=None, model=CHAT_MODEL, questions=spec, parquet="/nonexistent"
+    )
+    with pytest.raises(runner.BenchAbort, match="core and extended tiers"):
+        await runner.run_bench(args)
+
+
+@pytest.mark.parametrize("spec", [None, "extended", "E01,E04"])
+async def test_run_accepts_one_tier(spec):
+    args = SimpleNamespace(
+        models=None, model=CHAT_MODEL, questions=spec, parquet="/nonexistent"
+    )
+    with pytest.raises(runner.BenchAbort, match="parquet not found"):
+        await runner.run_bench(args)
+
+
 def test_legacy_run_meta_counts_as_drift():
     legacy = {"model": "m", "parquet_identity": "p", "trials": 1}
     diffs = provenance.check_drift(legacy, _meta(model="m", parquet_identity="p"))
@@ -484,16 +530,19 @@ def test_terminal_model_error():
 
 
 class _FakeModels:
-    """Scripted chat responses; code-judge (LITE_MODEL) calls always allow."""
+    """Scripted chat responses; code-judge (LITE_MODEL) calls always allow.
+    `contents` keeps a copy of what each chat call was sent."""
 
     def __init__(self, script):
         self.script = list(script)
         self.chat_calls = 0
+        self.contents = []
 
     def generate_content(self, *, model, contents, config):
         if model == LITE_MODEL:
             return _response([types.Part(text='{"allow": true, "reason": "ok"}')])
         self.chat_calls += 1
+        self.contents.append(list(contents))
         step = self.script.pop(0)
         if isinstance(step, BaseException):
             raise step
@@ -549,15 +598,17 @@ def _text(t="The answer is 1."):
     )
 
 
-async def _trial(tmp_path, script, *, pool=None, retries=2, timeout=60):
-    client = RecordingClient(_FakeInner(script))
-    path = tmp_path / "L03" / "trial_00.json"
+async def _trial(
+    tmp_path, script, *, pool=None, retries=2, timeout=60, qid="L03", inner=None
+):
+    client = RecordingClient(inner or _FakeInner(script))
+    path = tmp_path / qid / "trial_00.json"
     with runner.bench_tool_dispatch():
         trace = await runner.run_trial(
             client,
             CHAT_MODEL,
             pool or _FakePool(),
-            BY_ID["L03"],
+            BY_ID[qid],
             27794,
             0,
             path,
@@ -568,11 +619,12 @@ async def _trial(tmp_path, script, *, pool=None, retries=2, timeout=60):
             retries=retries,
             turn_timeout_s=timeout,
         )
-    assert json.loads(path.read_text())["question_id"] == "L03"
+    assert json.loads(path.read_text())["question_id"] == qid
     return trace
 
 
-async def test_run_trial_records_usage_rejections_and_plots(tmp_path):
+async def test_run_trial_records_usage_rejections_and_plots(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.sandbox_pool, "PLOTS_DIR", tmp_path / "no-plots")
     web = _response(
         [types.Part(function_call=types.FunctionCall(name="web_search", args={}))]
     )
@@ -600,6 +652,74 @@ async def test_run_trial_records_usage_rejections_and_plots(tmp_path):
     assert usage[LITE_MODEL]["calls"] == 2  # code-judge ran on both real queries
     assert trace["turn_latency_s"] is not None
     assert is_executable(trace) == (True, "ok")
+
+
+async def test_core_question_is_sent_as_a_single_user_part(tmp_path):
+    inner = _FakeInner([_call("result = 1"), _text()])
+    trace = await _trial(tmp_path, None, inner=inner)
+    q = BY_ID["L03"]
+    assert inner.models.contents[0] == [
+        types.Content(role="user", parts=[types.Part(text=q.text)])
+    ]
+    assert trace["tier"] == "core" and trace["history"] == []
+
+
+async def test_history_question_sends_its_turns_before_the_question(tmp_path):
+    inner = _FakeInner([_text()])
+    trace = await _trial(tmp_path, None, inner=inner, qid="E08")
+    q = BY_ID["E08"]
+    sent = inner.models.contents[0]
+    assert [c.role for c in sent] == ["user", "model", "user"]
+    assert [[p.text for p in c.parts] for c in sent] == [
+        [q.history[0][1]],
+        [q.history[1][1]],
+        [q.text],
+    ]
+    assert trace["tier"] == "extended"
+    assert trace["history"] == [{"role": r, "text": t} for r, t in q.history]
+
+
+async def test_plots_are_copied_into_the_run_dir(tmp_path, monkeypatch):
+    plots = tmp_path / "shared-plots"
+    plots.mkdir()
+    (plots / "plot-001.png").write_bytes(b"png-bytes")
+    monkeypatch.setattr(runner.sandbox_pool, "PLOTS_DIR", plots)
+    run_dir = tmp_path / "run"
+    # A copy from an earlier attempt at this trial goes; another trial's stays.
+    (run_dir / "L03" / "plots").mkdir(parents=True)
+    (run_dir / "L03" / "plots" / "trial_00-plot-009.png").write_bytes(b"old")
+    (run_dir / "L03" / "plots" / "trial_01-plot-009.png").write_bytes(b"other")
+    trace = await _trial(run_dir, [_call("result = 1"), _text()])
+    assert sorted(p.name for p in (run_dir / "L03" / "plots").iterdir()) == [
+        "trial_00-plot-001.png",
+        "trial_01-plot-009.png",
+    ]
+    copies = trace["query_records"][0]["plot_copies"]
+    assert copies == [
+        {
+            "name": "plot-001",
+            "path": "L03/plots/trial_00-plot-001.png",
+            "missing": False,
+        }
+    ]
+    assert (run_dir / copies[0]["path"]).read_bytes() == b"png-bytes"
+
+
+async def test_missing_plot_source_is_recorded_not_raised(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.sandbox_pool, "PLOTS_DIR", tmp_path / "empty")
+
+    class Inner:
+        async def run_query(self, code):
+            return {"data": [], "plots": ["/plots/plot-007.png?t=2"]}
+
+    session = runner.RecordingSession(
+        inner=Inner(), calls=[], trial_path=tmp_path / "E09" / "trial_03.json"
+    )
+    await session.run_query("result = 1")
+    assert session.records[0]["plot_copies"] == [
+        {"name": "plot-007", "path": None, "missing": True}
+    ]
+    assert not (tmp_path / "E09" / "plots").exists()
 
 
 async def test_run_trial_malformed_final_is_model_error(tmp_path):

@@ -30,27 +30,31 @@ import json
 import logging
 import os
 import random
+import shutil
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from google.genai import errors as genai_errors
 from google.genai import types
 
 import app.chat_loop as chat_loop
+import app.sandbox.pool as sandbox_pool
 from app.chat_loop import DoneEvent, run_chat_turn
 from app.config import CHAT_MODEL_IDS, MAX_TOOL_ROUNDS
 from app.genai_client import make_client
 from app.query_engine import configure
+from app.routes.chat import HISTORY_ADAPTER, _history_to_contents
 from app.sandbox.pool import SandboxBusy
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION
 from bench import provenance
 from bench.ground_truth import get_expected, parquet_identity, reference_sha
 from bench.io import atomic_write_json, move_aside, read_trace
-from bench.questions import Question, select
+from bench.questions import Question, select, tier_of
 from bench.usage import (
     RecordingClient,
     aggregate_usage,
@@ -213,10 +217,15 @@ class RecordingSession:
     Results pass through untouched: the chat loop (and model) see exactly what
     they would in production. Code-judge rejections short-circuit before the
     session, so they appear in `rejections` (source code_judge) only.
+
+    With `trial_path` set, each plot a query produced is copied next to the
+    trace as <qid>/plots/<trial stem>-<name>.png at run time: plots/ is shared,
+    pruned to 500 files and restarts its names in every process.
     """
 
     inner: object
     calls: list[dict]  # the trial's generate_content sink (for round numbers)
+    trial_path: Path | None = None  # <run_dir>/<qid>/trial_NN.json
     records: list[dict] = field(default_factory=list)
     rejections: list[dict] = field(default_factory=list)
     web_search_calls: list[dict] = field(default_factory=list)
@@ -240,6 +249,8 @@ class RecordingSession:
             # after this returns); keep the raw URLs.
             "plots": [p if isinstance(p, str) else p.get("url") for p in plots],
         }
+        if self.trial_path is not None:
+            record["plot_copies"] = [self.copy_plot(url) for url in record["plots"]]
         data = result.get("data")
         if data is not None:
             data_str = json.dumps(data, default=str)
@@ -247,6 +258,24 @@ class RecordingSession:
             record["data"] = data_str[:_DATA_CAP_CHARS]
         self.records.append(record)
         return result
+
+    def copy_plot(self, url) -> dict:
+        """Copy one plot PNG (by its /plots URL) into the run dir.
+
+        Returns {name, path, missing}; path is relative to the run dir, and a
+        source file that is gone is recorded as missing with path None."""
+        name = Path(urlsplit(url).path).stem if isinstance(url, str) else None
+        src = sandbox_pool.PLOTS_DIR / f"{name}.png" if name else None
+        if src is None or not src.is_file():
+            return {"name": name, "path": None, "missing": True}
+        dest = self.trial_path.parent / "plots" / f"{self.trial_path.stem}-{name}.png"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copyfile(src, dest)
+        except FileNotFoundError:  # pruned between the check and the copy
+            return {"name": name, "path": None, "missing": True}
+        run_dir = self.trial_path.parent.parent
+        return {"name": name, "path": str(dest.relative_to(run_dir)), "missing": False}
 
 
 _ORIG_EXECUTE = chat_loop.execute_function_call_async
@@ -301,19 +330,41 @@ class Attempt:
     latency_s: float | None = None
 
 
-async def _run_turn_once(client, model, question, pool, max_rounds, attempt):
-    """One full chat turn in a fresh sandbox; fills `attempt` as it goes so a
-    timeout or error still leaves the partial records behind."""
-    contents = [
+def question_contents(question: Question) -> list[types.Content]:
+    """The request contents for a question: its scripted history (if any),
+    built the way the chat route builds client history, then the question as
+    a single user part."""
+    history = HISTORY_ADAPTER.validate_python(
+        [
+            {"role": "assistant" if role == "model" else role, "content": text}
+            for role, text in question.history
+        ]
+    )
+    return [
+        *_history_to_contents(history),
         types.Content(role="user", parts=[types.Part(text=question.text)]),
     ]
+
+
+async def _run_turn_once(
+    client, model, question, pool, max_rounds, attempt, trial_path=None
+):
+    """One full chat turn in a fresh sandbox; fills `attempt` as it goes so a
+    timeout or error still leaves the partial records behind."""
+    contents = question_contents(question)
+    if trial_path is not None:
+        # An earlier attempt's copies would outlive the trace that lists them.
+        for stale in (trial_path.parent / "plots").glob(f"{trial_path.stem}-*.png"):
+            stale.unlink(missing_ok=True)
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
         tools=[BENCH_TOOLS],
     )
     sandbox = await pool.acquire_session()
     t0 = time.monotonic()  # after checkout: latency excludes sandbox waits
-    attempt.session = RecordingSession(inner=sandbox, calls=client.sink)
+    attempt.session = RecordingSession(
+        inner=sandbox, calls=client.sink, trial_path=trial_path
+    )
     try:
         async for ev in run_chat_turn(
             client, model, contents, config, attempt.session, max_rounds=max_rounds
@@ -369,8 +420,10 @@ async def run_trial(
         "model": model,
         "model_version": None,
         "question_id": question.id,
+        "tier": tier_of(question),
         "category": question.category,
         "answer_kind": question.answer_kind,
+        "history": [{"role": r, "text": t} for r, t in question.history],
         "parquet": str(parquet),
         "parquet_identity": identity,
         "prompt_sha": prompt_sha,
@@ -395,7 +448,9 @@ async def run_trial(
         timed_out = False
         try:
             async with asyncio.timeout(turn_timeout_s) as cm:
-                await _run_turn_once(client, model, question, pool, max_rounds, att)
+                await _run_turn_once(
+                    client, model, question, pool, max_rounds, att, trial_path
+                )
         except TimeoutError as e:
             if cm.expired():
                 timed_out = True
@@ -489,7 +544,9 @@ async def run_trial(
 def open_run_dir(run_dir: Path, meta: dict, *, allow_drift: bool) -> dict:
     """Create run_meta.json, or on resume refuse a drifted fingerprint.
 
-    Returns the meta now on disk (resumes are appended under `resumes`)."""
+    A run dir holds one tier (a run_meta without `tier` is core); resuming it
+    into another tier is refused even with --allow-drift. Returns the meta now
+    on disk (resumes are appended under `resumes`)."""
     meta_path = run_dir / "run_meta.json"
     if not meta_path.exists():
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -498,6 +555,12 @@ def open_run_dir(run_dir: Path, meta: dict, *, allow_drift: bool) -> dict:
     existing, err = read_trace(meta_path)
     if existing is None:
         raise BenchAbort(f"{meta_path} is unreadable ({err}); use a new --run-dir")
+    old_tier, new_tier = existing.get("tier", "core"), meta.get("tier", "core")
+    if old_tier != new_tier:
+        raise BenchAbort(
+            f"run dir {run_dir} holds the {old_tier} tier, not {new_tier}; use a "
+            "new --run-dir (--allow-drift does not waive this)."
+        )
     hard = provenance.identity_drift(existing, meta)
     if hard:
         raise BenchAbort(
@@ -525,6 +588,7 @@ def open_run_dir(run_dir: Path, meta: dict, *, allow_drift: bool) -> dict:
         existing["question_shas"]
     )
     existing["trials"] = max(existing.get("trials", 0), meta["trials"])
+    existing["tier"] = new_tier
     existing.pop("ended_at", None)
     atomic_write_json(meta_path, existing)
     return existing
@@ -620,6 +684,14 @@ async def run_bench(args) -> Path:
     from app.sandbox.pool import SandboxPool
 
     models = parse_models(args)
+    questions = select(args.questions)
+    tiers = sorted({tier_of(q) for q in questions})
+    if len(tiers) > 1:
+        raise BenchAbort(
+            f"--questions {args.questions!r} spans the {' and '.join(tiers)} "
+            "tiers; a run dir holds one tier, so run each tier into its own "
+            "--run-dir"
+        )
     parquet = Path(args.parquet)
     if not parquet.exists():
         raise BenchAbort(f"parquet not found: {parquet}")
@@ -627,7 +699,6 @@ async def run_bench(args) -> Path:
     runtime = preflight(settings)
 
     configure(parquet)  # get_dataset_info reads schema/samples from this
-    questions = select(args.questions)
     identity = parquet_identity(parquet)
     # Ground truth first: fail fast on reference bugs before any API spend.
     expected = {q.id: get_expected(q, parquet) for q in questions}
@@ -671,6 +742,7 @@ async def run_bench(args) -> Path:
             {
                 **fp,
                 "parquet": str(parquet),
+                "tier": tiers[0],
                 "trials": args.trials,
                 "interleaved_models": models if len(models) > 1 else None,
                 "seed": args.seed,

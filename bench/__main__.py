@@ -10,8 +10,11 @@
     python -m bench audit-web --run-dir DIR [--port 8765]
     python -m bench compare A [B] [--out FILE] [--seed 0] [--resamples 10000]
 
-SPEC = comma-separated question ids ("L01,M04") or a category name
-("lookup", "aggregation", "trend", "multistep").
+SPEC = a tier: "core" (the default, the 25 core questions) or "extended";
+"all" (both tiers; gt only, since run takes one tier per run dir); a category
+name ("lookup", "aggregation", "trend", "multistep", "ext_semantics",
+"ext_behavior", "ext_interaction", "ext_multistep"); or comma-separated
+question ids ("L01,M04").
 
 gt is local Polars only (no API call); on the full parquet it takes ~1.5 min
 and single queries reach 80-90 GB, so run nothing heavy alongside it. gt and
@@ -29,9 +32,9 @@ Resume: re-running `run` with the same --run-dir skips trials whose trace
 parses and has infra_error null; corrupt or infra-error traces are moved aside
 (*.bak) and re-run. It refuses if the run fingerprint (model, prompt/tool sha,
 questions, parquet identity, git sha/dirty, SDK/polars/worker-image versions,
-sandbox settings, max rounds) changed, unless --allow-drift. A different model
-or parquet identity is refused even with --allow-drift (one dir = one model on
-one dataset).
+sandbox settings, max rounds) changed, unless --allow-drift. A different model,
+parquet identity or tier is refused even with --allow-drift (one dir = one
+model on one dataset, one tier).
 grade makes one blind extractor call (flash-lite, temperature 0; it never
 sees the expected value) per non-infra trial and compares the extraction with
 ground truth in Python (bench/answers.py holds the per-question units,
