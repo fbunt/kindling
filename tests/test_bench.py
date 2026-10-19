@@ -265,8 +265,9 @@ def test_question_sha_tracks_wording_not_reference():
 # the commit (decision 0004).
 ARCHIVE = Path(__file__).parent.parent / "bench" / "results" / "pro-vs-flash-2026-10"
 ARCHIVE_MODELS = ("gemini-3.1-pro-preview", "gemini-3.8-flash")
-# Reworded since the archived run.
-REWORDED_SINCE_ARCHIVE: set[str] = set()
+# Reworded since the archived run: "burned-pixel rows" read as bs 2-4 (the A06
+# hedge), now "every row whatever its bs value, null included".
+REWORDED_SINCE_ARCHIVE = {"L07", "A02", "A06"}
 
 
 @pytest.mark.parametrize("model", ARCHIVE_MODELS)

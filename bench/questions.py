@@ -186,8 +186,9 @@ expected = sorted(
         id="L07",
         category="lookup",
         text=(
-            "How many burned-pixel rows does the dataset contain for the year "
-            "2020? Give the exact count."
+            "How many rows does the dataset contain for the year 2020, "
+            "counting every row whatever its bs value, null included? Give "
+            "the exact count."
         ),
         reference_code="""\
 expected = (
@@ -198,10 +199,7 @@ expected = (
 )
 """,
         answer_kind="scalar",
-        criterion=(
-            "The response states the number of burned-pixel rows for 2020 as "
-            "{expected}."
-        ),
+        criterion=("The response states the number of rows for 2020 as {expected}."),
         tolerance_abs=0.0,
     ),
     Question(
@@ -251,15 +249,17 @@ expected = mean_m2 / 4046.8564224  # international acre
     Question(
         id="A02",
         category="aggregation",
-        text="Which single year has the largest number of burned-pixel rows?",
+        text=(
+            "Which single year has the most rows, counting every row whatever "
+            "its bs value, null included?"
+        ),
         reference_code="""\
 counts = lf.group_by("year").len().collect(engine="streaming")
 expected = int(counts.sort("len", descending=True)["year"][0])
 """,
         answer_kind="text",
         criterion=(
-            "The response identifies {expected} as the year with the most "
-            "burned-pixel rows."
+            "The response identifies {expected} as the year with the most rows."
         ),
     ),
     Question(
@@ -332,8 +332,9 @@ expected = sorted(top["Incid_Name"].to_list())
         id="A06",
         category="aggregation",
         text=(
-            "Which level-1 ecoregion has the most burned-pixel rows in total? "
-            "Identify it by its eco1 integer code (the name too, if you like)."
+            "Which level-1 ecoregion has the most rows in total, counting "
+            "every row whatever its bs value, null included? Identify it by "
+            "its eco1 integer code (the name too, if you like)."
         ),
         reference_code="""\
 counts = lf.group_by("eco1").len().collect(engine="streaming")
@@ -342,7 +343,7 @@ expected = int(counts.sort("len", descending=True)["eco1"][0])
         answer_kind="text",
         criterion=(
             "The response identifies eco1 code {expected} as the level-1 "
-            "ecoregion with the most burned-pixel rows. The integer code "
+            "ecoregion with the most rows. The integer code "
             "{expected} must appear; an accompanying ecoregion name is fine."
         ),
     ),
