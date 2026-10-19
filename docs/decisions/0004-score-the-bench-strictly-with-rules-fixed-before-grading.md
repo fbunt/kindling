@@ -8,7 +8,8 @@ The paper's accuracy numbers come from `bench/`: 25 questions, each answered by 
 in real sandboxes. A reply can be right but hedged, right but computed on sampled or cut rows,
 or a clarifying question, and a grader can be an LLM verdict or code. The first real run
 (pro-vs-flash, 2026-10-01: Pro 125/125, Flash 122/125) put these choices under pressure, and
-one fail (Flash A06) arguably came from the question's wording rather than the model.
+one fail (Flash A06) arguably came from the question's wording rather than the model. That
+run is archived in [`bench/results/pro-vs-flash-2026-10/`](../../bench/results/pro-vs-flash-2026-10/).
 
 ## Decision
 

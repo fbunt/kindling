@@ -118,6 +118,10 @@ other event-count question says "Count every incident type". Subcommands (usage 
   run. Refuses differing parquet identity, `reference_sha`, `grader_sha` or question sets, and
   ungraded trials. grade, report and audit also accept an interleaved run's parent `DIR`.
 
+Runs behind published numbers are archived under `bench/results/<run>/` (reports, hand-filled
+adjudication/audit/triage, run_meta, ground truth, and every trace in `traces.tar.gz`; its README
+says how to restore and re-report). Scoring rules and why: `docs/decisions/0004-*.md`.
+
 `gt` and `run` hold a host-wide `fcntl` lock (`$KINDLING_BENCH_LOCK`, default
 `/tmp/kindling-bench.lock`): one bench per host. Output goes to `.bench-runs/<run-dir>/`.
 
