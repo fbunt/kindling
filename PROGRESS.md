@@ -19,12 +19,23 @@ _Updated: 2026-10-19._
 
 ## TODO
 
-- **Extended bench tier (E01-E14): the next substantive step.** The core 25 questions are at
-  ceiling for Pro and do not separate the models. Plan plus its review are in
-  `.bench-runs/extended-tier-plan.md` (gitignored). Revise the plan before building; the review's
-  two blockers: the "abstain" answer kind conflicts with the extractor's null-unless-answered rule,
-  and ground truth needs a memory cap (`systemd-run --user --scope -p MemoryMax=100G`). Keep the
-  extended tier's grader sha separate from the core tier's, since pro-vs-flash is already graded.
+- **Extended bench tier (E01-E14): built, waiting on full-data ground truth.** Code landed
+  2026-10-19 (`523f6f6`..`8fe1727`; CLAUDE.md *Extended tier*). Plan and its build log are in
+  `.bench-runs/extended-tier-plan.md` (gitignored). Next, in order:
+  1. Ground truth on the full parquet, one capped invocation per heavy question, app idle and
+     >= 100 GB free: `systemd-run --user --scope -p MemoryMax=100G uv run python -m bench gt
+     --questions ...` for E01-E06, E09, E11, E14 together, then E12, E13, E07 and E10 each alone
+     (E10 last). E08 fails on purpose until its 2020 top 5 is pasted into `TOP5_2020_EVENT_IDS` /
+     `TOP5_2020_HISTORY`; check `year` equals the `Ig_Date` year for those five.
+  2. Set E12's row threshold from its logged eco1 table, or drop E12 if none excludes the
+     unfiltered winner with a 0.5 pp margin (likely: on the 1/1000 sample eco1 6 has both the top
+     share and the most rows). Fill the E08/E13 aliases.
+  3. Decision record 0005 for the extended scoring rules (the plan lists the choices to state),
+     written before the pilot is graded; after that, any rule change bumps `EXT_GRADER_VERSION`
+     and the final run goes in a new run dir.
+  4. Pilot: `run --models gemini-3.1-pro-preview,gemini-3.8-flash --questions extended --trials 3`
+     (~$3.40), grade, stability regrade, `audit --full E04,E05,E06,E07,E08,E09 --fraction 0.25`,
+     adjudicate; then 5 trials (~$2.30 more if resumed).
 - **Polars: on 1.41.2, capped `<2` in `pyproject.toml`; 1.44.2 is the latest 1.x and 2.0.0 shipped
   2026-10-06.** Upgrade between bench runs only, bumping `uv.lock` and the Containerfile pin together
   and recomputing ground truth (`bench gt --force`).
