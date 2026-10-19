@@ -1,0 +1,512 @@
+[
+  {
+    "question_id": "L06",
+    "trial": 1,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": [
+      "HAYDEN PASS"
+    ],
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "HAYDEN PASS"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/L06/trial_01.json",
+    "response_sha": "03e7422b5d6e8f83",
+    "response": "The single highest-elevation pixel in the dataset was burned during the **HAYDEN PASS** fire (Event ID: CO3829210583320160708), at an elevation of 3,786 meters.",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "L06",
+    "trial": 4,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": [
+      "HAYDEN PASS"
+    ],
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "HAYDEN PASS"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/L06/trial_04.json",
+    "response_sha": "2012590349bf0bd9",
+    "response": "The single highest-elevation pixel in the dataset burned at 3,786 meters (approximately 12,421 feet) during the **HAYDEN PASS** fire.",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M01",
+    "trial": 0,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 4,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "value": 4,
+      "value_text": "4"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "10",
+        "4",
+        "42.0",
+        "10",
+        "42.0",
+        "4325251517",
+        "39.936",
+        "3965136535",
+        "40.210",
+        "2659996749",
+        "37.096",
+        "2401257385",
+        "35.520",
+        "2296222242",
+        "42.159",
+        "2281067740",
+        "33.797",
+        "2280513493",
+        "44.707",
+        "2256608039",
+        "42.440",
+        "2004440443",
+        "42.296",
+        "1868731703",
+        "34.233",
+        "4",
+        "42"
+      ],
+      "in_band": true,
+      "has_extracted": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M01/trial_00.json",
+    "response_sha": "fe421a56a18db680",
+    "response": "Of the 10 largest distinct fire events by area, **4** have a mean pixel latitude north of 42.0 degrees. \n\nHere are the 10 largest fires and their mean latitudes:\n\n| Event_ID | Incid_Name | area_m2 | mean_lat | > 42.0\u00b0? |\n| :--- | :--- | :--- | :--- | :--- |\n| CA3966012280920200817 | AUGUST COMPLEX | 4,325,251,517 | 39.936 | No |\n| CA3987612137920210714 | DIXIE | 3,965,136,535 | 40.210 | No |\n| OK3677410017520170307 | OKS - STARBUCK | 2,659,996,749 | 37.096 | No |\n| TX3551510078020060312 | EAST AMARILLO COMPLEX | 2,401,257,385 | 35.520 | No |\n| ID4216011532120070721 | MURPHY COMPLEX | 2,296,222,242 | 42.159 | **Yes** |\n| AZ3360210944920110529 | WALLOW | 2,281,067,740 | 33.797 | No |\n| WY4470811082119880722 | NORTH FORK | 2,280,513,493 | 44.707 | **Yes** |\n| OR4239211789420120708 | LONG DRAW | 2,256,608,039 | 42.440 | **Yes** |\n| OR4244112390420020713 | BISCUIT COMPLEX (BISCUIT) | 2,004,440,443 | 42.296 | **Yes** |\n| AZ3423311046320020618 | RODEO | 1,868,731,703 | 34.233 | No |\n\nThe 4 fires located north of the 42nd parallel are the Murphy Complex (Idaho), North Fork (Wyoming/Yellowstone), Long Draw (Oregon), and Biscuit Complex (Oregon).",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M01",
+    "trial": 1,
+    "verdict": "pass",
+    "reason": "Correct ('Four'); the regex cross-check can't read a spelled-out number.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [
+      "cross_check_disagree"
+    ],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 4,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "value": 4,
+      "value_text": "4"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "10",
+        "42.0",
+        "10",
+        "42.0",
+        "4325251517",
+        "39.94",
+        "3965136536",
+        "40.21",
+        "2659996749",
+        "37.10",
+        "2401257385",
+        "35.52",
+        "2296222242",
+        "42.16",
+        "2281067741",
+        "33.80",
+        "2280513493",
+        "44.71",
+        "2256608040",
+        "42.44",
+        "2004440444",
+        "42.30",
+        "1868731703",
+        "34.23"
+      ],
+      "in_band": false,
+      "has_extracted": false,
+      "disagree": true
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M01/trial_01.json",
+    "response_sha": "f26a06314bf6fc75",
+    "response": "**Four** of the 10 largest distinct fire events have a mean pixel latitude north of 42.0 degrees. \n\nHere are the details for the 10 largest fires by area:\n\n| Incident Name | Event ID | Area (m\u00b2) | Mean Latitude | North of 42.0\u00b0 |\n| :--- | :--- | :--- | :--- | :--- |\n| AUGUST COMPLEX | CA3966012280920200817 | 4,325,251,517 | 39.94 | False |\n| DIXIE | CA3987612137920210714 | 3,965,136,536 | 40.21 | False |\n| OKS - STARBUCK | OK3677410017520170307 | 2,659,996,749 | 37.10 | False |\n| EAST AMARILLO COMPLEX | TX3551510078020060312 | 2,401,257,385 | 35.52 | False |\n| MURPHY COMPLEX | ID4216011532120070721 | 2,296,222,242 | 42.16 | **True** |\n| WALLOW | AZ3360210944920110529 | 2,281,067,741 | 33.80 | False |\n| NORTH FORK | WY4470811082119880722 | 2,280,513,493 | 44.71 | **True** |\n| LONG DRAW | OR4239211789420120708 | 2,256,608,040 | 42.44 | **True** |\n| BISCUIT COMPLEX (BISCUIT) | OR4244112390420020713 | 2,004,440,444 | 42.30 | **True** |\n| RODEO | AZ3423311046320020618 | 1,868,731,703 | 34.23 | False |",
+    "current_review_reasons": [
+      "cross_check_disagree"
+    ]
+  },
+  {
+    "question_id": "M01",
+    "trial": 4,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [
+      "cross_check_disagree"
+    ],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 4,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "value": 4,
+      "value_text": "4"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "10",
+        "42.0",
+        "10",
+        "4325251517",
+        "39.94",
+        "3965136535",
+        "40.21",
+        "2659996749",
+        "37.10",
+        "2401257385",
+        "35.52",
+        "2296222242",
+        "42.16",
+        "2281067740",
+        "33.80",
+        "2280513493",
+        "44.71",
+        "2256608039",
+        "42.44",
+        "2004440443",
+        "42.30",
+        "1868731703",
+        "34.23"
+      ],
+      "in_band": false,
+      "has_extracted": false,
+      "disagree": true
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M01/trial_04.json",
+    "response_sha": "2928ff65a4617c57",
+    "response": "**Four** of the 10 largest distinct fire events have a mean pixel latitude north of 42.0 degrees. \n\nHere are the 10 largest fires and their mean latitudes:\n\n| Event ID | Incident Name | Area (m\u00b2) | Mean Latitude |\n| :--- | :--- | :--- | :--- |\n| CA3966012280920200817 | AUGUST COMPLEX | 4,325,251,517 | 39.94 |\n| CA3987612137920210714 | DIXIE | 3,965,136,535 | 40.21 |\n| OK3677410017520170307 | OKS - STARBUCK | 2,659,996,749 | 37.10 |\n| TX3551510078020060312 | EAST AMARILLO COMPLEX | 2,401,257,385 | 35.52 |\n| ID4216011532120070721 | **MURPHY COMPLEX** | 2,296,222,242 | **42.16** |\n| AZ3360210944920110529 | WALLOW | 2,281,067,740 | 33.80 |\n| WY4470811082119880722 | **NORTH FORK** | 2,280,513,493 | **44.71** |\n| OR4239211789420120708 | **LONG DRAW** | 2,256,608,039 | **42.44** |\n| OR4244112390420020713 | **BISCUIT COMPLEX** | 2,004,440,443 | **42.30** |\n| AZ3423311046320020618 | RODEO | 1,868,731,703 | 34.23 |",
+    "current_review_reasons": [
+      "cross_check_disagree"
+    ]
+  },
+  {
+    "question_id": "M03",
+    "trial": 2,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 29.198403817895034,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": "%",
+      "value": 29.2,
+      "value_text": "29.2"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "2002",
+        "1",
+        "4",
+        "29.2"
+      ],
+      "in_band": true,
+      "has_extracted": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M03/trial_02.json",
+    "response_sha": "951cad542bafa307",
+    "response": "The largest fire in 2002 was the Biscuit Complex fire. Of its pixels with a valid burn severity (classes 1\u20134), **29.2%** burned at high severity.",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M03",
+    "trial": 3,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 29.198403817895034,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": "%",
+      "value": 29.2,
+      "value_text": "29.2"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "2002",
+        "29.2",
+        "1",
+        "4",
+        "4",
+        "1",
+        "4",
+        "649755",
+        "2225310",
+        "29.2"
+      ],
+      "in_band": true,
+      "has_extracted": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M03/trial_03.json",
+    "response_sha": "eb0b201b5c5208cf",
+    "response": "For the single largest fire event in 2002 (Event ID: OR4244112390420020713, commonly known as the Biscuit Fire), **29.2%** of its mapped pixels (severity codes 1\u20134) burned at high severity. \n\n| Event ID | High Severity Pixels (bs=4) | Total Pixels (bs 1\u20134) | Percentage |\n| :--- | :--- | :--- | :--- |\n| OR4244112390420020713 | 649,755 | 2,225,310 | 29.2% |",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M04",
+    "trial": 0,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": [
+      "2006 / EAST AMARILLO COMPLEX"
+    ],
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "2006",
+        "EAST AMARILLO COMPLEX"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M04/trial_00.json",
+    "response_sha": "98e55d83d931a2b5",
+    "response": "The year with the most distinct fire events is **2006**, with 1,343 unique fires. \n\nThe largest fire ignited that year was the **EAST AMARILLO COMPLEX**, which burned an area of approximately 2,401,257,385 m\u00b2 (about 593,362 acres).",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M04",
+    "trial": 2,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": [
+      "2006 / EAST AMARILLO COMPLEX"
+    ],
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "2006",
+        "EAST AMARILLO COMPLEX"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M04/trial_02.json",
+    "response_sha": "147e54d9784d0e53",
+    "response": "The year with the most distinct fire events is **2006** (with 1,343 fires). \n\nThe largest fire ignited that year was the **EAST AMARILLO COMPLEX**, which burned approximately 2.4 billion square meters.",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M04",
+    "trial": 3,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": [
+      "2006 / EAST AMARILLO COMPLEX"
+    ],
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "2006",
+        "EAST AMARILLO COMPLEX"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M04/trial_03.json",
+    "response_sha": "ff4d5776b29bc792",
+    "response": "The year with the most distinct fire events is **2006**, with 1,343 total fires. \n\nThe largest fire ignited that year was the **EAST AMARILLO COMPLEX**, which burned approximately 2,401,257,385 square meters.",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M04",
+    "trial": 4,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": [
+      "2006 / EAST AMARILLO COMPLEX"
+    ],
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "2006",
+        "EAST AMARILLO COMPLEX"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M04/trial_04.json",
+    "response_sha": "147e54d9784d0e53",
+    "response": "The year with the most distinct fire events is **2006** (with 1,343 fires). \n\nThe largest fire ignited that year was the **EAST AMARILLO COMPLEX**, which burned approximately 2.4 billion square meters.",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M05",
+    "trial": 0,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 5,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "value": 5,
+      "value_text": "5"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "20",
+        "5",
+        "1",
+        "5",
+        "3965136536",
+        "1.51",
+        "2281067741",
+        "1.31",
+        "1728203353",
+        "1.33",
+        "1543673733",
+        "3.45",
+        "1424648853",
+        "3.70"
+      ],
+      "in_band": true,
+      "has_extracted": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M05/trial_00.json",
+    "response_sha": "d67acdee8a2ab39f",
+    "response": "Among the 20 largest distinct fire events, **5** have more than 1% of their pixels located inside the Wildland-Urban Interface (WUI). \n\nHere are the 5 fires that meet this criteria:\n\n| Event ID | Incident Name | Area (m\u00b2) | WUI Pixel Fraction |\n| :--- | :--- | :--- | :--- |\n| CA3987612137920210714 | DIXIE | 3,965,136,536 | 1.51% |\n| AZ3360210944920110529 | WALLOW | 2,281,067,741 | 1.31% |\n| CA3924012311020180727 | RANCH | 1,728,203,353 | 1.33% |\n| CA3720111927220200905 | CREEK | 1,543,673,733 | 3.45% |\n| NM3571810539920220406 | HERMITS PEAK | 1,424,648,853 | 3.70% |",
+    "current_review_reasons": []
+  }
+]

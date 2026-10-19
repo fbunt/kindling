@@ -1,0 +1,171 @@
+{
+  "L01": {
+    "expected": [
+      "FLATTOP"
+    ],
+    "reference_sha": "81fc4cff6f6a",
+    "elapsed_s": 3.58,
+    "computed_at": "2026-09-29T16:49:58"
+  },
+  "L02": {
+    "expected": [
+      "AUGUST COMPLEX"
+    ],
+    "reference_sha": "b05370e36a5c",
+    "elapsed_s": 0.8,
+    "computed_at": "2026-09-29T16:49:59"
+  },
+  "L03": {
+    "expected": 27794,
+    "reference_sha": "0250bf2052e4",
+    "elapsed_s": 2.85,
+    "computed_at": "2026-09-29T16:50:02"
+  },
+  "L04": {
+    "expected": 8129,
+    "reference_sha": "93fc909d4c47",
+    "elapsed_s": 0.34,
+    "computed_at": "2026-09-29T16:50:02"
+  },
+  "L05": {
+    "expected": "1988-03-26",
+    "reference_sha": "78f00a751d3f",
+    "elapsed_s": 0.55,
+    "computed_at": "2026-09-29T16:50:03"
+  },
+  "L06": {
+    "expected": [
+      "HAYDEN PASS"
+    ],
+    "reference_sha": "26535e632a60",
+    "elapsed_s": 3.39,
+    "computed_at": "2026-09-29T16:50:06"
+  },
+  "L07": {
+    "expected": 45458688,
+    "reference_sha": "3030c47b9179",
+    "elapsed_s": 0.02,
+    "computed_at": "2026-09-29T16:50:06"
+  },
+  "L08": {
+    "expected": 2523051,
+    "reference_sha": "05b206e39fe6",
+    "elapsed_s": 0.06,
+    "computed_at": "2026-09-29T16:50:06"
+  },
+  "A01": {
+    "expected": 5976.25753590399,
+    "reference_sha": "0ab818078990",
+    "elapsed_s": 3.66,
+    "computed_at": "2026-09-29T16:50:10"
+  },
+  "A02": {
+    "expected": 2020,
+    "reference_sha": "8242c97eddae",
+    "elapsed_s": 0.34,
+    "computed_at": "2026-09-29T16:50:10"
+  },
+  "A03": {
+    "expected": {
+      "bs=1": 6280344,
+      "bs=2": 17922753,
+      "bs=3": 6635897,
+      "bs=4": 4520632
+    },
+    "reference_sha": "e336674534f3",
+    "elapsed_s": 0.05,
+    "computed_at": "2026-09-29T16:50:11"
+  },
+  "A04": {
+    "expected": 1.5261218411475959,
+    "reference_sha": "b729df6ea339",
+    "elapsed_s": 0.1,
+    "computed_at": "2026-09-29T16:50:11"
+  },
+  "A05": {
+    "expected": [
+      "AUGUST COMPLEX",
+      "DIXIE",
+      "EAST AMARILLO COMPLEX",
+      "MURPHY COMPLEX",
+      "OKS - STARBUCK"
+    ],
+    "reference_sha": "ca15567afcf9",
+    "elapsed_s": 5.4,
+    "computed_at": "2026-09-29T16:50:16"
+  },
+  "A06": {
+    "expected": 6,
+    "reference_sha": "e6a1b30be97d",
+    "elapsed_s": 0.64,
+    "computed_at": "2026-09-29T16:50:17"
+  },
+  "A07": {
+    "expected": 1613.727294921875,
+    "reference_sha": "99a2d0cfb2ff",
+    "elapsed_s": 0.41,
+    "computed_at": "2026-09-29T16:50:17"
+  },
+  "T01": {
+    "expected": 5.62834008097166,
+    "reference_sha": "8fdb5ee92612",
+    "elapsed_s": 5.82,
+    "computed_at": "2026-09-29T16:50:23"
+  },
+  "T02": {
+    "expected": 507157025.6240274,
+    "reference_sha": "8eedab67c604",
+    "elapsed_s": 3.43,
+    "computed_at": "2026-09-29T16:50:26"
+  },
+  "T03": {
+    "expected": 1.572549019607843,
+    "reference_sha": "21746b3b3491",
+    "elapsed_s": 5.85,
+    "computed_at": "2026-09-29T16:50:32"
+  },
+  "T04": {
+    "expected": 3.2339365459451637,
+    "reference_sha": "4b5c559484bf",
+    "elapsed_s": 0.7,
+    "computed_at": "2026-09-29T16:50:33"
+  },
+  "T05": {
+    "expected": -10.202034130360374,
+    "reference_sha": "7c04e3897c6a",
+    "elapsed_s": 3.48,
+    "computed_at": "2026-09-29T16:50:36"
+  },
+  "M01": {
+    "expected": 4,
+    "reference_sha": "15d79b1aa0f8",
+    "elapsed_s": 15.62,
+    "computed_at": "2026-09-29T16:50:52"
+  },
+  "M02": {
+    "expected": 1868419,
+    "reference_sha": "4654651be34c",
+    "elapsed_s": 13.02,
+    "computed_at": "2026-09-29T16:51:05"
+  },
+  "M03": {
+    "expected": 29.198403817895034,
+    "reference_sha": "77fb92530edb",
+    "elapsed_s": 0.4,
+    "computed_at": "2026-09-29T16:51:05"
+  },
+  "M04": {
+    "expected": [
+      "2006 / EAST AMARILLO COMPLEX"
+    ],
+    "reference_sha": "53f3308de191",
+    "elapsed_s": 7.04,
+    "computed_at": "2026-09-29T16:51:12"
+  },
+  "M05": {
+    "expected": 5,
+    "reference_sha": "59f2cc7c139d",
+    "elapsed_s": 3.86,
+    "computed_at": "2026-09-29T16:51:16"
+  }
+}

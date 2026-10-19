@@ -1,0 +1,297 @@
+{
+  "seed": 0,
+  "fraction": 0.1,
+  "eligible": 125,
+  "entries": [
+    {
+      "question_id": "T01",
+      "trial": 2,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/T01/trial_02.json",
+      "question": "Using ordinary least-squares regression of the annual count of distinct fire events (unique Event_ID per year) against year, over 1984-2022, what is the slope in fires per year? Count only wildfire events (Incid_Type = 1).",
+      "expected": 5.62834008097166,
+      "response": "Based on ordinary least-squares regression over the 1984\u20132022 period, the slope is **5.63 fires per year**. \n\n| slope | r_squared | p_value |\n| --- | --- | --- |\n| 5.63 | 0.149 | 0.015 |\n\nThis indicates an average increase of about 5.6 wildfire events per year over the study period.",
+      "response_sha": "bb638c9bb6d89f81",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": "fires per year",
+        "value": 5.63,
+        "value_text": "5.63"
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "L08",
+      "trial": 1,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/L08/trial_01.json",
+      "question": "How many rows with fire year 2012 have a null bs value? Give the exact count.",
+      "expected": 2523051,
+      "response": "There are exactly 2,523,051 rows with a fire year of 2012 that have a null burn severity (`bs`) value.",
+      "response_sha": "03b23297b4fdd2b3",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": "rows",
+        "value": 2523051,
+        "value_text": "2523051"
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "A01",
+      "trial": 0,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/A01/trial_00.json",
+      "question": "What is the mean fire size, in acres, across all fire events in the dataset? Count every incident type.",
+      "expected": 5976.25753590399,
+      "response": "The mean fire size across all fire events in the dataset is **5,976.26 acres**.",
+      "response_sha": "e6a498299eec2ee8",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": "acres",
+        "value": 5976.26,
+        "value_text": "5976.26"
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "T03",
+      "trial": 0,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/T03/trial_00.json",
+      "question": "Compare the mean annual number of distinct fire events in the first decade of the record (1984-1993) with the last decade (2013-2022). Report the ratio last-decade mean divided by first-decade mean. Count only wildfire events (Incid_Type = 1).",
+      "expected": 1.572549019607843,
+      "response": "The mean annual number of distinct wildfire events (Incid_Type = 1) increased from 255 in the first decade of the record to 401 in the last decade, a ratio of approximately 1.57. \n\n| First Decade Mean (1984-1993) | Last Decade Mean (2013-2022) | Ratio (Last / First) |\n| :--- | :--- | :--- |\n| 255.0 | 401.0 | 1.573 |\n\nThis indicates that there were roughly 57% more distinct wildfire events annually in the most recent decade compared to the 1984-1993 period.",
+      "response_sha": "5fcd57f6e5ffe654",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": null,
+        "value": 1.573,
+        "value_text": "1.573"
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "M01",
+      "trial": 2,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M01/trial_02.json",
+      "question": "Of the 10 largest distinct fire events by area_m2, how many have a mean pixel latitude north of 42.0 degrees (lat > 42.0)?",
+      "expected": 4,
+      "response": "Out of the 10 largest distinct fire events by area, **4** fires have a mean pixel latitude north of 42.0 degrees. \n\nHere are the 10 largest fires for context (the 4 northernmost are bolded):\n\n| Event ID | Incident Name | Area (m\u00b2) | Mean Latitude |\n| :--- | :--- | :--- | :--- |\n| CA3966012280920200817 | AUGUST COMPLEX | 4,325,251,517 | 39.94 |\n| CA3987612137920210714 | DIXIE | 3,965,136,536 | 40.21 |\n| OK3677410017520170307 | OKS - STARBUCK | 2,659,996,749 | 37.10 |\n| TX3551510078020060312 | EAST AMARILLO COMPLEX | 2,401,257,385 | 35.52 |\n| **ID4216011532120070721** | **MURPHY COMPLEX** | **2,296,222,242** | **42.16** |\n| AZ3360210944920110529 | WALLOW | 2,281,067,741 | 33.80 |\n| **WY4470811082119880722** | **NORTH FORK** | **2,280,513,493** | **44.71** |\n| **OR4239211789420120708** | **LONG DRAW** | **2,256,608,040** | **42.44** |\n| **OR4244112390420020713** | **BISCUIT COMPLEX** | **2,004,440,444** | **42.30** |\n| AZ3423311046320020618 | RODEO | 1,868,731,703 | 34.23 |",
+      "response_sha": "067a40194271708f",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": null,
+        "value": 4,
+        "value_text": "4"
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "T04",
+      "trial": 1,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/T04/trial_01.json",
+      "question": "For each year, define the high-severity fraction as pixels with bs = 4 divided by pixels with bs in 1-4 (exclude nulls and classes 5-6). By how many percentage points does the mean annual high-severity fraction in 2013-2022 differ from 1984-1993 (positive = increase)? Average the ten annual fractions within each decade with equal weight per year (do not pool pixels across the decade). Count only wildfire events (Incid_Type = 1).",
+      "expected": 3.2339365459451637,
+      "response": "The mean annual high-severity fraction for wildfires increased by **3.23 percentage points** between the 1984\u20131993 decade and the 2013\u20132022 decade. \n\n| Period | Mean Annual High-Severity Fraction |\n| :--- | :--- |\n| **1984\u20131993** | 7.42% |\n| **2013\u20132022** | 10.65% |\n| **Difference** | **+3.23 pp** |",
+      "response_sha": "7e39c2d77fc3606b",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": "percentage points",
+        "value": 3.23,
+        "value_text": "3.23"
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "L05",
+      "trial": 4,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/L05/trial_04.json",
+      "question": "What is the ignition date (Ig_Date) of the earliest Wildland Fire Use event (Incid_Type = 3)?",
+      "expected": "1988-03-26",
+      "response": "The earliest ignition date for a Wildland Fire Use event is **March 26, 1988**.",
+      "response_sha": "217cfe253322d0df",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": null,
+        "names": [
+          "March 26, 1988"
+        ]
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "T04",
+      "trial": 2,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/T04/trial_02.json",
+      "question": "For each year, define the high-severity fraction as pixels with bs = 4 divided by pixels with bs in 1-4 (exclude nulls and classes 5-6). By how many percentage points does the mean annual high-severity fraction in 2013-2022 differ from 1984-1993 (positive = increase)? Average the ten annual fractions within each decade with equal weight per year (do not pool pixels across the decade). Count only wildfire events (Incid_Type = 1).",
+      "expected": 3.2339365459451637,
+      "response": "| Mean 1984-1993 (%) | Mean 2013-2022 (%) | Difference (pp) |\n|---|---|---|\n| 7.42 | 10.65 | 3.23 |\n\nThe mean annual high-severity fraction for wildfires increased by 3.23 percentage points between the first decade of the dataset (1984\u20131993) and the most recent decade (2013\u20132022).",
+      "response_sha": "55a2fd58e39ce57e",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": "percentage points",
+        "value": 3.23,
+        "value_text": "3.23"
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "M02",
+      "trial": 1,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M02/trial_01.json",
+      "question": "Within eco1 = 11 (Mediterranean California), how many distinct pixel locations (unique geohash) appear in 3 or more distinct fire events (unique Event_ID), counting every row regardless of bs value or Incid_Type? Give the exact count.",
+      "expected": 1868419,
+      "response": "There are exactly 1,868,419 distinct pixel locations in Mediterranean California (eco1 = 11) that have burned in 3 or more distinct fire events.",
+      "response_sha": "a84cd11be8d74b63",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": null,
+        "value": 1868419,
+        "value_text": "1868419"
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "M01",
+      "trial": 4,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/M01/trial_04.json",
+      "question": "Of the 10 largest distinct fire events by area_m2, how many have a mean pixel latitude north of 42.0 degrees (lat > 42.0)?",
+      "expected": 4,
+      "response": "**Four** of the 10 largest distinct fire events have a mean pixel latitude north of 42.0 degrees. \n\nHere are the 10 largest fires and their mean latitudes:\n\n| Event ID | Incident Name | Area (m\u00b2) | Mean Latitude |\n| :--- | :--- | :--- | :--- |\n| CA3966012280920200817 | AUGUST COMPLEX | 4,325,251,517 | 39.94 |\n| CA3987612137920210714 | DIXIE | 3,965,136,535 | 40.21 |\n| OK3677410017520170307 | OKS - STARBUCK | 2,659,996,749 | 37.10 |\n| TX3551510078020060312 | EAST AMARILLO COMPLEX | 2,401,257,385 | 35.52 |\n| ID4216011532120070721 | **MURPHY COMPLEX** | 2,296,222,242 | **42.16** |\n| AZ3360210944920110529 | WALLOW | 2,281,067,740 | 33.80 |\n| WY4470811082119880722 | **NORTH FORK** | 2,280,513,493 | **44.71** |\n| OR4239211789420120708 | **LONG DRAW** | 2,256,608,039 | **42.44** |\n| OR4244112390420020713 | **BISCUIT COMPLEX** | 2,004,440,443 | **42.30** |\n| AZ3423311046320020618 | RODEO | 1,868,731,703 | 34.23 |",
+      "response_sha": "2928ff65a4617c57",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": null,
+        "value": 4,
+        "value_text": "4"
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "A01",
+      "trial": 4,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/A01/trial_04.json",
+      "question": "What is the mean fire size, in acres, across all fire events in the dataset? Count every incident type.",
+      "expected": 5976.25753590399,
+      "response": "The mean fire size across all fire events in the dataset is approximately **5,976 acres**.",
+      "response_sha": "7d5333b0d476b1ae",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": "acres",
+        "value": 5976,
+        "value_text": "5976"
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "L06",
+      "trial": 1,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/L06/trial_01.json",
+      "question": "Which fire event contains the single highest-elevation pixel? Give its incident name.",
+      "expected": [
+        "HAYDEN PASS"
+      ],
+      "response": "The single highest-elevation pixel in the dataset was burned during the **HAYDEN PASS** fire (Event ID: CO3829210583320160708), at an elevation of 3,786 meters.",
+      "response_sha": "03e7422b5d6e8f83",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": null,
+        "names": [
+          "HAYDEN PASS"
+        ]
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    },
+    {
+      "question_id": "A07",
+      "trial": 1,
+      "trace_path": ".bench-runs/pro-vs-flash/gemini-3.1-pro-preview/A07/trial_01.json",
+      "question": "What is the mean elevation in meters of pixels that burned at high severity (bs = 4), across the whole dataset?",
+      "expected": 1613.727294921875,
+      "response": "The mean elevation of pixels that burned at high severity across the dataset is 1,613.73 meters.",
+      "response_sha": "f5bb785b25b77457",
+      "extraction": {
+        "status": "answer",
+        "multiple_candidates": false,
+        "sampled_disclosed": false,
+        "unit": "meters",
+        "value": 1613.73,
+        "value_text": "1613.73"
+      },
+      "grader_verdict": true,
+      "grader_reason": "ok",
+      "partial_data": false,
+      "human_verdict": "pass",
+      "human_note": ""
+    }
+  ]
+}

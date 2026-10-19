@@ -1,0 +1,35 @@
+[
+  {
+    "question_id": "A06",
+    "trial": 0,
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/A06/trial_00.json",
+    "executable": true,
+    "executability_reason": "ok",
+    "accuracy_reason": "adjudicated",
+    "resource_violation": false,
+    "summary": "The level-1 ecoregion with the most pixel rows in total is **6** (**Northwestern Forested Mountains**), with **202,639,624** rows (27.19% of all rows).\n\n| `eco1` | Ecoregion Name | Total Pixel Rows | Burned Severity Rows (`bs` 2\u20134) |\n| ---: | :--- | ---: | ---: |\n| 6 | Northwestern Forested Mountain",
+    "failure_mode": "question_ambiguity"
+  },
+  {
+    "question_id": "A06",
+    "trial": 1,
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/A06/trial_01.json",
+    "executable": true,
+    "executability_reason": "ok",
+    "accuracy_reason": "adjudicated",
+    "resource_violation": false,
+    "summary": "The level-1 ecoregion with the most total pixel rows in the dataset is **eco1 = 6** (**Northwestern Forested Mountains**).\n\nDepending on whether \"burned-pixel rows\" refers to all pixel records within fire perimeters or strictly to burned severity classes (bs = 2\u20134, excluding unburned/increased green",
+    "failure_mode": "question_ambiguity"
+  },
+  {
+    "question_id": "T02",
+    "trial": 1,
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/T02/trial_01.json",
+    "executable": false,
+    "executability_reason": "model_malformed",
+    "accuracy_reason": "no_answer",
+    "resource_violation": false,
+    "summary": "I ran out of tool-use rounds before producing an answer. Try rephrasing your request.",
+    "failure_mode": "empty_response"
+  }
+]

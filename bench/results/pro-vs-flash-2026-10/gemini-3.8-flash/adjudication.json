@@ -1,0 +1,738 @@
+[
+  {
+    "question_id": "A01",
+    "trial": 2,
+    "verdict": "pass",
+    "reason": "Second mean (5,925.32 acres from pixel counts) is inside the 1% band, like the 5,963.51 notes that pass on trials 1 and 3. Hedge policy (2026-10-01): a reply that names a different answer under an alternative reading fails; a hedge whose candidates all grade correct passes.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [
+      "cross_check_disagree"
+    ],
+    "auto_verdict": false,
+    "auto_reason": "multiple_candidates",
+    "partial_data_evidence": [],
+    "expected": 5976.25753590399,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": true,
+      "sampled_disclosed": false,
+      "unit": "acres",
+      "value": 5976.26,
+      "value_text": "5976.26"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "27794",
+        "5976.26",
+        "5925.32",
+        "30",
+        "27794",
+        "5976.26",
+        "1819.23",
+        "166104101.95",
+        "14990",
+        "9309.23",
+        "2558.46",
+        "139545346.84",
+        "8129",
+        "1887.01",
+        "1356.54",
+        "15339499.91",
+        "4540",
+        "2296.64",
+        "1311.54",
+        "10426749.27",
+        "135",
+        "5870.41",
+        "2522.28",
+        "792505.93",
+        "394.26",
+        "1068792.93",
+        "1819.23",
+        "1000",
+        "500"
+      ],
+      "in_band": true,
+      "has_extracted": true,
+      "disagree": true
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/A01/trial_02.json",
+    "response_sha": "5cdf0e37ea09b431",
+    "response": "The mean fire size across all 27,794 fire events in the dataset is **5,976.26 acres** (based on each event's recorded `area_m2`; or **5,925.32 acres** when computed directly from mapped 30m pixel counts).\n\n| Incident Type | Events | Mean Size (acres) | Median Size (acres) | Total Area (acres) |\n| :--- | ---: | ---: | ---: | ---: |\n| **All Fire Events** | **27,794** | **5,976.26** | **1,819.23** | **166,104,101.95** |\n| Wildfire | 14,990 | 9,309.23 | 2,558.46 | 139,545,346.84 |\n| Prescribed Fire | 8,129 | 1,887.01 | 1,356.54 | 15,339,499.91 |\n| Unknown | 4,540 | 2,296.64 | 1,311.54 | 10,426,749.27 |\n| Wildland Fire Use | 135 | 5,870.41 | 2,522.28 | 792,505.93 |\n\nThe distribution is heavily right-skewed by megafires\u2014ranging from 394.26 acres to a maximum of 1,068,792.93 acres\u2014making the median size (1,819.23 acres) substantially lower than the mean. MTBS generally applies a mapping threshold of \u22651,000 acres in the western United States and \u2265500 acres in the east.",
+    "current_review_reasons": [
+      "cross_check_disagree"
+    ]
+  },
+  {
+    "question_id": "A03",
+    "trial": 2,
+    "verdict": "pass",
+    "reason": "All four counts correct; the extractor keyed them by severity name instead of bs code.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": {
+      "bs=1": 6280344,
+      "bs=2": 17922753,
+      "bs=3": 6635897,
+      "bs=4": 4520632
+    },
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": "pixels",
+      "values": {
+        "Unburned to Low / Unburned": 6280344,
+        "Low": 17922753,
+        "Moderate": 6635897,
+        "High": 4520632
+      }
+    },
+    "regex_check": {
+      "kind": "series",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/A03/trial_02.json",
+    "response_sha": "81ac20581db22b35",
+    "response": "In 2021, pixel counts for the requested burn severity classes are as follows:\n\n| Burn Severity Class | Code (`bs`) | Pixel Count |\n| :--- | :--- | :--- |\n| Unburned to Low / Unburned | 1 | 6,280,344 |\n| Low | 2 | 17,922,753 |\n| Moderate | 3 | 6,635,897 |\n| High | 4 | 4,520,632 |\n\n*(Note: In addition, 2021 includes 152,768 pixels classified as Increased Greenness (`bs` = 5), 214,268 non-processing pixels (`bs` = 6), and 1,362 unclassified/null pixels.)*",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "A06",
+    "trial": 1,
+    "verdict": "fail",
+    "reason": "Hedges between eco1 6 and 10 ('the ranking shifts'); strict rule fails multiple candidates. Hedge policy (2026-10-01): a reply that names a different answer under an alternative reading fails; a hedge whose candidates all grade correct passes.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [
+      "cross_check_disagree"
+    ],
+    "auto_verdict": false,
+    "auto_reason": "multiple_candidates",
+    "partial_data_evidence": [],
+    "expected": 6,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": true,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "6",
+        "Northwestern Forested Mountains"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": true
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/A06/trial_01.json",
+    "response_sha": "c4200ea94ca0d6e4",
+    "response": "The level-1 ecoregion with the most total pixel rows in the dataset is **eco1 = 6** (**Northwestern Forested Mountains**).\n\nDepending on whether \"burned-pixel rows\" refers to all pixel records within fire perimeters or strictly to burned severity classes (bs = 2\u20134, excluding unburned/increased greenness/non-processing), the ranking shifts slightly between eco1 = 6 and eco1 = 10:\n\n| eco1 | Ecoregion Name | Total Pixel Rows | Burned Rows (bs \u2208 [2, 4]) | Non-Unburned Rows (bs \u2260 1) |\n| ---: | :--- | ---: | ---: | ---: |\n| **6** | **Northwestern Forested Mountains** | **202,639,624** | 157,771,796 | **162,177,768** |\n| **10** | **North American Deserts** | 193,786,215 | **158,326,256** | 162,169,929 |\n| 9 | Great Plains | 111,890,104 | 91,999,371 | 96,292,029 |\n| 8 | Eastern Temperate Forests | 110,260,749 | 82,088,864 | 87,796,098 |\n| 11 | Mediterranean California | 52,343,733 | 41,130,275 | 42,098,026 |\n| 13 | Temperate Sierras | 38,038,403 | 27,659,765 | 28,427,222 |\n| 15 | Tropical Wet Forests | 14,462,003 | 9,940,268 | 12,641,262 |\n| 12 | Southern Semiarid Highlands | 14,104,311 | 11,349,445 | 11,489,191 |\n| 5 | Northern Forests | 6,544,267 | 4,843,476 | 5,397,220 |\n| 7 | Marine West Coast Forest | 1,225,147 | 940,162 | 955,357 |\n\n- By **total dataset rows** or **non-unburned rows** (`bs` \u2260 1), **eco1 = 6** (Northwestern Forested Mountains) is #1.\n- If strictly filtering for **confirmed burned pixels** (`bs` \u2208 {2, 3, 4}), **eco1 = 10** (North American Deserts) narrowly takes #1 with 158.33M pixels vs 157.77M pixels for eco1 = 6.",
+    "current_review_reasons": [
+      "cross_check_disagree"
+    ]
+  },
+  {
+    "question_id": "L06",
+    "trial": 1,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [
+      "partial_data_heuristic"
+    ],
+    "auto_verdict": false,
+    "auto_reason": "partial_data",
+    "partial_data_evidence": [
+      ".limit( at line 2 in answer query 0"
+    ],
+    "expected": [
+      "HAYDEN PASS"
+    ],
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "HAYDEN PASS"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/L06/trial_01.json",
+    "response_sha": "66ff4275356aa0f4",
+    "response": "The fire event containing the single highest-elevation pixel is the **HAYDEN PASS** fire.\n\n| Incident Name | Event ID | Year | Ignition Date | Elevation | Latitude | Longitude |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n| **HAYDEN PASS** | `CO3829210583320160708` | 2016 | 2016-07-08 | 3,786 m (~12,422 ft) | 38.2530\u00b0 N | -105.7373\u00b0 W |",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "L06",
+    "trial": 2,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [
+      "partial_data_heuristic"
+    ],
+    "auto_verdict": false,
+    "auto_reason": "partial_data",
+    "partial_data_evidence": [
+      ".limit( at line 2 in answer query 0"
+    ],
+    "expected": [
+      "HAYDEN PASS"
+    ],
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "HAYDEN PASS"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/L06/trial_02.json",
+    "response_sha": "92e02b808b433fb1",
+    "response": "The fire event containing the single highest-elevation pixel is the **HAYDEN PASS** fire.\n\n| Incident Name | Event ID | Year | Ignition Date | Peak Elevation | Latitude | Longitude |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n| **HAYDEN PASS** | `CO3829210583320160708` | 2016 | 2016-07-08 | 3,786 m (12,422 ft) | 38.2530\u00b0 N | -105.7373\u00b0 W |\n\nThe Hayden Pass fire burned in the Sangre de Cristo Mountains of southern Colorado.",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "L06",
+    "trial": 4,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [
+      "partial_data_heuristic"
+    ],
+    "auto_verdict": false,
+    "auto_reason": "partial_data",
+    "partial_data_evidence": [
+      ".limit( at line 5 in answer query 0"
+    ],
+    "expected": [
+      "HAYDEN PASS"
+    ],
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "HAYDEN PASS"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/L06/trial_04.json",
+    "response_sha": "c7e1d5ec21d506f9",
+    "response": "The fire event containing the single highest-elevation pixel is the **HAYDEN PASS** fire (`Event_ID`: `CO3829210583320160708`), which ignited on July 8, 2016 in Colorado. \n\nThe peak pixel reached an elevation of **3,786 meters** (~12,422 feet) at coordinates (38.2530\u00b0 N, -105.7373\u00b0 W).",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M01",
+    "trial": 0,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 4,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "value": 4,
+      "value_text": "4"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "4",
+        "10",
+        "42.0",
+        "42.0",
+        "2020",
+        "4325.25",
+        "39.94",
+        "2021",
+        "3965.14",
+        "40.21",
+        "2017",
+        "2660.00",
+        "37.10",
+        "2006",
+        "2401.26",
+        "35.52",
+        "2007",
+        "2296.22",
+        "42.16",
+        "2011",
+        "2281.07",
+        "33.80",
+        "1988",
+        "2280.51",
+        "44.71",
+        "2012",
+        "2256.61",
+        "42.44",
+        "2002",
+        "2004.44",
+        "42.30",
+        "2002",
+        "1868.73",
+        "34.23"
+      ],
+      "in_band": true,
+      "has_extracted": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/M01/trial_00.json",
+    "response_sha": "bba553169f89b0ca",
+    "response": "**4** of the 10 largest distinct fire events by area have a mean pixel latitude north of 42.0\u00b0.\n\n| Fire Name | Year | Event ID | Area (km\u00b2) | Mean Latitude (\u00b0N) | North of 42.0\u00b0? |\n| :--- | :---: | :--- | :---: | :---: | :---: |\n| AUGUST COMPLEX | 2020 | CA3966012280920200817 | 4,325.25 | 39.94 | No |\n| DIXIE | 2021 | CA3987612137920210714 | 3,965.14 | 40.21 | No |\n| OKS - STARBUCK | 2017 | OK3677410017520170307 | 2,660.00 | 37.10 | No |\n| EAST AMARILLO COMPLEX | 2006 | TX3551510078020060312 | 2,401.26 | 35.52 | No |\n| **MURPHY COMPLEX** | 2007 | ID4216011532120070721 | 2,296.22 | **42.16** | **Yes** |\n| WALLOW | 2011 | AZ3360210944920110529 | 2,281.07 | 33.80 | No |\n| **NORTH FORK** | 1988 | WY4470811082119880722 | 2,280.51 | **44.71** | **Yes** |\n| **LONG DRAW** | 2012 | OR4239211789420120708 | 2,256.61 | **42.44** | **Yes** |\n| **BISCUIT COMPLEX (BISCUIT)** | 2002 | OR4244112390420020713 | 2,004.44 | **42.30** | **Yes** |\n| RODEO | 2002 | AZ3423311046320020618 | 1,868.73 | 34.23 | No |",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M03",
+    "trial": 1,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 29.198403817895034,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": "%",
+      "value": 29.2,
+      "value_text": "29.2"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "29.2",
+        "2002",
+        "2004440444",
+        "495300",
+        "1",
+        "4",
+        "1",
+        "438474",
+        "19.7",
+        "2",
+        "477682",
+        "21.5",
+        "3",
+        "659399",
+        "29.6",
+        "4",
+        "649755",
+        "29.2",
+        "1",
+        "4",
+        "2225310",
+        "100.0",
+        "649755",
+        "2225310",
+        "100",
+        "29.198",
+        "29.2"
+      ],
+      "in_band": true,
+      "has_extracted": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/M03/trial_01.json",
+    "response_sha": "4f363c78c2f0f9db",
+    "response": "**29.2%**\n\n### Breakdown\n\nThe single largest fire event by `area_m2` in 2002 is the **Biscuit Complex** (`OR4244112390420020713`) at approximately 2,004,440,444 m\u00b2 (~495,300 acres).\n\n| Burn Severity Class (`bs`) | Pixel Count | % of Valid Pixels (`bs` 1\u20134) |\n| :--- | ---: | ---: |\n| 1 (Unburned / Underburned) | 438,474 | 19.7% |\n| 2 (Low Severity) | 477,682 | 21.5% |\n| 3 (Moderate Severity) | 659,399 | 29.6% |\n| **4 (High Severity)** | **649,755** | **29.2%** |\n| **Total (`bs` 1\u20134)** | **2,225,310** | **100.0%** |\n\n*(649,755 / 2,225,310 \u00d7 100 = 29.198% \u2248 29.2%)*",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M03",
+    "trial": 2,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 29.198403817895034,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": "%",
+      "value": 29.2,
+      "value_text": "29.2"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "29.2",
+        "2002",
+        "2004440444",
+        "1",
+        "4",
+        "1",
+        "438474",
+        "19.7",
+        "2",
+        "477682",
+        "21.5",
+        "3",
+        "659399",
+        "29.6",
+        "4",
+        "649755",
+        "29.2",
+        "1",
+        "4",
+        "2225310",
+        "100.0"
+      ],
+      "in_band": true,
+      "has_extracted": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/M03/trial_02.json",
+    "response_sha": "7c78a5f88c3f86ba",
+    "response": "**29.2%**\n\n### Breakdown\n\nThe largest fire event in 2002 by `area_m2` was the **Biscuit Complex (Biscuit)** (`Event_ID`: `OR4244112390420020713`, area: 2,004,440,444 m\u00b2).\n\n| Burn Severity (`bs`) | Pixel Count | Percentage of Valid Burn Classes (1\u20134) |\n| :--- | ---: | ---: |\n| 1 (Unburned / Low) | 438,474 | 19.7% |\n| 2 (Low) | 477,682 | 21.5% |\n| 3 (Moderate) | 659,399 | 29.6% |\n| **4 (High)** | **649,755** | **29.2%** |\n| **Total (1\u20134)** | **2,225,310** | **100.0%** |",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M03",
+    "trial": 3,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 29.198403817895034,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": "%",
+      "value": 29.2,
+      "value_text": "29.2"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "2002",
+        "2004440444",
+        "495300",
+        "1",
+        "4",
+        "1",
+        "438474",
+        "19.7",
+        "2",
+        "477682",
+        "21.5",
+        "3",
+        "659399",
+        "29.6",
+        "4",
+        "649755",
+        "29.2",
+        "1",
+        "4",
+        "2225310",
+        "100.0",
+        "29.2",
+        "1",
+        "4",
+        "4"
+      ],
+      "in_band": true,
+      "has_extracted": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/M03/trial_03.json",
+    "response_sha": "c27598e8d7b56c79",
+    "response": "The single largest fire event in 2002 by `area_m2` was the **Biscuit Complex** (`OR4244112390420020713`), covering approximately 2,004,440,444 m\u00b2 (~495,300 acres).\n\nAmong its pixels classified within burn severity categories 1 to 4:\n\n| Burn Severity (`bs`) | Pixel Count | Percentage |\n| :--- | ---: | ---: |\n| 1 (Unburned / Underburned to Low) | 438,474 | 19.7% |\n| 2 (Low Severity) | 477,682 | 21.5% |\n| 3 (Moderate Severity) | 659,399 | 29.6% |\n| 4 (High Severity) | 649,755 | 29.2% |\n| **Total (bs 1\u20134)** | **2,225,310** | **100.0%** |\n\n**29.2%** of its pixels with burn severity in 1\u20134 burned at high severity (`bs = 4`).",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M04",
+    "trial": 2,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": [
+      "2006 / EAST AMARILLO COMPLEX"
+    ],
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "2006",
+        "EAST AMARILLO COMPLEX"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/M04/trial_02.json",
+    "response_sha": "bac646828e848e34",
+    "response": "The year with the most distinct fire events is **2006** (1,343 fire events across all incident types).\n\nThe largest fire ignited in that year by `area_m2` is the **EAST AMARILLO COMPLEX** (Event ID: `TX3551510078020060312`), which burned approximately 2,401,257,385 m\u00b2 (~593,364 acres / 2,401 km\u00b2).",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M04",
+    "trial": 3,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": [
+      "2006 / EAST AMARILLO COMPLEX"
+    ],
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "names": [
+        "2006",
+        "EAST AMARILLO COMPLEX"
+      ]
+    },
+    "regex_check": {
+      "kind": "names",
+      "found": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/M04/trial_03.json",
+    "response_sha": "3504732b88b4a410",
+    "response": "- **Year with the most distinct fire events:** **2006** (1,343 fire events across all incident types)\n- **Largest fire ignited in 2006:** **EAST AMARILLO COMPLEX** (Event ID: `TX3551510078020060312`, burned area: 2,401,257,385 m\u00b2 / ~593,363 acres)",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M05",
+    "trial": 0,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 5,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "value": 5,
+      "value_text": "5"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "5",
+        "20",
+        "1",
+        "1",
+        "1",
+        "1",
+        "2020",
+        "4325.25",
+        "4805895",
+        "15568",
+        "0.32",
+        "2",
+        "2021",
+        "3965.14",
+        "4405651",
+        "66329",
+        "1.51",
+        "3",
+        "2017",
+        "2660.00",
+        "2955684",
+        "5808",
+        "0.20",
+        "4",
+        "2006",
+        "2401.26",
+        "2668205",
+        "1317",
+        "0.05",
+        "5",
+        "2007",
+        "2296.22",
+        "2551393",
+        "389",
+        "0.02",
+        "6",
+        "2011",
+        "2281.07",
+        "2534472",
+        "33084",
+        "1.31",
+        "7",
+        "1988",
+        "2280.51",
+        "2533858",
+        "719",
+        "0.03",
+        "8",
+        "2012",
+        "2256.61"
+      ],
+      "in_band": true,
+      "has_extracted": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/M05/trial_00.json",
+    "response_sha": "23493a7f43cc6685",
+    "response": "**5** of the 20 largest distinct fire events by `area_m2` have more than 1% of their pixels inside the Wildland-Urban Interface (`wui_bool = 1`).\n\n| Rank | Incident Name | Year | Event ID | Area (km\u00b2) | Total Pixels | WUI Pixels | WUI Share (%) | > 1% WUI? |\n|---:|:---|---:|:---|---:|---:|---:|---:|:---:|\n| 1 | AUGUST COMPLEX | 2020 | CA3966012280920200817 | 4,325.25 | 4,805,895 | 15,568 | 0.32% | No |\n| 2 | DIXIE | 2021 | CA3987612137920210714 | 3,965.14 | 4,405,651 | 66,329 | 1.51% | **Yes** |\n| 3 | OKS - STARBUCK | 2017 | OK3677410017520170307 | 2,660.00 | 2,955,684 | 5,808 | 0.20% | No |\n| 4 | EAST AMARILLO COMPLEX | 2006 | TX3551510078020060312 | 2,401.26 | 2,668,205 | 1,317 | 0.05% | No |\n| 5 | MURPHY COMPLEX | 2007 | ID4216011532120070721 | 2,296.22 | 2,551,393 | 389 | 0.02% | No |\n| 6 | WALLOW | 2011 | AZ3360210944920110529 | 2,281.07 | 2,534,472 | 33,084 | 1.31% | **Yes** |\n| 7 | NORTH FORK | 1988 | WY4470811082119880722 | 2,280.51 | 2,533,858 | 719 | 0.03% | No |\n| 8 | LONG DRAW | 2012 | OR4239211789420120708 | 2,256.61 | 2,507,360 | 0 | 0.00% | No |\n| 9 | BISCUIT COMPLEX (BISCUIT) | 2002 | OR4244112390420020713 | 2,004.44 | 2,227,150 | 457 | 0.02% | No |\n| 10 | RODEO | 2002 | AZ3423311046320020618 | 1,868.73 | 2,076,294 | 15,585 | 0.75% | No |\n| 11 | HOLLOWAY | 2012 | NV4197311836620120805 | 1,853.18 | 2,059,079 | 0 | 0.00% | No |\n| 12 | MARTIN | 2018 | NV4152811742720180705 | 1,748.97 | 1,943,306 | 0 | 0.00% | No |\n| 13 | RANCH | 2018 | CA3924012311020180727 | 1,728.20 | 1,920,214 | 25,443 | 1.33% | **Yes** |\n| 14 | BOOTLEG | 2021 | OR4261612142120210706 | 1,673.35 | 1,859,287 | 0 | 0.00% | No |\n| 15 | SCU LIGHTNING COMPLEX | 2020 | CA3742412156820200816 | 1,642.20 | 1,824,623 | 2,978 | 0.16% | No |\n| 16 | CREEK | 2020 | CA3720111927220200905 | 1,543.67 | 1,715,174 | 59,195 | 3.45% | **Yes** |\n| 17 | MUSTANG COMPLEX | 2012 | ID4542411459020120730 | 1,528.23 | 1,698,039 | 786 | 0.05% | No |\n| 18 | ANDERSON CREEK FIRE | 2016 | OK3692409905720160323 | 1,515",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "M05",
+    "trial": 2,
+    "verdict": "pass",
+    "reason": "Correct answer; the flagged cut is a deliberate top-row pick (sort/top-N or filter-to-max then head/limit), which the question asks for, not sampling.",
+    "adjudicator": "Fred Bunt",
+    "source": "grader_review",
+    "review_reasons": [],
+    "auto_verdict": true,
+    "auto_reason": "ok",
+    "partial_data_evidence": [],
+    "expected": 5,
+    "extraction": {
+      "status": "answer",
+      "multiple_candidates": false,
+      "sampled_disclosed": false,
+      "unit": null,
+      "value": 5,
+      "value_text": "5"
+    },
+    "regex_check": {
+      "kind": "number",
+      "numbers": [
+        "5",
+        "20",
+        "1",
+        "2022",
+        "1424.65",
+        "1582967",
+        "58569",
+        "3.70",
+        "2020",
+        "1543.67",
+        "1715174",
+        "59195",
+        "3.45",
+        "2021",
+        "3965.14",
+        "4405651",
+        "66329",
+        "1.51",
+        "2018",
+        "1728.20",
+        "1920214",
+        "25443",
+        "1.33",
+        "2011",
+        "2281.07",
+        "2534472",
+        "33084",
+        "1.31",
+        "2002",
+        "1868.73",
+        "2076294",
+        "15585",
+        "0.75",
+        "2020",
+        "4325.25",
+        "4805895",
+        "15568",
+        "0.32",
+        "2017",
+        "2660.00",
+        "2955684",
+        "5808",
+        "0.20",
+        "2020",
+        "1642.20",
+        "1824623",
+        "2978",
+        "0.16",
+        "2006",
+        "2401.26"
+      ],
+      "in_band": true,
+      "has_extracted": true,
+      "disagree": false
+    },
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/M05/trial_02.json",
+    "response_sha": "6d2feea61c862edf",
+    "response": "**5** of the 20 largest distinct fire events have more than 1% of their pixels inside the Wildland-Urban Interface (WUI).\n\n| Fire Name | Year | Event ID | Area (km\u00b2) | Total Pixels | WUI Pixels | WUI % |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n| **HERMITS PEAK** | 2022 | NM3571810539920220406 | 1,424.65 | 1,582,967 | 58,569 | **3.70%** |\n| **CREEK** | 2020 | CA3720111927220200905 | 1,543.67 | 1,715,174 | 59,195 | **3.45%** |\n| **DIXIE** | 2021 | CA3987612137920210714 | 3,965.14 | 4,405,651 | 66,329 | **1.51%** |\n| **RANCH** | 2018 | CA3924012311020180727 | 1,728.20 | 1,920,214 | 25,443 | **1.33%** |\n| **WALLOW** | 2011 | AZ3360210944920110529 | 2,281.07 | 2,534,472 | 33,084 | **1.31%** |\n| RODEO | 2002 | AZ3423311046320020618 | 1,868.73 | 2,076,294 | 15,585 | 0.75% |\n| AUGUST COMPLEX | 2020 | CA3966012280920200817 | 4,325.25 | 4,805,895 | 15,568 | 0.32% |\n| OKS - STARBUCK | 2017 | OK3677410017520170307 | 2,660.00 | 2,955,684 | 5,808 | 0.20% |\n| SCU LIGHTNING COMPLEX | 2020 | CA3742412156820200816 | 1,642.20 | 1,824,623 | 2,978 | 0.16% |\n| EAST AMARILLO COMPLEX | 2006 | TX3551510078020060312 | 2,401.26 | 2,668,205 | 1,317 | 0.05% |\n| MUSTANG COMPLEX | 2012 | ID4542411459020120730 | 1,528.23 | 1,698,039 | 786 | 0.05% |\n| NORTH FORK | 1988 | WY4470811082119880722 | 2,280.51 | 2,533,858 | 719 | 0.03% |\n| BISCUIT COMPLEX (BISCUIT) | 2002 | OR4244112390420020713 | 2,004.44 | 2,227,150 | 457 | 0.02% |\n| MURPHY COMPLEX | 2007 | ID4216011532120070721 | 2,296.22 | 2,551,393 | 389 | 0.02% |\n| ANDERSON CREEK FIRE | 2016 | OK3692409905720160323 | 1,515.64 | 1,684,079 | 70 | <0.01% |\n| LONG DRAW | 2012 | OR4239211789420120708 | 2,256.61 | 2,507,360 | 0 | 0.00% |\n| HOLLOWAY | 2012 | NV4197311836620120805 | 1,853.18 | 2,059,079 | 0 | 0.00% |\n| MARTIN | 2018 | NV4152811742720180705 | 1,748.97 | 1,943,306 | 0 | 0.00% |\n| BOOTLEG | 2021 | OR4261612142120210706 | 1,673.35 | 1,859,287 | 0 | 0.00% |\n| MILFORD FLAT | 2007 | UT3868911273920070706 | 1,411.43 | 1,568,181 | 0 | 0.0",
+    "current_review_reasons": []
+  },
+  {
+    "question_id": "A06",
+    "trial": 0,
+    "verdict": "fail",
+    "reason": "Names eco1 10 as the winner under the bs 2-4 reading ('narrowly edges out ecoregion 6'), the same rival as trial 1; the extractor missed the hedge (found in the 2026-10-01 trace audit). Hedge policy (2026-10-01): a reply that names a different answer under an alternative reading fails; a hedge whose candidates all grade correct passes.",
+    "adjudicator": "Fred Bunt",
+    "source": "trace_audit",
+    "trace_path": ".bench-runs/pro-vs-flash/gemini-3.8-flash/A06/trial_00.json",
+    "response_sha": "b72be35953fcc9e9",
+    "response": "The level-1 ecoregion with the most pixel rows in total is **6** (**Northwestern Forested Mountains**), with **202,639,624** rows (27.19% of all rows).\n\n| `eco1` | Ecoregion Name | Total Pixel Rows | Burned Severity Rows (`bs` 2\u20134) |\n| ---: | :--- | ---: | ---: |\n| 6 | Northwestern Forested Mountains | 202,639,624 | 157,771,796 |\n| 10 | North American Deserts | 193,786,215 | 158,326,256 |\n| 9 | Great Plains | 111,890,104 | 91,999,371 |\n| 8 | Eastern Temperate Forests | 110,260,749 | 82,088,864 |\n| 11 | Mediterranean California | 52,343,733 | 41,130,275 |\n| 13 | Temperate Sierras | 38,038,403 | 27,659,765 |\n| 15 | Tropical Wet Forests | 14,462,003 | 9,940,268 |\n| 12 | Southern Semiarid Highlands | 14,104,311 | 11,349,445 |\n| 5 | Northern Forests | 6,544,267 | 4,843,476 |\n| 7 | Marine West Coast Forest | 1,225,147 | 940,162 |\n\n*Note:* If strictly filtering to pixels confirmed as burned by burn severity class (low, moderate, or high severity: `bs` \u2208 {2, 3, 4}, excluding unburned pixels within fire perimeters), ecoregion **10** (**North American Deserts**) narrowly edges out ecoregion 6."
+  }
+]

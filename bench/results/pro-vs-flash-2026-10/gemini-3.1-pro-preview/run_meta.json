@@ -1,0 +1,236 @@
+{
+  "model": "gemini-3.1-pro-preview",
+  "parquet_identity": "29d168015b13",
+  "prompt_sha": "910e543479e43198",
+  "question_shas": {
+    "L01": "3faaaba3f78e",
+    "L02": "dd74ce320d4e",
+    "L03": "63118a5815b3",
+    "L04": "90ea93f524ef",
+    "L05": "a51a71635537",
+    "L06": "751083501e9c",
+    "L07": "91e8c26fe664",
+    "L08": "21eab4ab0bd0",
+    "A01": "876d48787497",
+    "A02": "257d454931c5",
+    "A03": "426540d68638",
+    "A04": "c4e67c903cd3",
+    "A05": "473a4da878b2",
+    "A06": "b2e22c3eafb9",
+    "A07": "968243db429b",
+    "T01": "41610c1e7b02",
+    "T02": "a5315a540777",
+    "T03": "b8a1096494f1",
+    "T04": "502a83e7a89f",
+    "T05": "ac532621339c",
+    "M01": "70ce585369be",
+    "M02": "f86e3ebcc1c0",
+    "M03": "511e534c9bd8",
+    "M04": "bac3fb4e45e2",
+    "M05": "28313e2ebaeb"
+  },
+  "question_set_sha": "31c1ed192052",
+  "max_rounds": 20,
+  "git_sha": "e2250596034027370697ba8a573688c751b1c01f",
+  "git_dirty": false,
+  "git_diff_sha": null,
+  "backend": "developer",
+  "guard_model": "gemini-3.5-flash-lite",
+  "versions": {
+    "python": "3.12.14",
+    "google-genai": "2.8.0",
+    "polars": "1.41.2",
+    "pyarrow": "24.0.0",
+    "httpx": "0.28.1"
+  },
+  "worker_image": {
+    "image": "kindling-worker:latest",
+    "id": "14f099927721f24afb33387ba6e96ee2f3dafb58408adb2f7a9246966c07954c",
+    "versions": {
+      "python": "3.12.13",
+      "polars": "1.41.2",
+      "pyarrow": "24.0.0",
+      "numpy": "2.4.2"
+    }
+  },
+  "sandbox": {
+    "size": 2,
+    "max_total": 3,
+    "image": "kindling-worker:latest",
+    "memory": "110g",
+    "cpus": null,
+    "pids": 8192,
+    "max_threads": null,
+    "worker_parquet_path": "/var/mnt/fastdata02/mtbs/data/results/mtbs_pix_data_trimmed_as_parts.parquet",
+    "runtime": "podman",
+    "hard_timeout": 510.0,
+    "checkout_timeout": 120.0
+  },
+  "http_options": {
+    "timeout_ms": 300000,
+    "sdk_retry_attempts": 4,
+    "trial_retries": 2,
+    "turn_timeout_s": 1800
+  },
+  "argv": [
+    "run",
+    "--models",
+    "gemini-3.1-pro-preview,gemini-3.8-flash",
+    "--trials",
+    "5",
+    "--run-dir",
+    ".bench-runs/pro-vs-flash"
+  ],
+  "parquet": "data/mtbs_pix_data.parquet",
+  "trials": 5,
+  "interleaved_models": [
+    "gemini-3.1-pro-preview",
+    "gemini-3.8-flash"
+  ],
+  "seed": 0,
+  "generation_config": "app defaults (thinking and temperature not overridden)",
+  "started_at": "2026-09-29T20:15:17",
+  "resumes": [
+    {
+      "started_at": "2026-09-29T20:15:35",
+      "argv": [
+        "run",
+        "--models",
+        "gemini-3.1-pro-preview,gemini-3.8-flash",
+        "--trials",
+        "5",
+        "--run-dir",
+        ".bench-runs/pro-vs-flash"
+      ],
+      "drift": []
+    }
+  ],
+  "prompt_guard_preflight": {
+    "L01": {
+      "allow": true,
+      "reason": "The user is asking a data analysis question about the wildfire dataset regarding prescribed-fire events.",
+      "question_sha": "3faaaba3f78e"
+    },
+    "L02": {
+      "allow": true,
+      "reason": "The user is asking a standard data-analysis question regarding a specific field and metric in the wildfire dataset.",
+      "question_sha": "dd74ce320d4e"
+    },
+    "L03": {
+      "allow": true,
+      "reason": "The user is asking a standard data analysis question about the dataset's contents.",
+      "question_sha": "63118a5815b3"
+    },
+    "L04": {
+      "allow": true,
+      "reason": "The user is asking a standard data-analysis question about the dataset.",
+      "question_sha": "90ea93f524ef"
+    },
+    "L05": {
+      "allow": true,
+      "reason": "The user is asking a valid question about the wildfire dataset regarding ignition dates and incident types.",
+      "question_sha": "a51a71635537"
+    },
+    "L06": {
+      "allow": true,
+      "reason": "The user is asking a valid question about the wildfire dataset regarding elevation and incident names.",
+      "question_sha": "751083501e9c"
+    },
+    "L07": {
+      "allow": true,
+      "reason": "The user is asking a standard data analysis question about the dataset regarding the year 2020.",
+      "question_sha": "91e8c26fe664"
+    },
+    "L08": {
+      "allow": true,
+      "reason": "The user is asking a valid data analysis question about the wildfire dataset regarding row counts and null values.",
+      "question_sha": "21eab4ab0bd0"
+    },
+    "A01": {
+      "allow": true,
+      "reason": "The user is asking a standard data analysis question about the dataset regarding the mean fire size.",
+      "question_sha": "876d48787497"
+    },
+    "A02": {
+      "allow": true,
+      "reason": "The user is asking a standard data analysis question about the wildfire dataset.",
+      "question_sha": "257d454931c5"
+    },
+    "A03": {
+      "allow": true,
+      "reason": "The user is asking a standard data analysis question about the dataset regarding wildfire burn severity pixel counts for the year 2021.",
+      "question_sha": "426540d68638"
+    },
+    "A04": {
+      "allow": true,
+      "reason": "The user is asking a standard data analysis question about the wildfire dataset.",
+      "question_sha": "c4e67c903cd3"
+    },
+    "A05": {
+      "allow": true,
+      "reason": "The user is asking a standard data query about the wildfire dataset regarding the 5 largest fire events by area.",
+      "question_sha": "473a4da878b2"
+    },
+    "A06": {
+      "allow": true,
+      "reason": "The user is asking a standard data analysis question about the wildfire dataset regarding level-1 ecoregions and burned pixels.",
+      "question_sha": "b2e22c3eafb9"
+    },
+    "A07": {
+      "allow": true,
+      "reason": "The user is asking a valid question about the wildfire dataset regarding mean elevation of high-severity burned pixels.",
+      "question_sha": "968243db429b"
+    },
+    "T01": {
+      "allow": true,
+      "reason": "The user is asking a data analysis question specific to the wildfire dataset, which is a normal and permitted use.",
+      "question_sha": "41610c1e7b02"
+    },
+    "T02": {
+      "allow": true,
+      "reason": "The user is asking a standard data analysis question about calculating the OLS slope of annual burned area for a wildfire dataset between 1984 and 2022, which is normal and safe use of the assistant.",
+      "question_sha": "a5315a540777"
+    },
+    "T03": {
+      "allow": true,
+      "reason": "The user is asking a valid data analysis question about wildfire data, which is aligned with the assistant's intended purpose.",
+      "question_sha": "b8a1096494f1"
+    },
+    "T04": {
+      "allow": true,
+      "reason": "The user is asking a specific data analysis question about calculating high-severity wildfire fractions for different decades using standard dataset filtering and arithmetic operations.",
+      "question_sha": "502a83e7a89f"
+    },
+    "T05": {
+      "allow": true,
+      "reason": "The user is asking for a valid data analysis task involving wildfire event ignition dates from a specific dataset.",
+      "question_sha": "ac532621339c"
+    },
+    "M01": {
+      "allow": true,
+      "reason": "The user is asking a data analysis question regarding the wildfire dataset, specifically querying the largest fire events by area and filtering by latitude. This is a normal and expected use of the assistant.",
+      "question_sha": "70ce585369be"
+    },
+    "M02": {
+      "allow": true,
+      "reason": "The user is asking a valid data analysis query about a wildfire dataset, specifying filtering and aggregation conditions.",
+      "question_sha": "f86e3ebcc1c0"
+    },
+    "M03": {
+      "allow": true,
+      "reason": "The user is asking a standard data analysis question about a specific wildfire dataset, which aligns with the permitted use of the assistant.",
+      "question_sha": "511e534c9bd8"
+    },
+    "M04": {
+      "allow": true,
+      "reason": "The user is asking a standard data analysis question about the wildfire dataset, specifically requesting the year with the most fire events and the name of the largest fire in that year.",
+      "question_sha": "bac3fb4e45e2"
+    },
+    "M05": {
+      "allow": true,
+      "reason": "The user is asking a valid analytical question about the wildfire dataset regarding fire events and WUI pixels.",
+      "question_sha": "28313e2ebaeb"
+    }
+  },
+  "ended_at": "2026-09-29T21:17:48"
+}
