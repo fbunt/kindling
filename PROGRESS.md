@@ -6,7 +6,7 @@ Architecture, invariants, and run/deploy wiring live in `CLAUDE.md`; user-facing
 `README.md`; the *what changed* history in `git log` (commit messages are detailed). This file
 holds only what those don't: in-flight work, the *why* behind non-obvious decisions, and blockers.
 
-_Updated: 2026-10-19._
+_Updated: 2026-10-20._
 
 > **Maintaining this file.** New work is appended to _Recently done_ with a date. When that
 > section passes ~10 items, compact it: fold anything that would stop someone redoing or
@@ -19,21 +19,15 @@ _Updated: 2026-10-19._
 
 ## TODO
 
-- **Extended bench tier (E01-E14): built, waiting on full-data ground truth.** Code landed
+- **Extended bench tier (E01-E14): built, full-data ground truth cached (2026-10-20).** Code landed
   2026-10-19 (`523f6f6`..`8fe1727`; CLAUDE.md *Extended tier*). Plan and its build log are in
   `.bench-runs/extended-tier-plan.md` (gitignored). Next, in order:
-  1. Ground truth on the full parquet, one capped invocation per heavy question, app idle and
-     >= 100 GB free: `systemd-run --user --scope -p MemoryMax=100G uv run python -m bench gt
-     --questions ...` for E01-E06, E09, E11, E14 together, then E12, E13, E07 and E10 each alone
-     (E10 last). E08 fails on purpose until its 2020 top 5 is pasted into `TOP5_2020_EVENT_IDS` /
-     `TOP5_2020_HISTORY`; check `year` equals the `Ig_Date` year for those five.
-  2. Set E12's row threshold from its logged eco1 table, or drop E12 if none excludes the
-     unfiltered winner with a 0.5 pp margin (likely: on the 1/1000 sample eco1 6 has both the top
-     share and the most rows). Fill the E08/E13 aliases.
-  3. Decision record 0005 for the extended scoring rules (the plan lists the choices to state),
-     written before the pilot is graded; after that, any rule change bumps `EXT_GRADER_VERSION`
-     and the final run goes in a new run dir.
-  4. Pilot: `run --models gemini-3.1-pro-preview,gemini-3.8-flash --questions extended --trials 3`
+  1. Optional, not a gate: a blind second reference for E06, E07 and E10-E14, written by someone
+     (or a fresh agent) who has not seen ours; record agreement in the commit message.
+  2. Decision record 0005 for the extended scoring rules (the plan lists the choices to state,
+     plus E12's row ceiling below), written before the pilot is graded; after that, any rule
+     change bumps `EXT_GRADER_VERSION` and the final run goes in a new run dir.
+  3. Pilot: `run --models gemini-3.1-pro-preview,gemini-3.8-flash --questions extended --trials 3`
      (~$3.40), grade, stability regrade, `audit --full E04,E05,E06,E07,E08,E09 --fraction 0.25`,
      adjudicate; then 5 trials (~$2.30 more if resumed).
 - **Polars: on 1.41.2, capped `<2` in `pyproject.toml`; 1.44.2 is the latest 1.x and 2.0.0 shipped
@@ -60,6 +54,14 @@ _Updated: 2026-10-19._
 
 ## Recently done
 
+- **2026-10-20 — Extended-tier ground truth on the full parquet.** Every reference but E07 and E10
+  peaks under 7 GB. E07 was OOM-killed at the 100 GB cap: Polars 1.41.2 does not stream `is_in`
+  inside a streaming `group_by().agg()`, so memory grows with rows (15 GB on 60 of 623 parts);
+  `is_between` streams (19 s, 2.8 GB). A model query written the same way can hit the 110 GB
+  sandbox cap. E12 became a row *ceiling* (fewer than 100M rows): eco1 6 has both the top share
+  (21.0%) and the most rows, so no floor could change the answer; the ceiling moves it to eco1 7
+  (18.2%, 3.9 pp ahead of 11). E08's 2020 top 5 is filled in (answer NORTH COMPLEX, 46.8% vs
+  27.4%); E13 accepts `8.5`. Values are pinned in `FULL_EXT` (`tests/test_bench_grading_ext.py`).
 - **2026-10-19 — L07, A02 and A06 reworded: "burned-pixel rows" is now "every row whatever its bs value, null included".** Flash's A06 hedge read "burned" as bs 2-4 (eco1 10 instead of 6); L07 and A02 had the same wording. "Any burn-severity class" was rejected because `bs` has nulls (L08) that the references count. References are unchanged; the three `question_sha`s move, and `compare` does not check them, so comparing a new core run with pro-vs-flash would mix wordings on those three. The pro-vs-flash verdicts stand (decision 0004).
 - **2026-10-19 — Hand audit of pro-vs-flash: judge-human agreement 26/26** (13 per model, filled blind in `bench audit-web`; Clopper-Pearson 95% lower bound 86.8%). Every sampled trial was a grader pass, so this bounds false passes only; all three grader fails were hand-adjudicated separately. Extractor stability was measured earlier (3 grades, 0 verdict flips), so the core-tier numbers (Pro 125/125, Flash 122/125) are final.
 - **2026-10-01 — First real bench: 3.1 Pro 125/125, 3.8 Flash 122/125 (5 trials, $5.53 of chat calls).** The core tier is at ceiling for Pro; the paired gap is +2.4 pp, 95% CI [0, +6.4], p = 0.51, so it does not separate the models (disagreements: Flash A06 hedges between eco1 6 and 10 on 2 trials, T02 one empty response). `DEFAULT_CHAT_MODEL` stays Pro; the extended tier (plan + review in `.bench-runs/extended-tier-plan.md`) is what can separate them. The first grade flagged 23 correct answers as partial data and no real sample, so the row-cut rule now exempts ranked, tie-pick and short (fewer rows than N) cuts, and judges the query that holds the answer. Hedge policy for adjudication: a reply that names a different answer under another reading fails; a hedge whose candidates all grade correct passes. A trace-consistency audit over all 275 traces (every field recomputed, every response read) found the two things the code reviews missed: an empty STOP response was graded executable, and the chat loop said "ran out of tool-use rounds" for any empty reply; both fixed, and decided adjudications now keep the flags they answered. Lesson: review real traces for cross-field consistency, not just code against spec with fakes.

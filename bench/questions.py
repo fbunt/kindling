@@ -690,17 +690,25 @@ assert len({q.id for q in QUESTIONS}) == 25, "duplicate question ids"
 # 4", "whatever its bs value, null included") except E07, whose ambiguity is
 # the point: "burned-pixel rows" alone was read as bs 2-4 in the core run.
 
-# E12's minimum row count. Provisional: it is set from the full-data per-eco1
-# table E12's reference logs, so that the eco1 with the highest share overall
-# falls below it and the winner keeps a 0.5 pp margin.
-ECO1_SHARE_MIN_ROWS = 1_000_000
+# E12's row ceiling, set from the full-data per-eco1 table E12's reference
+# logs. On the full data the eco1 with the highest share overall (6) also has
+# the most rows, so only an upper bound can make the filter change the answer:
+# this one excludes 6, 10, 9 and 8 (110M+ rows each) and leaves eco1 7 ahead
+# of 11 by 3.9 pp.
+ECO1_SHARE_MAX_ROWS = 100_000_000
 
 # E08's scripted history: the 5 largest distinct fire events of 2020 and the
 # Event_IDs behind that table. Both are filled together from the full-data
 # table that E08's reference prints while the IDs are empty (the reference
 # refuses to compute an answer until they match), so the history always shows
 # the events the answer is scored on.
-TOP5_2020_EVENT_IDS: tuple[str, ...] = ()
+TOP5_2020_EVENT_IDS: tuple[str, ...] = (
+    "CA3966012280920200817",
+    "CA3742412156820200816",
+    "CA3720111927220200905",
+    "CA4009112093120200817",
+    "CA3850412233720200817",
+)
 TOP5_2020_HISTORY: tuple[tuple[str, str], ...] = (
     (
         "user",
@@ -710,7 +718,12 @@ TOP5_2020_HISTORY: tuple[tuple[str, str], ...] = (
     (
         "model",
         "The 5 largest distinct fire events ignited in 2020, by area_m2, are:"
-        "\n\n| Incid_Name | Event_ID | area_m2 |\n|---|---|---|\n",
+        "\n\n| Incid_Name | Event_ID | area_m2 |\n|---|---|---|\n"
+        "| AUGUST COMPLEX | CA3966012280920200817 | 4325251517 |\n"
+        "| SCU LIGHTNING COMPLEX | CA3742412156820200816 | 1642198721 |\n"
+        "| CREEK | CA3720111927220200905 | 1543673733 |\n"
+        "| NORTH COMPLEX | CA4009112093120200817 | 1281010893 |\n"
+        "| HENNESSEY | CA3850412233720200817 | 1271642042 |",
     ),
 )
 
@@ -983,13 +996,13 @@ expected = [shares["Incid_Name"][0]]
         id="E12",
         category="ext_multistep",
         text=(
-            "Among level-1 ecoregions (eco1) with at least "
-            f"{ECO1_SHARE_MIN_ROWS:,} rows (every row whatever its bs value, "
+            "Among level-1 ecoregions (eco1) with fewer than "
+            f"{ECO1_SHARE_MAX_ROWS:,} rows (every row whatever its bs value, "
             "null included), which has the highest share of high-severity "
             "pixels (bs = 4 among pixels with bs 1-4)? Give the eco1 code. "
             "Count every incident type."
         ),
-        reference_code=f"min_rows = {ECO1_SHARE_MIN_ROWS}\n"
+        reference_code=f"max_rows = {ECO1_SHARE_MAX_ROWS}\n"
         + """\
 eco = (
     lf.filter(pl.col("eco1").is_not_null())
@@ -997,7 +1010,7 @@ eco = (
     .agg(
         pl.len().alias("rows"),
         (pl.col("bs") == 4).sum().alias("high"),
-        pl.col("bs").is_in([1, 2, 3, 4]).sum().alias("rated"),
+        pl.col("bs").is_between(1, 4).sum().alias("rated"),
     )
     .collect(engine="streaming")
     .filter(pl.col("rated") > 0)
@@ -1012,12 +1025,12 @@ logger.info(
     ),
 )
 overall = eco.row(0, named=True)
-assert overall["rows"] < min_rows, (
-    f"min_rows {min_rows} does not exclude eco1 {overall['eco1']}, the highest "
+assert overall["rows"] >= max_rows, (
+    f"max_rows {max_rows} does not exclude eco1 {overall['eco1']}, the highest "
     "share overall"
 )
-eligible = eco.filter(pl.col("rows") >= min_rows)
-assert eligible.height > 0, f"no eco1 has {min_rows} rows"
+eligible = eco.filter(pl.col("rows") < max_rows)
+assert eligible.height > 0, f"no eco1 has fewer than {max_rows} rows"
 if eligible.height > 1:
     margin = eligible["share"][0] - eligible["share"][1]
     assert margin >= 0.5, f"winner leads by {margin:.3f} pp, under 0.5"
@@ -1073,8 +1086,8 @@ cells = (
     .group_by("eco1", "eco2s", "eco3s", "Event_ID")
     .agg(
         pl.len().alias("rows_all"),
-        pl.col("bs").is_in([1, 2, 3, 4]).sum().alias("rows_bs1_4"),
-        pl.col("bs").is_in([2, 3, 4]).sum().alias("rows_bs2_4"),
+        pl.col("bs").is_between(1, 4).sum().alias("rows_bs1_4"),
+        pl.col("bs").is_between(2, 4).sum().alias("rows_bs2_4"),
         pl.col("area_m2").first(),
     )
     .collect(engine="streaming")

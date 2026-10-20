@@ -220,7 +220,9 @@ EXT_ANSWERS: dict[str, ExtAnswerSpec] = {
         aliases=_ECO1_ALIASES,
         note="any reading's winner, with its level and measure stated",
     ),
-    "E08": ExtAnswerSpec(note="name aliases are added once ground truth is known"),
+    "E08": ExtAnswerSpec(
+        note="the incident name; normalization covers 'North Complex Fire'"
+    ),
     "E09": ExtAnswerSpec(integer=True, note="peak year and its exact count"),
     "E10": ExtAnswerSpec(units=PERCENT),
     "E11": ExtAnswerSpec(units=PERCENT),
@@ -228,7 +230,7 @@ EXT_ANSWERS: dict[str, ExtAnswerSpec] = {
         aliases=_ECO1_ALIASES, note="the eco1 code (or eco1s form) or its level-I name"
     ),
     "E13": ExtAnswerSpec(
-        note="code aliases ('08.5': '8.5') are added once ground truth is known"
+        aliases={"08.5": ("8.5",)}, note="the eco2s code, leading zero optional"
     ),
     "E14": ExtAnswerSpec(units=PERCENT),
 }

@@ -26,10 +26,11 @@ from bench.ground_truth import GroundTruthError, compute_expected
 from bench.questions import (
     BY_ID,
     CATEGORIES,
-    ECO1_SHARE_MIN_ROWS,
+    ECO1_SHARE_MAX_ROWS,
     EXTENDED,
     EXTENDED_CATEGORIES,
     QUESTIONS,
+    TOP5_2020_EVENT_IDS,
     TOP5_2020_HISTORY,
     select,
     tier_of,
@@ -359,7 +360,7 @@ def _top5_rows():
     return rows
 
 
-def test_follow_up_refuses_until_the_history_events_are_set():
+def test_follow_up_refuses_a_top5_that_differs_from_the_history():
     with pytest.raises(GroundTruthError) as err:
         _expected("E08", _top5_rows())
     msg = str(err.value)
@@ -370,15 +371,19 @@ def test_follow_up_refuses_until_the_history_events_are_set():
 
 def test_follow_up_highest_share_among_the_history_events():
     gold = ("big1", "big2", "big3", "big4", "big5")
-    got = _expected("E08", _top5_rows(), swap=("GOLD = ()\n", f"GOLD = {gold!r}\n"))
+    got = _expected(
+        "E08",
+        _top5_rows(),
+        swap=(f"GOLD = {TOP5_2020_EVENT_IDS!r}\n", f"GOLD = {gold!r}\n"),
+    )
     assert got == ["BIG1"]
 
 
 _ECO1_ROWS = {  # eco1: bs values (one row each)
-    2: (4, 4),  # highest share, too few rows
-    6: (4, 4, 3, 2, None, None),  # 50%
-    10: (4, 1, 1, 1, 6, 6, None, None),  # 25%
-    11: (4, 1, 1, 1, 1),  # 20%
+    6: (4, 4, 4, 3, None, None),  # highest share (75%), too many rows
+    2: (4, 4, 3, 2),  # 50%
+    10: (4, 1, 1, 1),  # 25%
+    11: (4, 1, 1, 1, 1, 6, 6, None),  # 20%, too many rows
 }
 
 
@@ -388,14 +393,14 @@ def _eco1_rows(table):
 
 def test_eco1_share_threshold_binds(caplog):
     caplog.set_level(logging.INFO, logger="bench.ground_truth")
-    swap = (f"min_rows = {ECO1_SHARE_MIN_ROWS}\n", "min_rows = 5\n")
-    assert _expected("E12", _eco1_rows(_ECO1_ROWS), swap=swap) == 6
-    assert "2: 2, 2, 2, 100.000" in caplog.text
-    assert "10: 8, 1, 4, 25.000" in caplog.text
-    loose = (swap[0], "min_rows = 1\n")
-    with pytest.raises(GroundTruthError, match="does not exclude eco1 2"):
+    swap = (f"max_rows = {ECO1_SHARE_MAX_ROWS}\n", "max_rows = 5\n")
+    assert _expected("E12", _eco1_rows(_ECO1_ROWS), swap=swap) == 2
+    assert "6: 6, 3, 4, 75.000" in caplog.text
+    assert "11: 8, 1, 5, 20.000" in caplog.text
+    loose = (swap[0], "max_rows = 100\n")
+    with pytest.raises(GroundTruthError, match="does not exclude eco1 6"):
         _expected("E12", _eco1_rows(_ECO1_ROWS), swap=loose)
-    close = {**_ECO1_ROWS, 11: (4, 4, 1, 1, 5)}  # 50%, level with eco1 6
+    close = {**_ECO1_ROWS, 10: (4, 4, 1, 1)}  # 50%, level with eco1 2
     with pytest.raises(GroundTruthError, match="under 0.5"):
         _expected("E12", _eco1_rows(close), swap=swap)
 

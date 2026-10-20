@@ -31,7 +31,7 @@ from bench.grading import (
 )
 from bench.ground_truth import reference_sha
 from bench.io import atomic_write_json
-from bench.questions import BY_ID
+from bench.questions import BY_ID, EXTENDED
 from bench.report import build_report
 from tests.test_bench_grading import FakeExtractor, _by_response, _ex, _reply
 
@@ -65,6 +65,45 @@ EXT = {
     "E09": {"year": 2006, "value": 1278},
     "E10": 20.78,
     "E12": 6,
+}
+
+# Full-parquet ground truth (bench gt, 2026-10-20).
+FULL_EXT = {
+    "E01": 341,
+    "E02": 23006464,
+    "E03": 5909356,
+    "E04": {"abstain": True},
+    "E05": {"abstain": True},
+    "E06": {
+        "count": 507,
+        "top": [
+            "AUGUST COMPLEX",
+            "DIXIE",
+            "OKS - STARBUCK",
+            "EAST AMARILLO COMPLEX",
+            "MURPHY COMPLEX",
+            "WALLOW",
+            "NORTH FORK",
+            "LONG DRAW",
+            "BISCUIT COMPLEX (BISCUIT)",
+            "RODEO",
+        ],
+    },
+    "E07": {
+        "level1|pixels_or_area": ["10", "6"],
+        "level1|events": ["8"],
+        "level2|pixels_or_area": ["06.2"],
+        "level2|events": ["08.5"],
+        "level3|pixels_or_area": ["10.1.03", "10.1.05"],
+        "level3|events": ["08.5.03"],
+    },
+    "E08": ["NORTH COMPLEX"],
+    "E09": {"year": 2006, "value": 1343},
+    "E10": 20.754634344784197,
+    "E11": 28.885291227056808,
+    "E12": 7,
+    "E13": "08.5",
+    "E14": 21.35352953874937,
 }
 
 
@@ -847,6 +886,49 @@ def test_extended_scalar_and_text_questions_use_their_spec():
     rec = _trace("E01", records=[("result = n", {"n": 3170})])
     assert grounded(e01, 3170, _ex(value=3170), rec) is True
     assert answer_query(e01, {**rec, "expected": 3170}, _ex(value=3170)) == 0
+
+
+@pytest.mark.parametrize(
+    ("qid", "extraction"),
+    [
+        ("E01", _ex(value=341)),
+        ("E02", _ex(value=23006464)),
+        ("E03", _ex(value=5909356)),
+        ("E08", _ex(names=["North Complex Fire"])),
+        ("E10", _ex(value=20.75, unit="%")),
+        ("E11", _ex(value=28.9, unit="percent")),
+        ("E12", _ex(names=["7"])),
+        ("E12", _ex(names=["Marine West Coast Forest"])),
+        ("E13", _ex(names=["08.5"])),
+        ("E13", _ex(names=["8.5"])),
+        ("E14", _ex(value=21.35, unit="%")),
+    ],
+)
+def test_full_data_answers_grade_correct(qid, extraction):
+    assert check_answer(BY_ID[qid], FULL_EXT[qid], extraction) == (True, "ok")
+
+
+@pytest.mark.parametrize(
+    "reading",
+    [
+        ("level1", "pixels_or_area", "6"),
+        ("level1", "pixels_or_area", "North American Deserts"),
+        ("level2", "events", "8.5"),
+        ("level3", "pixels_or_area", "10.1.3"),
+        ("level3", "events", "08.5.03"),
+    ],
+)
+def test_full_data_ecoregion_readings_grade_correct(reading):
+    q = BY_ID["E07"]
+    extraction = _readings(reading)
+    passes, reason, _ = grading_ext.check(
+        q, FULL_EXT["E07"], extraction, {}, spec_for(q)
+    )
+    assert (passes, reason) == (True, "ok")
+
+
+def test_full_data_fixture_covers_the_tier():
+    assert set(FULL_EXT) == {q.id for q in EXTENDED}
 
 
 def test_extended_scalar_grades_end_to_end():
