@@ -24,12 +24,11 @@ _Updated: 2026-10-20._
   `.bench-runs/extended-tier-plan.md` (gitignored). Next, in order:
   1. Optional, not a gate: a blind second reference for E06, E07 and E10-E14, written by someone
      (or a fresh agent) who has not seen ours; record agreement in the commit message.
-  2. Decision record 0005 for the extended scoring rules (the plan lists the choices to state,
-     plus E12's row ceiling below), written before the pilot is graded; after that, any rule
-     change bumps `EXT_GRADER_VERSION` and the final run goes in a new run dir.
-  3. Pilot: `run --models gemini-3.1-pro-preview,gemini-3.8-flash --questions extended --trials 3`
-     (~$3.40), grade, stability regrade, `audit --full E04,E05,E06,E07,E08,E09 --fraction 0.25`,
+  2. Pilot: `run --models gemini-3.1-pro-preview,gemini-3.8-flash --questions extended
+     --trials 3` (~$3.40), grade, stability regrade, `audit --full E04,E05,E06,E07,E08,E09 --fraction 0.25`,
      adjudicate; then 5 trials (~$2.30 more if resumed).
+     Scoring rules are fixed in decision 0005: a rule change after the pilot is graded bumps
+     `EXT_GRADER_VERSION` and the final run goes in a new run dir.
 - **Polars: on 1.41.2, capped `<2` in `pyproject.toml`; 1.44.2 is the latest 1.x and 2.0.0 shipped
   2026-10-06.** Upgrade between bench runs only, bumping `uv.lock` and the Containerfile pin together
   and recomputing ground truth (`bench gt --force`).
