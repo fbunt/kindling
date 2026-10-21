@@ -45,6 +45,43 @@ HARD = {
     "H07": 4.208333,
 }
 
+# Full-parquet ground truth (bench gt, 2026-10-20).
+FULL_HARD = {
+    "H01": {"state": "FL", "count": 1482},
+    "H02": 506311.8093,
+    "H03": 16.805656009300783,
+    "H04": {
+        "year": 1994,
+        "count": 3,
+        "events": [
+            {
+                "Event_ID": "AZ3287111018319940622",
+                "Incid_Type": 1,
+                "acres": 11536.801137074608,
+            },
+            {
+                "Event_ID": "AZ3654111392919940807",
+                "Incid_Type": 1,
+                "acres": 1143.0240881992318,
+            },
+            {
+                "Event_ID": "CA3960112019319940816",
+                "Incid_Type": 1,
+                "acres": 47912.17690399614,
+            },
+        ],
+    },
+    "H05": {
+        "percent": 24.827737601424918,
+        "name": "YOLLA BOLLY COMPLEX (IRON)",
+        "year": 2008,
+    },
+    "H06": 95,
+    "H07": 4.402777777777778,
+    "H08": 1.4502487562189055,
+    "H09": -11.45375534335726,
+}
+
 
 def _trace(qid, trial=0, text="answer text", records=(), **extra):
     """A hard trace; records are (code, data) pairs or full dicts."""
@@ -975,3 +1012,54 @@ def test_audit_full_takes_every_trial_of_hard_questions(tmp_path):
     assert items[f"flash/H06/{h06['trial']}"]["history"] == _H06_HISTORY
     assert items["flash/H04/0"]["expected"]["events"][0]["Event_ID"] == "ID1"
     json.dumps(list(items.values()))  # what /api/items sends
+
+
+@pytest.mark.parametrize(
+    ("qid", "extraction"),
+    [
+        ("H02", {"value": 506_312, "value_text": "506,312", "unit": "km²"}),
+        ("H03", {"value": 16.8, "value_text": "16.8", "unit": "%"}),
+        ("H06", {"value": 95, "value_text": "95", "unit": None}),
+        ("H07", {"value": 4.40, "value_text": "4.40", "unit": "fires per year"}),
+        ("H08", {"value": 1.45, "value_text": "1.45", "unit": None}),
+        ("H09", {"value": -11.5, "value_text": "-11.5", "unit": "percentage points"}),
+    ],
+)
+def test_full_data_scalar_answers_grade_correct(qid, extraction):
+    full = {
+        "status": "answer",
+        "multiple_candidates": False,
+        "sampled_disclosed": False,
+        **extraction,
+    }
+    assert grading.check_answer(BY_ID[qid], FULL_HARD[qid], full) == (True, "ok")
+
+
+@pytest.mark.parametrize(
+    ("qid", "extraction"),
+    [
+        ("H01", _fields(state=_part("Florida"), count=_part("1,482", 1482))),
+        (
+            "H05",
+            _fields(
+                percent=_part("24.8%", 24.8, "%"),
+                name=_part("YOLLA BOLLY COMPLEX (IRON)"),
+                year=_part("2008", 2008),
+            ),
+        ),
+        ("H04", _disambiguated()),
+    ],
+)
+def test_full_data_hard_kind_answers_grade_correct(qid, extraction):
+    q = BY_ID[qid]
+    trace = _trace(qid)
+    passes, reason, _ = grading_hard.check(
+        q, FULL_HARD[qid], extraction, trace, spec_for(q)
+    )
+    assert (passes, reason) == (True, "ok")
+
+
+def test_full_data_fixture_covers_the_tier():
+    from bench.questions import HARD as HARD_QUESTIONS
+
+    assert set(FULL_HARD) == {q.id for q in HARD_QUESTIONS}

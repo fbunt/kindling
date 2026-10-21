@@ -190,11 +190,12 @@ grounded and the regex cross-check are n/a for both):
 Review routes add `fraction_for_percent` (0.247 for 24.7%), `unqualified_name` (the name
 without its qualifier, which another event shares), `year_disagreement`, `second_state` and
 `fewer_events_listed` (an H04 pass listing fewer events than exist); triage adds the
-`conflated_namesakes` failure mode. H04's `[YEAR]` and H06's `[N]` are placeholders
-(`COTTONWOOD_YEAR`, `ECO8_2020_WILDFIRE_EVENTS` in `bench/questions.py`) until set from the table
-their references log on full data; those references refuse until then, so `gt hard`/`gt all`
-fails. Run `gt` with the worker extra (`uv sync --extra worker`): H07's reference also checks
-sklearn's TheilSenRegressor reading, skipped with a warning without it.
+`conflated_namesakes` failure mode. H04's year and H06's history count (`COTTONWOOD_YEAR` = 1994,
+`ECO8_2020_WILDFIRE_EVENTS` = 28 in `bench/questions.py`) were set from the tables their
+references log on full data; the references refuse any other value (E08 pattern). Run `gt` with
+the worker extra (`uv sync --extra worker`): H07's reference also checks sklearn's
+TheilSenRegressor reading, skipped with a warning without it. Full-data `gt` peaks at ~21 GB
+(H03, ~9 min).
 
 `gt` and `run` hold a host-wide `fcntl` lock (`$KINDLING_BENCH_LOCK`, default
 `/tmp/kindling-bench.lock`): one bench per host. Output goes to `.bench-runs/<run-dir>/`.

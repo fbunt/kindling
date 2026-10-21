@@ -9,6 +9,7 @@ import dataclasses
 import json
 import logging
 import statistics
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -124,14 +125,14 @@ def test_only_the_follow_up_question_has_history():
     assert [role for role, _ in ECO8_2020_HISTORY] == ["user", "model"]
 
 
-def test_unset_constants_show_placeholders_and_refuse():
-    # Filled from the full-data tables the references log; until then the
-    # wording shows the placeholder and the reference refuses (see below).
-    assert COTTONWOOD_YEAR is None and ECO8_2020_WILDFIRE_EVENTS is None
-    assert BY_ID["H04"].text == "How many acres did the COTTONWOOD fire of [YEAR] burn?"
-    assert ECO8_2020_HISTORY[1][1].startswith("[N] distinct wildfire events")
-    assert BY_ID["H04"].reference_code.startswith("YEAR = None\n")
-    assert BY_ID["H06"].reference_code.startswith("N = None\n")
+def test_filled_constants_reach_the_wording_and_references():
+    # Set from the full-data tables the references log (bench gt,
+    # 2026-10-20); the references refuse any other value (see below).
+    assert (COTTONWOOD_YEAR, ECO8_2020_WILDFIRE_EVENTS) == (1994, 28)
+    assert BY_ID["H04"].text == "How many acres did the COTTONWOOD fire of 1994 burn?"
+    assert ECO8_2020_HISTORY[1][1].startswith("28 distinct wildfire events")
+    assert BY_ID["H04"].reference_code.startswith("YEAR = 1994\n")
+    assert BY_ID["H06"].reference_code.startswith("N = 28\n")
 
 
 def test_decimals_and_bands_follow_the_wording():
@@ -711,18 +712,25 @@ def _cottonwood_rows():
 
 
 def test_namesakes_refuse_until_the_year_qualifies():
+    unset = (f"YEAR = {COTTONWOOD_YEAR}\n", "YEAR = None\n")
     with pytest.raises(GroundTruthError) as err:
-        _expected("H04", _cottonwood_rows())
+        _expected("H04", _cottonwood_rows(), swap=unset)
     msg = str(err.value)
     assert "COTTONWOOD_YEAR is None" in msg and "([1994])" in msg
     assert "| 1994 | 4 | 3 |" in msg and "| 2000 | 3 | 2 |" in msg
     with pytest.raises(GroundTruthError, match="COTTONWOOD_YEAR is 2000"):
-        _expected("H04", _cottonwood_rows(), swap=("YEAR = None\n", "YEAR = 2000\n"))
+        _expected(
+            "H04",
+            _cottonwood_rows(),
+            swap=(f"YEAR = {COTTONWOOD_YEAR}\n", "YEAR = 2000\n"),
+        )
 
 
 def test_namesakes_of_the_year(caplog):
     caplog.set_level(logging.INFO, logger="bench.ground_truth")
-    got = _expected("H04", _cottonwood_rows(), swap=("YEAR = None\n", "YEAR = 1994\n"))
+    got = _expected(
+        "H04", _cottonwood_rows(), swap=(f"YEAR = {COTTONWOOD_YEAR}\n", "YEAR = 1994\n")
+    )
     assert got["year"] == 1994 and got["count"] == 4
     assert [(e["Event_ID"], e["Incid_Type"]) for e in got["events"]] == [
         ("c1", 1),
@@ -760,13 +768,20 @@ def test_follow_up_refuses_a_history_count_that_differs():
     with pytest.raises(GroundTruthError, match="set ECO8_2020_WILDFIRE_EVENTS to 3"):
         _expected("H06", _eco8_rows())
     with pytest.raises(GroundTruthError, match="states 4 events"):
-        _expected("H06", _eco8_rows(), swap=("N = None\n", "N = 4\n"))
+        _expected(
+            "H06", _eco8_rows(), swap=(f"N = {ECO8_2020_WILDFIRE_EVENTS}\n", "N = 4\n")
+        )
 
 
 def test_follow_up_counts_wui_events_in_the_region(caplog):
     caplog.set_level(logging.INFO, logger="bench.ground_truth")
     # w2, p1, p2, p4: wildfire or prescribed, 2020, a WUI row in eco1 = 8.
-    assert _expected("H06", _eco8_rows(), swap=("N = None\n", "N = 3\n")) == 4
+    assert (
+        _expected(
+            "H06", _eco8_rows(), swap=(f"N = {ECO8_2020_WILDFIRE_EVENTS}\n", "N = 3\n")
+        )
+        == 4
+    )
     for reading in (
         "'eco1 = 8 dropped': 6",
         "'2020 dropped': 5",
@@ -777,7 +792,11 @@ def test_follow_up_counts_wui_events_in_the_region(caplog):
         assert reading in caplog.text
     wildfires = {e: v for e, v in _ECO8_EVENTS.items() if v[0] == 1}
     with pytest.raises(GroundTruthError, match="'wildfire only' gives the same"):
-        _expected("H06", _eco8_rows(wildfires), swap=("N = None\n", "N = 3\n"))
+        _expected(
+            "H06",
+            _eco8_rows(wildfires),
+            swap=(f"N = {ECO8_2020_WILDFIRE_EVENTS}\n", "N = 3\n"),
+        )
 
 
 def _theil_sen(ys):
@@ -817,11 +836,20 @@ def _western_rows(annual):
     return rows + [{**base, **e} for e in excluded]
 
 
-def test_theil_sen_slope_of_large_western_fires(caplog):
+def test_theil_sen_slope_of_large_western_fires(caplog, monkeypatch):
+    # Without scikit-learn the spatial-median reading is only logged as
+    # unchecked; on this toy series it would land inside the band.
+    monkeypatch.setitem(sys.modules, "sklearn.linear_model", None)
     caplog.set_level(logging.INFO, logger="bench.ground_truth")
     got = _expected("H07", _western_rows(_ANNUAL))
     assert got == pytest.approx(_theil_sen(_ANNUAL)) and got == pytest.approx(0.49)
     assert f"annual counts {_ANNUAL}" in caplog.text
+
+
+def test_theil_sen_refuses_a_spatial_median_inside_the_band():
+    pytest.importorskip("sklearn")
+    with pytest.raises(GroundTruthError, match="reading 'sklearn TheilSenRegressor'"):
+        _expected("H07", _western_rows(_ANNUAL))
 
 
 def test_theil_sen_refuses_a_reading_inside_the_band():
@@ -1163,13 +1191,13 @@ def test_references_on_the_sample():
 
     assert run("H01") == {"state": "FL", "count": 1388}
     assert run("H02") == pytest.approx(506.7567)
-    assert run("H04", ("YEAR = None\n", "YEAR = 1994\n"))["count"] == 3
+    assert run("H04", (f"YEAR = {COTTONWOOD_YEAR}\n", "YEAR = 1994\n"))["count"] == 3
     assert run("H05") == {
         "percent": pytest.approx(24.6775, abs=1e-4),
         "name": "YOLLA BOLLY COMPLEX (IRON)",
         "year": 2008,
     }
-    assert run("H06", ("N = None\n", "N = 24\n")) == 9
+    assert run("H06", (f"N = {ECO8_2020_WILDFIRE_EVENTS}\n", "N = 24\n")) == 9
     assert run("H07") == pytest.approx(4.208333, abs=1e-6)
     assert run("H08") == pytest.approx(1.467005, abs=1e-6)
     assert run("H09") == pytest.approx(-11.0550, abs=1e-4)

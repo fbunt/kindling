@@ -1224,13 +1224,13 @@ assert {q.category for q in EXTENDED} == set(EXTENDED_CATEGORIES)
 # exactly COTTONWOOD, set from the full-data per-year table that H04's
 # reference logs while this is unset (it refuses to compute an answer until
 # the year qualifies).
-COTTONWOOD_YEAR: int | None = None
+COTTONWOOD_YEAR: int | None = 1994
 
 # H06's scripted history states the number of distinct wildfire events with a
 # row in eco1 = 8 in 2020. Set from the count H06's reference reports while
 # this is unset (it refuses to compute an answer until they match), so the
 # history always states the number the follow-up builds on.
-ECO8_2020_WILDFIRE_EVENTS: int | None = None
+ECO8_2020_WILDFIRE_EVENTS: int | None = 28
 
 
 def _filled(value, placeholder: str, fmt: str = "") -> str:
