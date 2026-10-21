@@ -141,6 +141,11 @@ def _h05(**over):
         (_h01(state=_part("fl")), True, "ok", []),
         (_h01(state=_part("Florida")), True, "ok", []),
         (_h01(state=_part("FLORIDA, USA")), True, "ok", []),
+        # Two-letter words that are not codes here: the 'ID' of 'Event ID',
+        # the 'IN' of 'IN total'.
+        (_h01(state=_part("FL (from the Event ID prefix)")), True, "ok", []),
+        (_h01(state=_part("Event ID prefix FL")), True, "ok", []),
+        (_h01(state=_part("Florida, IN total")), True, "ok", []),
         (_h01(state=_part("Georgia (GA)")), False, "state:wrong_state", []),
         (_h01(state=_part("the Southeast")), False, "state:wrong_state", []),
         (_h01(state=_part()), False, "state:missing_value", []),
@@ -160,6 +165,13 @@ def _h05(**over):
             "state:several_states",
             ["second_state"],
         ),
+        (
+            _h01(state=_part("Florida or Georgia")),
+            False,
+            "state:several_states",
+            ["second_state"],
+        ),
+        (_h01(state=_part("FL, GA")), False, "state:several_states", ["second_state"]),
         (_h01(state=_part("Georgia or Texas")), False, "state:wrong_state", []),
         # 'West Virginia' is one state, not also Virginia.
         (_h01(state=_part("West Virginia")), False, "state:wrong_state", []),
@@ -191,8 +203,50 @@ def test_states_named():
     assert named("North Carolina and South Carolina") == {"nc", "sc"}
     assert named("Florida, in 2010-2019") == {"fl"}  # 'in' is not Indiana
     assert named("Event_ID prefix FL") == {"fl"}
+    assert named("Event ID prefix FL") == {"fl"}
+    assert named("FL (from the Event ID prefix)") == {"fl"}
+    assert named("the Event ID") == set()
+    assert named("Florida, IN total") == {"fl"}
+    assert named("Idaho (ID)") == {"id"}
+    # Codes standing as codes: a list of them, in any case.
+    assert named("FL, GA") == named("fl/ga") == named("FL or GA") == {"fl", "ga"}
+    assert named("FL (or possibly GA)") == {"fl", "ga"}
     assert named("or") == {"or"}  # a part that is only a code
     assert named("") == named(None) == set()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A code leading prose about where it came from.
+        "FL state",
+        "FL is the state",
+        "FL based on the Event ID prefix",
+        "FL from the Event ID prefix",
+        "FL: Event ID prefix",
+        "FL per Event ID",
+        "FL - from Event ID",
+        "The state is FL per the Event ID",
+        # The ID of any identifier phrase is not Idaho.
+        "FL (from the ID)",
+        "FL (from the fire ID)",
+        "FL (state from ID)",
+        "FL (from the event's ID)",
+        "FL - see ID",
+        "Florida (per its ID)",
+        "Florida, from the ID",
+        "Florida, per the MTBS ID",
+        "Florida (based on the ID)",
+        "Florida (from the fire ID)",
+        "Florida (from the event's ID)",
+        "Florida - inferred from ID",
+        "Florida (inferred from ID)",
+        "Florida (state code in the ID)",
+    ],
+)
+def test_state_part_reads_one_state_through_prose(text):
+    assert grading_hard.states_named(text) == {"fl"}
+    assert grading_hard._state_part({"text": text}, "FL") == ("ok", [])
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +285,21 @@ def test_states_named():
         (_h05(name=_part("the 2008 Yolla Bolly Complex (Iron) fire")), True, "ok", []),
         (_h05(name=_part("Yolla Bolly Complex (Iron, 2008)")), True, "ok", []),
         (_h05(name=_part("Yolla Bolly Complex (Iron) in 2008")), True, "ok", []),
+        # Whole dates go with their year.
+        (
+            _h05(name=_part("YOLLA BOLLY COMPLEX (IRON), ignited 2008-06-21")),
+            True,
+            "ok",
+            [],
+        ),
+        (_h05(name=_part("Yolla Bolly Complex (Iron), June 21, 2008")), True, "ok", []),
+        (
+            _h05(name=_part("YOLLA BOLLY COMPLEX (IRON) 2008-06-21 00:00:00")),
+            True,
+            "ok",
+            [],
+        ),
+        (_h05(name=_part("Yolla Bolly Complex (Iron) (June 2008)")), True, "ok", []),
         # The bare complex name: YOLLA BOLLY COMPLEX (TROUGH) is another 2008
         # event, so the reply is decided by hand.
         (
@@ -324,6 +393,26 @@ def test_without_years():
     assert strip("2008: Yolla Bolly Complex (Iron)") == "Yolla Bolly Complex (Iron)"
     assert strip("Yolla Bolly Complex (2008, Iron)") == "Yolla Bolly Complex (Iron)"
     assert strip("YOLLA BOLLY COMPLEX (IRON) (2008)") == "YOLLA BOLLY COMPLEX (IRON)"
+    iron = "Yolla Bolly Complex (Iron)"
+    for dated in (
+        "Yolla Bolly Complex (Iron), ignited 2008-06-21",
+        "Yolla Bolly Complex (Iron), June 21, 2008",
+        "Yolla Bolly Complex (Iron, Jun. 21, 2008)",
+        "Yolla Bolly Complex (Iron) (June 2008)",
+        "21 June 2008 Yolla Bolly Complex (Iron)",
+        "Yolla Bolly Complex (Iron) ignited on 6/21/2008",
+        "Yolla Bolly Complex (Iron) (ignited 2008-06-21)",
+        "Yolla Bolly Complex (Iron) (ignited June 21st, 2008)",
+        "Yolla Bolly Complex (Iron), ignition date 2008-06-21",
+        "Yolla Bolly Complex (Iron), ignition 2008-06-21",
+        "Yolla Bolly Complex (Iron), started 2008-06-21",
+        "Yolla Bolly Complex (Iron), ignited 2008-06-21.",
+        # Ig_Date is a datetime, so polars prints a time after the date.
+        "Yolla Bolly Complex (Iron) 2008-06-21 00:00:00",
+        "Yolla Bolly Complex (Iron) 2008-06-21T00:00:00",
+        "Yolla Bolly Complex (Iron) (Ig_Date: 2008-06-21 00:00:00.000)",
+    ):
+        assert strip(dated) == iron, dated
 
 
 def test_fields_numbers_use_the_part_band_and_spec():
@@ -466,8 +555,9 @@ def test_fields_answer_query_is_located_by_the_first_strong_number_part():
     q = BY_ID["H05"]
     trace = _trace("H05", records=[_H05_QUERY, _PREVIEW])
     assert answer_query(q, trace, _h05(percent=_part("24.68%", 24.68, "%"))) == 0
-    # No percent: the year (not a weak integer) locates it.
-    assert answer_query(q, trace, _h05(percent=_part())) == 0
+    # No percent: the year part is a weak locator (it never locates the
+    # answer query), whatever its value.
+    assert answer_query(q, trace, _h05(percent=_part())) is None
     # H01's count under 1000 is weak, and the state is not a number.
     small = _trace("H01", records=[("result = n", {"FL": 5})])
     assert answer_query(BY_ID["H01"], small, _h01(count=_part("5", 5))) is None

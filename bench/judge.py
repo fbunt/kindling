@@ -555,16 +555,18 @@ def _parse_disambiguation(data: dict) -> dict:
     """A `disambiguate` answer, filled under any status. Both flags and the
     events list are required (an empty list is a verdict input: no event
     listed). Only the leading HARD_EVENTS_CAP events are kept, and only those
-    are validated, so a bad item past the cap cannot reject the reply; an
-    item without an identifier, or with a blank one, is malformed."""
+    are validated, so a bad item past the cap cannot reject the reply. An
+    item without an identifier, or with a blank one, is kept with identifier
+    None: the response still listed an event, and the count of listed events
+    feeds the fewer_events_listed review."""
     events = data.get("events")
     if not isinstance(events, list):
         raise ExtractionError(f"events is not a list: {events!r}")
     kept = []
     for e in events[:HARD_EVENTS_CAP]:
-        identifier = e.get("identifier") if isinstance(e, dict) else None
-        if not isinstance(identifier, str) or not identifier.strip():
+        if not isinstance(e, dict):
             raise ExtractionError(f"bad events item {e!r}")
+        identifier = _optional_text(e, "identifier", "events identifier")
         area = _optional_text(e, "area_text", "events area_text")
         kept.append({"identifier": identifier, "area_text": area})
     return {

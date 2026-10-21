@@ -94,14 +94,16 @@ def answer_query(question: Question, trace: dict, extraction: dict | None):
     """The answer query of a fields answer (see grading.answer_query): located
     by its first number part, in the order asked, whose value is not a weak
     integer (grading._WEAK_INT), read as a scalar answer under that part's
-    band. None when no part can locate it, and for disambiguate."""
+    band. The year part never locates it: a year is as weak a locator as a
+    small count, since any frame holding the event's year holds it. None when
+    no part can locate it, and for disambiguate."""
     if question.answer_kind != "fields" or not extraction:
         return None
     expected = trace.get("expected")
     parts = extraction.get("parts") or {}
     for name, f in spec_for(question).fields.items():
         value = (parts.get(name) or {}).get("value")
-        if f.kind != "number" or value is None:
+        if f.kind != "number" or name == YEAR_PART or value is None:
             continue
         if float(value).is_integer() and abs(value) < grading._WEAK_INT:
             continue
@@ -199,15 +201,49 @@ def _fraction_for_percent(value, value_text, expected, question, spec) -> bool:
 
 
 _STATE_CODES = frozenset(_STATES.values())
-# A state code as written: two capital letters standing alone ('FL',
-# 'Florida (FL)'); lowercase two-letter words ('in', 'or') are not codes.
-_CAPITAL_CODE = re.compile(r"(?<![A-Za-z0-9_])[A-Z]{2}(?![A-Za-z0-9_])")
+# Where a state part splits into the pieces a code can stand in: list
+# separators, brackets, a colon or spaced dash, and 'or'/'and'/'vs' between
+# words.
+_CODE_SEPARATORS = re.compile(
+    r"[,;/|&()\[\]:]|\s[-\u2013\u2014]+\s|\s(?:or|and|vs\.?|versus)\s", re.IGNORECASE
+)
+_CAPITAL_CODE = re.compile(r"[A-Z]{2}")
+_WORD = re.compile(r"\w+(?:'\w+)?")
+# State codes that are also English words or abbreviations ('IN total',
+# 'the fire ID'). In prose they are codes only where nothing else reads them
+# as words: alone in their piece, or (all but ID) ending it.
+_WORDLIKE_CODES = frozenset({"in", "or", "me", "ok", "hi", "oh", "id"})
+
+
+def _codes_named(text: str) -> set[str]:
+    """The state codes a part writes as codes. A part made only of codes
+    counts them in any case ('fl', 'FL, GA', 'fl/ga'). Otherwise a capital
+    code counts anywhere ('FL state', 'Event ID prefix FL', 'Florida (FL)'),
+    except a word-like code (_WORDLIKE_CODES), which counts only alone in its
+    piece or, ID aside, ending it. So the 'ID' of 'Event ID' or 'the fire ID'
+    and the 'IN' of 'IN total' are not states."""
+    pieces = [p.strip(" .'\"") for p in _CODE_SEPARATORS.split(text)]
+    pieces = [p for p in pieces if p]
+    if pieces and all(p.casefold() in _STATE_CODES for p in pieces):
+        return {p.casefold() for p in pieces}
+    found = set()
+    for piece in pieces:
+        words = _WORD.findall(piece)
+        for i, word in enumerate(words):
+            code = word.casefold()
+            if not _CAPITAL_CODE.fullmatch(word) or code not in _STATE_CODES:
+                continue
+            alone = len(words) == 1
+            ending = i == len(words) - 1 and code != "id"
+            if code not in _WORDLIKE_CODES or alone or ending:
+                found.add(code)
+    return found
 
 
 def states_named(text: str | None) -> set[str]:
     """The codes of the US states a part names: by name, in any case
-    (longest first, so 'West Virginia' is not also Virginia), by a capital
-    code, or as a part that is only a code in any case ('fl')."""
+    (longest first, so 'West Virginia' is not also Virginia), or by a code
+    standing as one (_codes_named)."""
     tokens = name_tokens(text or "")
     found = set()
     i = 0
@@ -220,7 +256,7 @@ def states_named(text: str | None) -> set[str]:
                 break
         else:
             i += 1
-    found |= {c.casefold() for c in _CAPITAL_CODE.findall(text or "")} & _STATE_CODES
+    found |= _codes_named(text or "")
     if len(tokens) == 1 and tokens[0] in _STATE_CODES:
         found.add(tokens[0])
     return found
@@ -248,18 +284,43 @@ def _state_part(part: dict, expected) -> tuple[str, list[str]]:
 
 # Words left at either end of a name once its year is taken out ('2008
 # YOLLA BOLLY COMPLEX (IRON)', 'Yolla Bolly Complex (Iron) in 2008').
-_LEAD_WORDS = re.compile(r"^(?:[^\w(]|\b(?:year|in|of|the)\b)+", re.IGNORECASE)
+_LEAD_WORDS = re.compile(r"^(?:[^\w(]|\b(?:year|in|on|of|the)\b)+", re.IGNORECASE)
 _TRAIL_WORDS = re.compile(
-    r"(?:[^\w)]|\b(?:year|in|of|from|during|ignited)\b)+$", re.IGNORECASE
+    r"(?:[^\w)]|\b(?:year|in|on|of|from|during|ignited|date|ig_date)\b)+$",
+    re.IGNORECASE,
+)
+_MONTH = (
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?"
+    r"|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?"
+)
+_Y = r"(?:19|20)\d\d"
+# A whole date holding a year: 2008-06-21 (with any time polars prints after
+# it, '2008-06-21 00:00:00', '2008-06-21T00:00'), 6/21/2008, June 21, 2008,
+# 21 June 2008, June 2008.
+_DATE = (
+    rf"(?:{_Y}-\d\d?-\d\d?(?:[ T]\d\d:\d\d(?::\d\d(?:\.\d+)?)?)?"
+    rf"|\d\d?/\d\d?/{_Y}"
+    rf"|{_MONTH}\s*\d\d?(?:st|nd|rd|th)?,?\s+{_Y}"
+    rf"|\d\d?\s+{_MONTH},?\s+{_Y}|{_MONTH},?\s+{_Y})"
+)
+# The words that tie a date or year onto a name ('ignited on', 'ignition
+# date:', 'started'), taken out with it.
+_TIE = (
+    r"(?:\b(?:ignited|ignition(?:\s+date)?|started|start(?:\s+date)?|discovered"
+    r"|burned|date|ig_date)\b\s*(?:on|in)?\s*[:=]?\s*)?"
+)
+_DATED = re.compile(
+    rf"{_TIE}(?:(?<![\w.]){_DATE}(?!\w|\.\d)|(?<![\d.]){_Y}(?![\d.]))",
+    re.IGNORECASE,
 )
 
 
 def without_years(text: str) -> str:
-    """A name part with its year tokens taken out, and with them any
-    parenthesis left empty and the words that tied the year on."""
+    """A name part with its dates and year tokens taken out, and with them
+    the words that tied each on and any parenthesis left empty."""
     if not grading._YEAR.search(text):
         return text
-    rest = grading._YEAR.sub(" ", text)
+    rest = _DATED.sub(" ", text)
     rest = re.sub(r"\(\s*[,;]?\s*", "(", rest)  # '(2008, Iron)' -> '(Iron)'
     rest = re.sub(r"\s*[,;]?\s*\)", ")", rest)  # '(Iron, 2008)' -> '(Iron)'
     rest = rest.replace("()", " ")

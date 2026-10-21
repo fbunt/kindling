@@ -511,6 +511,24 @@ def test_disambiguate_keeps_only_the_leading_events():
     assert len(out["events"]) == judge.HARD_EVENTS_CAP
 
 
+def test_disambiguate_keeps_an_event_without_an_identifier():
+    events = [
+        {"identifier": "COTTONWOOD (ID)", "area_text": "1,200 acres"},
+        {"area_text": "5 acres"},
+        {"identifier": "", "area_text": "40 acres"},
+        {"identifier": "  ", "area_text": None},
+    ]
+    out = judge.parse_extraction(
+        _reply(**_disambiguation(events=events)), "disambiguate"
+    )
+    assert out["events"] == [
+        {"identifier": "COTTONWOOD (ID)", "area_text": "1,200 acres"},
+        {"identifier": None, "area_text": "5 acres"},
+        {"identifier": None, "area_text": "40 acres"},
+        {"identifier": None, "area_text": None},
+    ]
+
+
 @pytest.mark.parametrize(
     "over",
     [
@@ -520,10 +538,7 @@ def test_disambiguate_keeps_only_the_leading_events():
         {"events": None},  # required: an empty list is a verdict input
         {"events": {"identifier": "A"}},
         {"events": ["COTTONWOOD"]},
-        {"events": [{"area_text": "5 acres"}]},
         {"events": [{"identifier": 7, "area_text": None}]},
-        {"events": [{"identifier": "", "area_text": "5 acres"}]},  # blank: missing
-        {"events": [{"identifier": "  ", "area_text": None}]},
         {"events": [{"identifier": "A", "area_text": 1200}]},
     ],
 )
