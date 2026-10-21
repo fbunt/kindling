@@ -415,7 +415,7 @@ def test_archived_verdicts_replay_unchanged(tmp_path, monkeypatch):
     assert len(paths) == 250
     stored = {}
 
-    def replay_extraction(client, question_text, response_text, kind):
+    def replay_extraction(client, question_text, response_text, kind, parts):
         return {"extraction": stored["extraction"], "error": None}
 
     monkeypatch.setattr(judge, "extract", replay_extraction)

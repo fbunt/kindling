@@ -1,10 +1,12 @@
 """Hard benchmark tier: question registry, tier selection, answer specs, the
-grade refusal, and reference semantics on hand-built frames (ties, empty
-groups, unsigned counts, same-date pairs). No dataset, no API key, no
-container runtime; the one sample-parquet check is skipped without it."""
+grade refusal, the hard extractor kinds (with a fake client), and reference
+semantics on hand-built frames (ties, empty groups, unsigned counts, same-date
+pairs). No dataset, no API key, no container runtime; the one sample-parquet
+check is skipped without it."""
 
 import ast
 import dataclasses
+import json
 import logging
 import statistics
 from datetime import datetime
@@ -12,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from bench import judge
 from bench.answers import (
     ANSWERS,
     EXT_ANSWERS,
@@ -52,6 +55,7 @@ from bench.questions import (
     tier_of,
 )
 from tests.test_bench_extended import _expected
+from tests.test_bench_grading import FakeExtractor, _reply
 
 HARD_IDS = [q.id for q in HARD]
 SAMPLE = Path(__file__).parent.parent / ".eval-runs" / "sample.parquet"
@@ -294,6 +298,389 @@ def test_grade_run_refuses_a_run_with_hard_traces(tmp_path):
         grade_run(tmp_path, None)
     assert path.read_text() == before
     assert not (tmp_path / "adjudication.json").exists()
+
+
+@pytest.mark.parametrize("qid", ["H01", "H04", "H05"])
+def test_hard_kinds_are_refused_before_any_extractor_call(qid):
+    fake = FakeExtractor(lambda p: pytest.fail("no extractor call expected"))
+    with pytest.raises(UngradableTierError):
+        grade_trace(_hard_trace(qid), fake)
+    assert not fake.calls
+
+
+# ---------------------------------------------------------------------------
+# extractor kinds: fields and disambiguate
+# ---------------------------------------------------------------------------
+
+HARD_KINDS = ("fields", "disambiguate")
+H01_PARTS = {
+    "state": "the US state with the most events (code or name)",
+    "count": "how many distinct prescribed-fire events it had",
+}
+
+
+def _part(value_text=None, value=None, unit=None):
+    return {"value_text": value_text, "value": value, "unit": unit}
+
+
+def _parsed(text=None, value=None, value_text=None, unit=None):
+    return {"text": text, "value": value, "value_text": value_text, "unit": unit}
+
+
+def _fields_reply(**over):
+    parts = {"state": _part("Florida (FL)"), "count": _part("1,388 events", 1388)}
+    return _reply(parts={**parts, **over})
+
+
+def _disambiguation(**over):
+    return {
+        "several_noted": True,
+        "combined_as_one": False,
+        "events": [
+            {"identifier": "COTTONWOOD (ID)", "area_text": "1,200 acres"},
+            {"identifier": "COTTONWOOD (NV)", "area_text": None},
+        ],
+        **over,
+    }
+
+
+def test_extraction_parts_name_the_parts_in_the_order_asked():
+    assert judge.extraction_parts(BY_ID["H01"]) == H01_PARTS
+    assert list(judge.extraction_parts(BY_ID["H05"])) == ["percent", "name", "year"]
+    for q in [*QUESTIONS, *EXTENDED, *HARD]:
+        if q.answer_kind != "fields":
+            assert judge.extraction_parts(q) is None, q.id
+
+
+@pytest.mark.parametrize("qid", ["H01", "H05"])
+def test_fields_schema_has_one_required_object_per_part(qid):
+    parts = judge.extraction_parts(BY_ID[qid])
+    schema = judge.response_schema("fields", parts)
+    assert schema["property_ordering"] == [
+        "status",
+        "parts",
+        "multiple_candidates",
+        "sampled_disclosed",
+    ]
+    assert schema["required"] == [
+        "status",
+        "parts",
+        "multiple_candidates",
+        "sampled_disclosed",
+    ]
+    obj = schema["properties"]["parts"]
+    assert obj["type"] == "OBJECT"
+    assert obj["required"] == obj["property_ordering"] == list(parts)
+    for name in parts:
+        part = obj["properties"][name]
+        assert part["required"] == ["value_text", "value", "unit"]
+        assert all(p["nullable"] for p in part["properties"].values())
+        assert part["properties"]["value"]["type"] == "NUMBER"
+    cfg = judge.build_config("fields", parts)
+    assert cfg.system_instruction == judge.SYSTEM_INSTRUCTION
+    assert cfg.temperature == 0 and cfg.response_mime_type == "application/json"
+    validated = cfg.response_schema.properties["parts"]
+    assert list(validated.properties) == list(parts)
+    assert validated.properties[list(parts)[0]].properties["value"].nullable
+
+
+def test_disambiguate_schema_and_guidance():
+    schema = judge.response_schema("disambiguate")
+    assert schema["property_ordering"] == [
+        "status",
+        "several_noted",
+        "combined_as_one",
+        "events",
+        "unit",
+        "multiple_candidates",
+        "sampled_disclosed",
+    ]
+    assert schema["required"] == [
+        "status",
+        "several_noted",
+        "combined_as_one",
+        "events",
+        "multiple_candidates",
+        "sampled_disclosed",
+    ]
+    props = judge.build_config("disambiguate").response_schema.properties
+    assert props["several_noted"].type == props["combined_as_one"].type == "BOOLEAN"
+    assert props["events"].max_items == judge.HARD_EVENTS_CAP == 10
+    assert props["events"].items.required == ["identifier", "area_text"]
+    assert props["events"].items.properties["area_text"].nullable
+    guidance = judge._HARD_KIND_GUIDANCE["disambiguate"]
+    assert "whatever `status` is" in guidance and "overrides" in guidance
+    assert "labelled as the total over several events" in guidance
+    assert "the first 10 in the order given" in guidance
+
+
+def test_fields_prompt_lists_part_names_and_descriptions():
+    prompt = judge.build_prompt("q?", "r.", "fields", H01_PARTS)
+    guidance = judge._HARD_KIND_GUIDANCE["fields"]
+    assert prompt.startswith(f"Answer kind: {guidance}\n- state: the US state")
+    assert "\n- count: how many distinct prescribed-fire events it had\n" in prompt
+    assert judge.build_prompt("q?", "r.", "disambiguate").startswith(
+        f"Answer kind: {judge._HARD_KIND_GUIDANCE['disambiguate']}"
+    )
+
+
+# Expected values (or text derived from them) no hard prompt may carry.
+_HARD_LEAKS = {
+    "H01": ("1388", "1,388", "Florida"),
+    "H04": ("COTTONWOOD CREEK", "Incid_Type"),
+    "H05": ("YOLLA", "24.7", "2008", "MENDENHALL", "0.5"),
+}
+
+
+@pytest.mark.parametrize("qid", sorted(_HARD_LEAKS))
+def test_hard_extractor_is_blind(qid):
+    q = BY_ID[qid]
+    parts = judge.extraction_parts(q)
+    reply = (
+        _reply(parts={name: _part() for name in parts})
+        if parts
+        else _reply(**_disambiguation())
+    )
+    fake = FakeExtractor(lambda p: reply)
+    out = judge.extract(fake, q.text, "The answer is X.", q.answer_kind, parts)
+    assert out["error"] is None and out["extraction"]["status"] == "answer"
+    (call,) = fake.calls
+    seen = call["contents"] + call["config"].system_instruction
+    assert q.text in call["contents"]
+    spec = HARD_ANSWERS[qid]
+    criterion = q.criterion.split("{expected}")[0]
+    leaks = [*_HARD_LEAKS[qid], criterion, spec.note, "expected", "tolerance"]
+    for field_spec in spec.fields.values():
+        leaks += [*field_spec.aliases]
+        leaks += [a for alts in field_spec.aliases.values() for a in alts]
+    for leak in leaks:
+        assert leak not in seen.replace(q.text, ""), leak
+    # The kind's guidance plus, for a fields answer, only each part's name and
+    # description: no units, integer flag or band.
+    listed = "".join(f"\n- {n}: {f.description}" for n, f in spec.fields.items())
+    guidance = judge._HARD_KIND_GUIDANCE[q.answer_kind] + listed
+    assert call["contents"].startswith(f"Answer kind: {guidance}\n\n<question>")
+
+
+def test_fields_parses_a_well_formed_reply():
+    out = judge.parse_extraction(_fields_reply(), "fields", H01_PARTS)
+    assert out == {
+        "status": "answer",
+        "multiple_candidates": False,
+        "sampled_disclosed": False,
+        "unit": None,
+        "parts": {
+            "state": _parsed("Florida (FL)"),
+            "count": _parsed("1,388 events", 1388, "1388"),
+        },
+    }
+    h05 = judge.extraction_parts(BY_ID["H05"])
+    reply = _reply(
+        parts={
+            "percent": _part("24.70%", 24.70, "%"),
+            "name": _part("Yolla Bolly Complex (Iron)"),
+            "year": _part("2008", 2008),
+            "extra": _part("dropped"),  # a part the question does not name
+        }
+    ).replace('"value": 24.7,', '"value": 24.70,')  # the digits as given
+    out = judge.parse_extraction(reply, "fields", h05)
+    assert out["parts"] == {
+        "percent": _parsed("24.70%", 24.7, "24.70", "%"),
+        "name": _parsed("Yolla Bolly Complex (Iron)"),
+        "year": _parsed("2008", 2008, "2008"),
+    }
+
+
+def test_fields_missing_or_blank_part_fields_read_as_null():
+    reply = _reply(parts={"state": {}, "count": {"value_text": " ", "unit": ""}})
+    out = judge.parse_extraction(reply, "fields", H01_PARTS)
+    assert out["parts"] == {"state": _parsed(), "count": _parsed()}
+
+
+@pytest.mark.parametrize(
+    "parts",
+    [
+        None,  # parts missing
+        [_part("FL"), _part("1388", 1388)],
+        "FL, 1388",
+        {"state": _part("FL")},  # a part missing
+        {"state": "FL", "count": _part("1388", 1388)},
+        {"state": _part("FL"), "count": _part("1388", "1388")},
+        {"state": _part("FL"), "count": _part("1388", True)},
+        {"state": _part("FL"), "count": _part(1388, 1388)},
+        {"state": _part(["FL"]), "count": _part("1388", 1388)},
+        {"state": _part("FL"), "count": _part("1388", 1388, unit=1)},
+    ],
+)
+def test_fields_rejects_malformed_reply(parts):
+    raw = _reply() if parts is None else _reply(parts=parts)
+    with pytest.raises(judge.ExtractionError):
+        judge.parse_extraction(raw, "fields", H01_PARTS)
+
+
+@pytest.mark.parametrize(
+    "over", [{"status": "partial"}, {"sampled_disclosed": None}, {"unit": 3}]
+)
+def test_fields_rejects_a_bad_common_field(over):
+    raw = json.dumps({**json.loads(_fields_reply()), **over})
+    with pytest.raises(judge.ExtractionError):
+        judge.parse_extraction(raw, "fields", H01_PARTS)
+
+
+def test_disambiguate_parses_a_well_formed_reply():
+    out = judge.parse_extraction(_reply(**_disambiguation()), "disambiguate")
+    assert out == {
+        "status": "answer",
+        "multiple_candidates": False,
+        "sampled_disclosed": False,
+        "unit": None,
+        **_disambiguation(),
+    }
+
+
+@pytest.mark.parametrize("status", judge.STATUSES)
+def test_disambiguate_fields_are_kept_under_every_status(status):
+    out = judge.parse_extraction(
+        _reply(status=status, **_disambiguation()), "disambiguate"
+    )
+    assert out["status"] == status and out["several_noted"] is True
+    assert len(out["events"]) == 2
+
+
+def test_disambiguate_keeps_only_the_leading_events():
+    events = [{"identifier": f"E{i}", "area_text": ""} for i in range(12)]
+    out = judge.parse_extraction(
+        _reply(**_disambiguation(events=events)), "disambiguate"
+    )
+    assert out["events"] == [
+        {"identifier": f"E{i}", "area_text": None} for i in range(judge.HARD_EVENTS_CAP)
+    ]
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"several_noted": None},
+        {"several_noted": "yes"},
+        {"combined_as_one": 0},
+        {"events": None},  # required: an empty list is a verdict input
+        {"events": {"identifier": "A"}},
+        {"events": ["COTTONWOOD"]},
+        {"events": [{"area_text": "5 acres"}]},
+        {"events": [{"identifier": 7, "area_text": None}]},
+        {"events": [{"identifier": "A", "area_text": 1200}]},
+    ],
+)
+def test_disambiguate_rejects_malformed_reply(over):
+    fields = {k: v for k, v in _disambiguation(**over).items() if v is not None}
+    with pytest.raises(judge.ExtractionError):
+        judge.parse_extraction(_reply(**fields), "disambiguate")
+
+
+@pytest.mark.parametrize("kind", HARD_KINDS)
+def test_hard_kind_no_answer_extraction(kind):
+    parts = H01_PARTS if kind == "fields" else None
+    empty = {
+        "fields": {"parts": {"state": _parsed(), "count": _parsed()}},
+        "disambiguate": {
+            "several_noted": False,
+            "combined_as_one": False,
+            "events": [],
+        },
+    }[kind]
+    fake = FakeExtractor(lambda p: pytest.fail("no call expected"))
+    out = judge.extract(fake, "q?", "  ", kind, parts)
+    assert out["extraction"] == judge.no_answer_extraction(kind, parts)
+    assert out["extraction"] == {
+        "status": "no_answer",
+        "multiple_candidates": False,
+        "sampled_disclosed": False,
+        "unit": None,
+        **empty,
+    }
+    assert not fake.calls
+
+
+def test_malformed_fields_reply_is_retried_once_then_a_grader_error():
+    replies = [_fields_reply(count="1388"), _fields_reply()]
+    fake = FakeExtractor(lambda p: replies.pop(0))
+    out = judge.extract(fake, "q?", "Florida, 1,388.", "fields", H01_PARTS)
+    assert out["attempts"] == 2 and out["error"] is None
+    assert out["extraction"]["parts"]["count"]["value"] == 1388
+    fake = FakeExtractor(lambda p: _reply(parts={"state": _part("FL")}))
+    out = judge.extract(fake, "q?", "Florida, 1,388.", "fields", H01_PARTS)
+    assert len(fake.calls) == 2 and out["extraction"] is None
+    assert out["error"] == "malformed reply: part 'count' is missing"
+
+
+def test_an_unknown_kind_raises_instead_of_reading_names():
+    reply = _reply(names=["FLATTOP"])
+    fake = FakeExtractor(lambda p: reply)
+    for call in (
+        lambda: judge.response_schema("ranking"),
+        lambda: judge.build_prompt("q?", "r.", "ranking"),
+        lambda: judge.build_config("ranking"),
+        lambda: judge.parse_extraction(reply, "ranking"),
+        lambda: judge.no_answer_extraction("ranking"),
+        lambda: judge.extract(fake, "q?", "FLATTOP.", "ranking"),
+        lambda: judge.extract(fake, "q?", "  ", "ranking"),
+    ):
+        with pytest.raises(ValueError, match="unknown answer kind 'ranking'"):
+            call()
+    assert not fake.calls
+    # The names kinds still read names; a fields answer needs its parts, and
+    # only a fields answer takes them.
+    assert judge.parse_extraction(reply, "text")["names"] == ["FLATTOP"]
+    with pytest.raises(ValueError, match="needs its part names"):
+        judge.parse_extraction(_fields_reply(), "fields")
+    with pytest.raises(ValueError, match="needs its part names"):
+        judge.extract(fake, "q?", "  ", "fields", {})
+    with pytest.raises(ValueError, match="not 'scalar'"):
+        judge.build_prompt("q?", "r.", "scalar", H01_PARTS)
+
+
+def test_hard_fingerprint_covers_every_hard_question(monkeypatch):
+    def snapshot(fp):  # the fingerprints share the module's dicts
+        return json.dumps(fp(), sort_keys=True)
+
+    fp = judge.hard_fingerprint()
+    assert list(fp["questions"]) == HARD_IDS
+    for q in HARD:
+        parts = judge.extraction_parts(q)
+        assert fp["questions"][q.id] == {
+            "kind": q.answer_kind,
+            "guidance": judge._guidance(q.answer_kind, parts),
+            "schema": judge.response_schema(q.answer_kind, parts),
+        }
+    assert fp["guidance"] == judge._HARD_KIND_GUIDANCE
+    assert fp["events_cap"] == judge.HARD_EVENTS_CAP
+    for other in (judge.fingerprint(), judge.ext_fingerprint()):
+        assert not set(HARD_KINDS) & (set(other["guidance"]) | set(other["schemas"]))
+    core, ext, hard = (
+        snapshot(judge.fingerprint),
+        snapshot(judge.ext_fingerprint),
+        snapshot(judge.hard_fingerprint),
+    )
+    edits = [
+        (judge._HARD_KIND_GUIDANCE, "fields", "!"),
+        (judge._HARD_KIND_GUIDANCE, "disambiguate", "!"),
+    ]
+    for table, kind, suffix in edits:
+        monkeypatch.setitem(table, kind, table[kind] + suffix)
+        assert snapshot(judge.hard_fingerprint) != hard
+        monkeypatch.undo()
+    monkeypatch.setitem(judge._FIELD_PART["properties"], "note", {"type": "STRING"})
+    assert snapshot(judge.hard_fingerprint) != hard
+    monkeypatch.undo()
+    h05 = HARD_ANSWERS["H05"]
+    reworded = {**h05.fields}
+    reworded["year"] = dataclasses.replace(reworded["year"], description="the year")
+    monkeypatch.setitem(HARD_ANSWERS, "H05", dataclasses.replace(h05, fields=reworded))
+    assert snapshot(judge.hard_fingerprint) != hard
+    assert snapshot(judge.fingerprint) == core
+    assert snapshot(judge.ext_fingerprint) == ext
+    assert grader_sha.__wrapped__() == "ee57b57a09b8"  # uncached: hashed now
+    assert ext_grader_sha.__wrapped__() == "1da536285bd3"
 
 
 # ---------------------------------------------------------------------------

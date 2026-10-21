@@ -1150,7 +1150,7 @@ def test_graded_extended_cases_replay_unchanged(case, monkeypatch):
     qid, text, records, extraction, verdict = GRADED_RUN_CASES[case]
     trace = _trace(qid, text=text, records=records, expected=FULL_EXT[qid])
     monkeypatch.setattr(
-        judge, "extract", lambda *a: {"extraction": extraction, "error": None}
+        judge, "extract", lambda *a, **k: {"extraction": extraction, "error": None}
     )
     fields = grade_trace(trace, None)
     answer_ok, reason, review, executable = verdict

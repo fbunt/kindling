@@ -16,6 +16,8 @@ from decimal import Decimal
 from google.genai import types
 
 from app.config import LITE_MODEL
+from bench.answers import spec_for
+from bench.questions import HARD, Question
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +195,73 @@ _EXT_ANSWER_PROPS = {
     },
 }
 
+# Hard-tier kinds. Kept apart from the core and extended dicts above, which
+# fingerprint() and ext_fingerprint() hash; hard_fingerprint() covers these.
+# A `fields` question's prompt adds its part names and one-line descriptions
+# (HardAnswerSpec.fields) after this guidance, and its schema holds one
+# property per part (_parts_schema): never a value, alias, unit or tolerance.
+HARD_EVENTS_CAP = 10  # disambiguate: the leading listed events the extractor returns
+_HARD_KIND_GUIDANCE = {
+    "fields": (
+        "an answer in named parts, listed below. Fill `parts` with every part "
+        "listed, each with `value_text`: the part as the response's final "
+        "answer writes it; `value`: the part as a plain number when it is a "
+        "number (a count, a percentage, a year), else null; `unit`: the unit "
+        "the response attaches to that number, as written, else null. When "
+        'status is not "answer", or the response does not give a part, set '
+        "that part's three fields to null. Units go in the parts; this kind "
+        "has no top-level `unit`. Parts:"
+    ),
+    "disambiguate": (
+        "whether the response tells apart several fire events that share the "
+        "incident name asked. Fill these fields whatever `status` is (even "
+        '"clarification" or "refusal"); this overrides the rule to leave '
+        'answer fields empty unless status is "answer". `several_noted`: true '
+        "if the response says, or lists, two or more distinct fire events of "
+        "the year asked with exactly the incident name asked, else false. "
+        "`combined_as_one`: true if the response adds up the areas of several "
+        "events and presents the sum as the area of one fire, else false; a "
+        "sum labelled as the total over several events is not one fire's "
+        "area. `events`: one entry per distinct event with that name the "
+        f"response names or lists, the first {HARD_EVENTS_CAP} in the order "
+        "given: `identifier`, how the response identifies it, as written (an "
+        "Event_ID, or the name with a date or place); `area_text`, the area it "
+        "gives for that event as written, with its unit, or null if it gives "
+        "none."
+    ),
+}
+
+_FIELD_PART = {
+    "type": "OBJECT",
+    "properties": {
+        "value_text": {"type": "STRING", "nullable": True},
+        "value": {"type": "NUMBER", "nullable": True},
+        "unit": {"type": "STRING", "nullable": True},
+    },
+    "required": ["value_text", "value", "unit"],
+    "property_ordering": ["value_text", "value", "unit"],
+}
+
+_HARD_ANSWER_PROPS = {
+    "fields": {},  # per question: {"parts": _parts_schema(parts)}
+    "disambiguate": {
+        "several_noted": {"type": "BOOLEAN"},
+        "combined_as_one": {"type": "BOOLEAN"},
+        "events": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "identifier": {"type": "STRING"},
+                    "area_text": {"type": "STRING", "nullable": True},
+                },
+                "required": ["identifier", "area_text"],
+            },
+            "max_items": HARD_EVENTS_CAP,
+        },
+    },
+}
+
 
 _sleep = time.sleep  # patched in tests
 
@@ -218,13 +287,46 @@ class ExtractorFatal(Exception):
     """A key/model configuration error: grading cannot proceed at all."""
 
 
-def _answer_props(kind: str) -> dict:
-    return _ANSWER_PROPS[kind] if kind in _ANSWER_PROPS else _EXT_ANSWER_PROPS[kind]
+def _check_kind(kind: str, parts: dict[str, str] | None) -> None:
+    """Raise ValueError for an unknown answer kind, a `fields` kind without
+    its parts, or parts given to any other kind."""
+    if kind not in (*_ANSWER_PROPS, *_EXT_ANSWER_PROPS, *_HARD_ANSWER_PROPS):
+        raise ValueError(f"unknown answer kind {kind!r}")
+    if kind == "fields" and not parts:
+        raise ValueError("a fields answer needs its part names")
+    if kind != "fields" and parts is not None:
+        raise ValueError(f"parts are for a fields answer, not {kind!r}")
 
 
-def response_schema(kind: str) -> dict:
-    answer = _answer_props(kind)
-    props = {"status": _COMMON_PROPS["status"], **answer, **_COMMON_PROPS}
+def _parts_schema(parts: dict[str, str]) -> dict:
+    """A `fields` answer: one required {value_text, value, unit} per part."""
+    return {
+        "type": "OBJECT",
+        "properties": {name: _FIELD_PART for name in parts},
+        "required": list(parts),
+        "property_ordering": list(parts),
+    }
+
+
+def _answer_props(kind: str, parts: dict[str, str] | None = None) -> dict:
+    _check_kind(kind, parts)
+    if kind in _ANSWER_PROPS:
+        return _ANSWER_PROPS[kind]
+    if kind in _EXT_ANSWER_PROPS:
+        return _EXT_ANSWER_PROPS[kind]
+    if kind == "fields":
+        return {"parts": _parts_schema(parts)}
+    return _HARD_ANSWER_PROPS[kind]
+
+
+def response_schema(kind: str, parts: dict[str, str] | None = None) -> dict:
+    """The JSON schema of the extractor's reply. `parts` (name -> one-line
+    description) is required for a `fields` answer and refused otherwise."""
+    answer = _answer_props(kind, parts)
+    common = dict(_COMMON_PROPS)
+    if kind == "fields":
+        del common["unit"]  # each part carries its own unit
+    props = {"status": common["status"], **answer, **common}
     return {
         "type": "OBJECT",
         "properties": props,
@@ -238,10 +340,25 @@ def _neutralize(text: str) -> str:
     return re.sub(r"<(/?)(response|question)>", r"&lt;\1\2&gt;", text, flags=re.I)
 
 
-def build_prompt(question_text: str, response_text: str, kind: str) -> str:
-    guidance = (
-        _KIND_GUIDANCE[kind] if kind in _KIND_GUIDANCE else _EXT_KIND_GUIDANCE[kind]
-    )
+def _guidance(kind: str, parts: dict[str, str] | None = None) -> str:
+    _check_kind(kind, parts)
+    if kind in _KIND_GUIDANCE:
+        return _KIND_GUIDANCE[kind]
+    if kind in _EXT_KIND_GUIDANCE:
+        return _EXT_KIND_GUIDANCE[kind]
+    if kind == "fields":
+        listed = "".join(f"\n- {name}: {what}" for name, what in parts.items())
+        return _HARD_KIND_GUIDANCE[kind] + listed
+    return _HARD_KIND_GUIDANCE[kind]
+
+
+def build_prompt(
+    question_text: str,
+    response_text: str,
+    kind: str,
+    parts: dict[str, str] | None = None,
+) -> str:
+    guidance = _guidance(kind, parts)
     return _PROMPT.format(
         guidance=guidance,
         question=_neutralize(question_text),
@@ -249,13 +366,24 @@ def build_prompt(question_text: str, response_text: str, kind: str) -> str:
     )
 
 
-def build_config(kind: str) -> types.GenerateContentConfig:
+def build_config(
+    kind: str, parts: dict[str, str] | None = None
+) -> types.GenerateContentConfig:
     return types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
         temperature=EXTRACTOR_TEMPERATURE,
         response_mime_type="application/json",
-        response_schema=types.Schema.model_validate(response_schema(kind)),
+        response_schema=types.Schema.model_validate(response_schema(kind, parts)),
     )
+
+
+def extraction_parts(question: Question) -> dict[str, str] | None:
+    """What the extractor is told about a `fields` question's parts: each
+    part name and its one-line description, in the order asked (never its
+    value, aliases, units or tolerance). None for any other kind."""
+    if question.answer_kind != "fields":
+        return None
+    return {name: f.description for name, f in spec_for(question).fields.items()}
 
 
 def fingerprint() -> dict:
@@ -281,6 +409,30 @@ def ext_fingerprint() -> dict:
         "guidance": _EXT_KIND_GUIDANCE,
         "schemas": {k: response_schema(k) for k in _EXT_ANSWER_PROPS},
         "names_cap": EXT_NAMES_CAP,
+    }
+
+
+def hard_fingerprint() -> dict:
+    """Everything about the extractor that can change a hard-tier verdict:
+    the hard kinds' guidance, and every hard question's own guidance and
+    schema (a `fields` question's part names and descriptions are in both).
+    fingerprint() and ext_fingerprint() leave these out, so their shas hold."""
+    questions = {}
+    for q in HARD:
+        parts = extraction_parts(q)
+        questions[q.id] = {
+            "kind": q.answer_kind,
+            "guidance": _guidance(q.answer_kind, parts),
+            "schema": response_schema(q.answer_kind, parts),
+        }
+    return {
+        "model": EXTRACTOR_MODEL,
+        "temperature": EXTRACTOR_TEMPERATURE,
+        "system_instruction": SYSTEM_INSTRUCTION,
+        "prompt": _PROMPT,
+        "guidance": _HARD_KIND_GUIDANCE,
+        "questions": questions,
+        "events_cap": HARD_EVENTS_CAP,
     }
 
 
@@ -356,8 +508,72 @@ def _parse_ext_answer(data: dict, kind: str) -> dict:
     }
 
 
-def parse_extraction(raw: str | None, kind: str) -> dict:
-    """Validate the extractor's reply; raise ExtractionError if malformed."""
+def _optional_text(data: dict, field: str, what: str) -> str | None:
+    """A nullable string field; a blank one reads as null."""
+    text = data.get(field)
+    if text is not None and not isinstance(text, str):
+        raise ExtractionError(f"{what} is not a string: {text!r}")
+    return text if text and text.strip() else None
+
+
+def _parse_parts(data: dict, parts: dict[str, str]) -> dict:
+    """A `fields` answer: every named part must be present as an object, its
+    fields of the right types (a missing one reads as null, as for the core
+    kinds); a part the question does not name is dropped. Each parsed part is
+    {text, value, value_text, unit}: `text` is the reply's value_text (the
+    part as written) and `value_text` the number's decimal text, as in a
+    scalar extraction, so a part reads like a scalar extraction."""
+    got = data.get("parts")
+    if not isinstance(got, dict):
+        raise ExtractionError(f"parts is not an object: {got!r}")
+    out = {}
+    for name in parts:
+        if name not in got:
+            raise ExtractionError(f"part {name!r} is missing")
+        part = got[name]
+        if not isinstance(part, dict):
+            raise ExtractionError(f"part {name!r} is not an object: {part!r}")
+        raw_value = part.get("value")
+        value, value_text = (
+            (None, None)
+            if raw_value is None
+            else _number(raw_value, f"part {name!r} value")
+        )
+        out[name] = {
+            "text": _optional_text(part, "value_text", f"part {name!r} value_text"),
+            "value": value,
+            "value_text": value_text,
+            "unit": _optional_text(part, "unit", f"part {name!r} unit"),
+        }
+    return out
+
+
+def _parse_disambiguation(data: dict) -> dict:
+    """A `disambiguate` answer, filled under any status. Both flags and the
+    events list are required (an empty list is a verdict input: no event
+    listed); only the leading HARD_EVENTS_CAP events are kept."""
+    events = data.get("events")
+    if not isinstance(events, list):
+        raise ExtractionError(f"events is not a list: {events!r}")
+    kept = []
+    for e in events:
+        if not isinstance(e, dict) or not isinstance(e.get("identifier"), str):
+            raise ExtractionError(f"bad events item {e!r}")
+        area = _optional_text(e, "area_text", "events area_text")
+        kept.append({"identifier": e["identifier"], "area_text": area})
+    return {
+        "several_noted": _boolean(data, "several_noted"),
+        "combined_as_one": _boolean(data, "combined_as_one"),
+        "events": kept[:HARD_EVENTS_CAP],
+    }
+
+
+def parse_extraction(
+    raw: str | None, kind: str, parts: dict[str, str] | None = None
+) -> dict:
+    """Validate the extractor's reply; raise ExtractionError if malformed
+    (ValueError for an unknown kind, before the reply is read)."""
+    _check_kind(kind, parts)
     if not raw:
         raise ExtractionError("empty reply")
     try:
@@ -393,18 +609,23 @@ def parse_extraction(raw: str | None, kind: str) -> dict:
             if not isinstance(item, dict) or not isinstance(item.get("label"), str):
                 raise ExtractionError(f"bad values item {item!r}")
             out["values"][item["label"]] = _number(item.get("value"), "series value")[0]
-    elif kind in _EXT_ANSWER_PROPS:
-        out.update(_parse_ext_answer(data, kind))
-    else:
+    elif kind in ("set", "text"):
         names = data.get("names") or []
         if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
             raise ExtractionError(f"names is not a list of strings: {names!r}")
         out["names"] = [n for n in names if n.strip()]
+    elif kind in _EXT_ANSWER_PROPS:
+        out.update(_parse_ext_answer(data, kind))
+    elif kind == "fields":
+        out["parts"] = _parse_parts(data, parts)
+    else:  # disambiguate (_check_kind refused anything else)
+        out.update(_parse_disambiguation(data))
     return out
 
 
-def no_answer_extraction(kind: str) -> dict:
+def no_answer_extraction(kind: str, parts: dict[str, str] | None = None) -> dict:
     """The extraction for an empty response (no call is made)."""
+    _check_kind(kind, parts)
     out = {
         "status": "no_answer",
         "multiple_candidates": False,
@@ -423,18 +644,31 @@ def no_answer_extraction(kind: str) -> dict:
         out.update(total_count=None, truncation_disclosed=False, names=[])
     elif kind == "clarify_or_assume":
         out["readings"] = []
-    else:
+    elif kind in ("set", "text"):
         out["names"] = []
+    elif kind == "fields":
+        empty = {"text": None, "value": None, "value_text": None, "unit": None}
+        out["parts"] = {name: dict(empty) for name in parts}
+    else:  # disambiguate
+        out.update(several_noted=False, combined_as_one=False, events=[])
     return out
 
 
-def extract(client, question_text: str, response_text: str, kind: str) -> dict:
+def extract(
+    client,
+    question_text: str,
+    response_text: str,
+    kind: str,
+    parts: dict[str, str] | None = None,
+) -> dict:
     """{extraction | None, raw: [reply texts], model_version, attempts, error}.
 
     A reply that fails validation (or a failed call) is retried once; after
     that `extraction` is None and `error` says why: a grader error, never a
     silent pass or fail. A retryable call error backs off before the retry
-    (_backoff). 401/403/404 raise ExtractorFatal."""
+    (_backoff). 401/403/404 raise ExtractorFatal. A `fields` answer needs
+    `parts` (extraction_parts); an unknown kind raises ValueError."""
+    _check_kind(kind, parts)
     out = {
         "model": EXTRACTOR_MODEL,
         "extraction": None,
@@ -444,10 +678,10 @@ def extract(client, question_text: str, response_text: str, kind: str) -> dict:
         "error": None,
     }
     if not response_text.strip():
-        out["extraction"] = no_answer_extraction(kind)
+        out["extraction"] = no_answer_extraction(kind, parts)
         return out
-    prompt = build_prompt(question_text, response_text, kind)
-    config = build_config(kind)
+    prompt = build_prompt(question_text, response_text, kind, parts)
+    config = build_config(kind, parts)
     for attempt in range(EXTRACTOR_ATTEMPTS):
         out["attempts"] = attempt + 1
         try:
@@ -466,7 +700,7 @@ def extract(client, question_text: str, response_text: str, kind: str) -> dict:
         raw = getattr(resp, "text", None)
         out["raw"].append(raw)
         try:
-            out["extraction"] = parse_extraction(raw, kind)
+            out["extraction"] = parse_extraction(raw, kind, parts)
         except ExtractionError as e:
             out["error"] = f"malformed reply: {e}"[:500]
             logger.warning("extractor attempt %d: %s", attempt + 1, out["error"])

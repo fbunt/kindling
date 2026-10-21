@@ -1570,7 +1570,11 @@ def grade_trace(trace: dict, client) -> dict:
         )
         return fields
     ext = judge.extract(
-        client, question.text, trace.get("text") or "", question.answer_kind
+        client,
+        question.text,
+        trace.get("text") or "",
+        question.answer_kind,
+        parts=judge.extraction_parts(question),
     )
     extraction = ext.pop("extraction")
     fields["extractor"] = ext
