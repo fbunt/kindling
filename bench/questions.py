@@ -1,4 +1,5 @@
-"""The benchmark questions: the 25-question core tier and the extended tier.
+"""The benchmark questions: the 25-question core tier, the extended tier and
+the hard tier.
 
 Each Question pairs a natural-language prompt (sent to the model verbatim) with
 hand-written reference Polars code that defines ground truth. Reference code is
@@ -17,8 +18,9 @@ JSON-serializable scalar, dict (series), or sorted list (set / tie-safe text).
 Questions are phrased to fix a single defensible interpretation (dedup rule,
 decade bounds, regression method, units) — the paper's accuracy claim depends
 on the question having one right answer. The extended tier also measures
-behaviour (abstaining, disclosing truncation, stating an assumption); its
-questions are run and reported apart from the core tier.
+behaviour (abstaining, disclosing truncation, stating an assumption), and the
+hard tier asks questions whose obvious query gives a plausible wrong number;
+each tier is run and reported apart (TIERS).
 """
 
 from dataclasses import dataclass
@@ -26,12 +28,12 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Question:
-    id: str  # L01..L08, A01..A07, T01..T05, M01..M05; extended E01..E14
-    category: str  # a CATEGORIES or EXTENDED_CATEGORIES name
+    id: str  # L01..L08, A01..A07, T01..T05, M01..M05; extended E01..E14; hard H01..H09
+    category: str  # a CATEGORIES, EXTENDED_CATEGORIES or HARD_CATEGORIES name
     text: str  # prompt sent to the model, verbatim
     reference_code: str  # host-executed Polars; must assign `expected`
     # core: scalar | series | set | text; extended adds abstain | disclosure |
-    # clarify_or_assume | plot
+    # clarify_or_assume | plot; hard adds fields | disambiguate
     answer_kind: str
     criterion: str  # legacy judge template; hashed into question_sha, not graded
     tolerance_rel: float = 0.01  # relative band for scalar/series numerics
@@ -1201,30 +1203,850 @@ assert len(EXTENDED) == 14
 assert EXTENDED[-1].id == "E10", "the heaviest reference runs last"
 assert {q.category for q in EXTENDED} == set(EXTENDED_CATEGORIES)
 
-BY_ID: dict[str, Question] = {q.id: q for q in (*QUESTIONS, *EXTENDED)}
-assert len(BY_ID) == len(QUESTIONS) + len(EXTENDED), "duplicate question ids"
+# ----------------------------------------------------------------------
+# Hard tier (9): semantics, per-pixel history, statistics, interaction
+# ----------------------------------------------------------------------
+#
+# Questions where the obvious query returns a plausible wrong number, or that
+# need three or more dependent stages, often per pixel location. Every
+# row-count wording states its bs scope; every event count states its
+# incident-type scope. Each reference asserts its runner-up margin and that
+# the named wrong readings land outside the band (or logs them where a
+# coincidence would be harmless).
+#
+# Per-pixel references loop over the 16 partitions geohash % 16 == k, which
+# is exact because locations are independent and keeps each collect small.
+# No is_in inside a streaming group_by().agg(); counts are cast to Int64
+# before any subtraction (pl.len() and sum() of a flag are unsigned); a bs
+# comparison is null for a null bs, so flags built from it are filled False.
+
+# H04's year: one with at least 3 wildfire (Incid_Type = 1) events named
+# exactly COTTONWOOD, set from the full-data per-year table that H04's
+# reference logs while this is unset (it refuses to compute an answer until
+# the year qualifies).
+COTTONWOOD_YEAR: int | None = None
+
+# H06's scripted history states the number of distinct wildfire events with a
+# row in eco1 = 8 in 2020. Set from the count H06's reference reports while
+# this is unset (it refuses to compute an answer until they match), so the
+# history always states the number the follow-up builds on.
+ECO8_2020_WILDFIRE_EVENTS: int | None = None
+
+
+def _filled(value, placeholder: str, fmt: str = "") -> str:
+    """A constant as written into question text; its placeholder while unset."""
+    return placeholder if value is None else format(value, fmt)
+
+
+ECO8_2020_HISTORY: tuple[tuple[str, str], ...] = (
+    (
+        "user",
+        "How many wildfire events (Incid_Type = 1) burned in Eastern Temperate "
+        "Forests (eco1 = 8) in 2020?",
+    ),
+    (
+        "model",
+        f"{_filled(ECO8_2020_WILDFIRE_EVENTS, '[N]', ',')} distinct wildfire "
+        "events (Incid_Type = 1) had at least one row in eco1 = 8 in 2020.",
+    ),
+)
+
+# The 11 western states of H07, as Event_ID prefixes.
+WESTERN_STATES = ("AZ", "CA", "CO", "ID", "MT", "NM", "NV", "OR", "UT", "WA", "WY")
+
+HARD: list[Question] = [
+    Question(
+        id="H01",
+        category="hard_semantics",
+        text=(
+            "Which US state had the most distinct prescribed-fire events "
+            "(Incid_Type = 2) from 2010 through 2019, and how many did it have? "
+            "Count each event once, in the state MTBS records for it."
+        ),
+        reference_code="""\
+# The state is only in the Event_ID prefix (the state of the ignition point).
+events = (
+    lf.filter((pl.col("Incid_Type") == 2) & pl.col("year").is_between(2010, 2019))
+    .select("Event_ID")
+    .unique()
+    .collect(engine="streaming")
+)
+assert events["Event_ID"].null_count() == 0, "a prescribed fire has no Event_ID"
+states = events.select(pl.col("Event_ID").str.slice(0, 2).alias("state"))
+assert states["state"].str.contains("^[A-Z]{2}$").all(), (
+    "an Event_ID does not start with a two-letter state code"
+)
+counts = (
+    states.group_by("state")
+    .len()
+    .sort(["len", "state"], descending=[True, False])
+)
+logger.info(
+    "prescribed-fire events 2010-2019 by Event_ID state (top 5): %s",
+    ", ".join(f"{r['state']} {r['len']}" for r in counts.head(5).iter_rows(named=True)),
+)
+assert counts.height > 0, "no prescribed-fire events in 2010-2019"
+if counts.height > 1:
+    assert counts["len"][0] > counts["len"][1], (
+        f"tie for most events: {counts['state'][0]} and {counts['state'][1]}"
+    )
+expected = {"state": counts["state"][0], "count": int(counts["len"][0])}
+""",
+        answer_kind="fields",
+        criterion=(
+            "The response names the state with the most distinct prescribed-fire "
+            "events in 2010-2019 and its count as {expected}."
+        ),
+    ),
+    Question(
+        id="H04",
+        category="hard_semantics",
+        text=(
+            "How many acres did the COTTONWOOD fire of "
+            f"{_filled(COTTONWOOD_YEAR, '[YEAR]')} burn?"
+        ),
+        reference_code=f"YEAR = {COTTONWOOD_YEAR!r}\n"
+        + """\
+named = (
+    lf.filter(pl.col("Incid_Name") == "COTTONWOOD")
+    .group_by("Event_ID")
+    .agg(
+        pl.col("year").first(),
+        pl.col("Incid_Type").first(),
+        pl.col("area_m2").first(),
+    )
+    .collect(engine="streaming")
+    .sort("year", "Event_ID")
+)
+by_year = (
+    named.group_by("year")
+    .agg(
+        pl.len().alias("events"),
+        (pl.col("Incid_Type") == 1).sum().alias("wildfires"),
+    )
+    .sort("year")
+)
+table = "\\n".join(
+    ["| year | events | Incid_Type = 1 |", "|---|---|---|"]
+    + [
+        f"| {r['year']} | {r['events']} | {r['wildfires']} |"
+        for r in by_year.iter_rows(named=True)
+    ]
+)
+logger.info("events named exactly COTTONWOOD per year:\\n%s", table)
+eligible = by_year.filter(pl.col("wildfires") >= 3)["year"].to_list()
+if YEAR not in eligible:
+    raise ValueError(
+        f"COTTONWOOD_YEAR is {YEAR!r}; set it to a year with at least 3 "
+        f"wildfire (Incid_Type = 1) events named exactly COTTONWOOD "
+        f"({eligible or 'none qualify'}):\\n{table}"
+    )
+events = named.filter(pl.col("year") == YEAR)
+near = (
+    lf.filter(
+        (pl.col("year") == YEAR)
+        & pl.col("Incid_Name").str.contains("COTTONWOOD")
+        & (pl.col("Incid_Name") != "COTTONWOOD")
+    )
+    .select("Incid_Name")
+    .unique()
+    .collect(engine="streaming")["Incid_Name"]
+    .sort()
+    .to_list()
+)
+logger.info("%d near-names of COTTONWOOD in %d: %s", len(near), YEAR, near)
+expected = {
+    "year": YEAR,
+    "count": events.height,
+    "events": [
+        {
+            "Event_ID": r["Event_ID"],
+            "Incid_Type": r["Incid_Type"],
+            "acres": r["area_m2"] / 4046.8564224,  # international acre
+        }
+        for r in events.iter_rows(named=True)
+    ],
+}
+""",
+        answer_kind="disambiguate",
+        criterion=(
+            "The response says more than one event of that year is named "
+            "COTTONWOOD ({expected}) and does not present one figure as the "
+            "fire's area."
+        ),
+    ),
+    Question(
+        id="H06",
+        category="hard_interaction",
+        text=(
+            "Now include prescribed fires (Incid_Type = 2) too, and keep only "
+            "events with at least one pixel row (any bs value) in the WUI "
+            "(wui_bool = 1) within that region."
+        ),
+        reference_code=f"N = {ECO8_2020_WILDFIRE_EVENTS!r}\n"
+        + """\
+ev = (
+    lf.group_by("Event_ID")
+    .agg(
+        pl.col("Incid_Type").first(),
+        pl.col("year").first(),
+        (pl.col("eco1") == 8).fill_null(False).any().alias("in_region"),
+        ((pl.col("eco1") == 8) & (pl.col("wui_bool") == 1))
+        .fill_null(False)
+        .any()
+        .alias("wui_in_region"),
+        (pl.col("wui_bool") == 1).fill_null(False).any().alias("wui_anywhere"),
+    )
+    .collect(engine="streaming")
+)
+wildfire = pl.col("Incid_Type") == 1
+both = wildfire | (pl.col("Incid_Type") == 2)
+in_2020 = pl.col("year") == 2020
+
+
+def count(mask):
+    return ev.filter(mask).height
+
+
+history = count(wildfire & in_2020 & pl.col("in_region"))
+if N != history:
+    raise ValueError(
+        f"the scripted history states {N!r} events, but {history} distinct "
+        "wildfire events (Incid_Type = 1) have a row in eco1 = 8 in 2020; set "
+        f"ECO8_2020_WILDFIRE_EVENTS to {history}"
+    )
+expected = count(both & in_2020 & pl.col("wui_in_region"))
+asserted = {
+    "eco1 = 8 dropped": count(both & in_2020 & pl.col("wui_anywhere")),
+    "2020 dropped": count(both & pl.col("wui_in_region")),
+    "wildfire only": count(wildfire & in_2020 & pl.col("wui_in_region")),
+}
+# A tie with these only means the misreading is harmless.
+logged = {
+    "every incident type": count(in_2020 & pl.col("wui_in_region")),
+    "WUI anywhere": count(
+        both & in_2020 & pl.col("in_region") & pl.col("wui_anywhere")
+    ),
+}
+logger.info(
+    "H06: history %d, answer %d; readings %s",
+    history,
+    expected,
+    {**asserted, **logged},
+)
+for name, n in asserted.items():
+    assert n != expected, f"reading '{name}' gives the same count ({n})"
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states that {expected} distinct wildfire and "
+            "prescribed-fire events of 2020 have a WUI row in eco1 = 8."
+        ),
+        tolerance_abs=0.0,
+        history=ECO8_2020_HISTORY,
+    ),
+    Question(
+        id="H07",
+        category="hard_statistics",
+        text=(
+            "Take fire events whose Event_ID begins with AZ, CA, CO, ID, MT, NM, "
+            "NV, OR, UT, WA or WY, excluding prescribed fires (keep Incid_Type "
+            "0, 1 and 3), with area_m2 greater than 4,050,000 and year 1984 "
+            "through 2011. Count distinct events per year, with every one of "
+            "the 28 years included (zero if none). What is the Theil-Sen slope "
+            "of the annual count against year, in fires per year: the median "
+            "of the 378 slopes between every pair of years, averaging the two "
+            "middle slopes? Give two decimals."
+        ),
+        reference_code=f"STATES = {list(WESTERN_STATES)!r}\n"
+        + """\
+import statistics
+
+per_year = (
+    lf.filter(
+        pl.col("Event_ID").str.slice(0, 2).is_in(STATES)
+        & (
+            (pl.col("Incid_Type") == 0)
+            | (pl.col("Incid_Type") == 1)
+            | (pl.col("Incid_Type") == 3)
+        )
+        & (pl.col("area_m2") > 4_050_000)
+        & pl.col("year").is_between(1984, 2011)
+    )
+    .group_by("year")
+    .agg(pl.col("Event_ID").n_unique().alias("n"))
+    .collect(engine="streaming")
+)
+counts = dict(zip(per_year["year"].to_list(), per_year["n"].to_list()))
+years = list(range(1984, 2012))
+ys = [int(counts.get(y, 0)) for y in years]
+slopes = sorted(
+    (ys[j] - ys[i]) / (years[j] - years[i])
+    for i in range(len(years))
+    for j in range(i + 1, len(years))
+)
+assert len(slopes) == 378, len(slopes)
+expected = statistics.median(slopes)  # 378 slopes: the mean of the middle two
+readings = {
+    "median_low": statistics.median_low(slopes),
+    "median_high": statistics.median_high(slopes),
+    "OLS": ols_slope(years, ys),
+}
+try:
+    import numpy as np
+    from sklearn.linear_model import TheilSenRegressor
+except ImportError:
+    logger.warning(
+        "scikit-learn is not installed: the spatial-median Theil-Sen reading "
+        "(sklearn TheilSenRegressor) is not checked"
+    )
+else:
+    fit = TheilSenRegressor(random_state=0).fit(
+        np.array(years, dtype=float).reshape(-1, 1), np.array(ys, dtype=float)
+    )
+    readings["sklearn TheilSenRegressor"] = float(fit.coef_[0])
+logger.info("H07 annual counts %s; slope %.4f; readings %s", ys, expected, readings)
+for name, value in readings.items():
+    assert abs(value - expected) > 0.01, (
+        f"reading '{name}' gives {value:.4f}, within 0.01 of {expected:.4f}"
+    )
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states the Theil-Sen slope of annual large western "
+            "non-prescribed fire counts, 1984-2011, as {expected} fires per year."
+        ),
+        tolerance_abs=0.01,
+    ),
+    Question(
+        id="H08",
+        category="hard_statistics",
+        text=(
+            "Assign each distinct fire event to the level-1 ecoregion (eco1) "
+            "holding the most of its rows (every row whatever its bs value, "
+            "null included; a tie goes to the smaller eco1 code). Group eco1 6, "
+            "7, 10, 11, 12 and 13 as the West. Count every incident type. Count "
+            "West events per year, take the median annual count over 1984 "
+            "through 1999 and over 2005 through 2018 (each window has an even "
+            "number of years: average the two middle counts), and give the "
+            "ratio of the 2005-2018 median to the 1984-1999 median, to two "
+            "decimals."
+        ),
+        reference_code="""\
+import statistics
+
+WEST = [6, 7, 10, 11, 12, 13]
+cells = (
+    lf.filter(pl.col("eco1").is_not_null())
+    .group_by("Event_ID", "eco1")
+    .agg(pl.len().alias("rows"), pl.col("year").first(), pl.col("Incid_Type").first())
+    .collect(engine="streaming")
+)
+dominant = (
+    cells.sort(["rows", "eco1"], descending=[True, False])
+    .group_by("Event_ID", maintain_order=True)
+    .first()
+)
+west = dominant.filter(pl.col("eco1").is_in(WEST))
+
+
+def ratio(events, early=(1984, 1999), late=(2005, 2018), median=statistics.median):
+    per_year = events.group_by("year").len()
+    counts = dict(zip(per_year["year"].to_list(), per_year["len"].to_list()))
+
+    def window(lo, hi):
+        return median([int(counts.get(y, 0)) for y in range(lo, hi + 1)])
+
+    first = window(*early)
+    assert first > 0, f"no West events in {early}"
+    return window(*late) / first
+
+
+expected = ratio(west)
+readings = {
+    "window means": ratio(west, median=statistics.mean),
+    "median_low": ratio(west, median=statistics.median_low),
+    "wildfire only": ratio(west.filter(pl.col("Incid_Type") == 1)),
+    "non-prescribed": ratio(west.filter(pl.col("Incid_Type") != 2)),
+    "2000-2018 window": ratio(west, late=(2000, 2018)),
+    "1984-2004 window": ratio(west, early=(1984, 2004)),
+}
+touched = cells.filter(pl.col("eco1").is_in(WEST)).select("Event_ID", "year").unique()
+any_row = ratio(touched)
+logger.info(
+    "H08 ratio %.4f; readings %s; counted in the West on any row: %.4f (%s)",
+    expected,
+    readings,
+    any_row,
+    "moves the answer" if abs(any_row - expected) > 0.005 else "within the band",
+)
+for name, value in readings.items():
+    assert abs(value - expected) > 0.005, (
+        f"reading '{name}' gives {value:.4f}, within 0.005 of {expected:.4f}"
+    )
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states the ratio of the 2005-2018 to the 1984-1999 "
+            "median annual West event count as {expected}."
+        ),
+        tolerance_abs=0.005,
+    ),
+    Question(
+        id="H02",
+        category="hard_semantics",
+        text=(
+            "How many square kilometers of land burned at least once from 1984 "
+            "through 2022? Count a 30 m pixel location as burned if it has any "
+            "row, whatever its bs value, null included; each pixel covers "
+            "900 m\u00b2. Count every incident type."
+        ),
+        reference_code="""\
+burned = lf.filter(pl.col("year").is_between(1984, 2022))
+totals = burned.select(
+    pl.len().alias("rows"), pl.col("geohash").null_count().alias("unlocated")
+).collect(engine="streaming")
+assert totals["unlocated"][0] == 0, f"{totals['unlocated'][0]} rows have no geohash"
+locations = 0
+for k in range(16):  # locations are independent: the partitions are exact
+    locations += (
+        burned.filter(pl.col("geohash") % 16 == k)
+        .select(pl.col("geohash").n_unique())
+        .collect(engine="streaming")
+        .item()
+    )
+expected = locations * 900 / 1e6
+event_area = (
+    burned.group_by("Event_ID")
+    .agg(pl.col("area_m2").first())
+    .select(pl.col("area_m2").sum())
+    .collect(engine="streaming")
+    .item()
+)
+readings = {
+    "rows x 900 m2": int(totals["rows"][0]) * 900 / 1e6,
+    "summed event area_m2": event_area / 1e6,
+}
+logger.info(
+    "H02 footprint %.1f km2 (%d locations); readings %s", expected, locations, readings
+)
+for name, value in readings.items():
+    assert abs(value - expected) > 0.005 * expected, (
+        f"reading '{name}' gives {value:.1f} km2, within 0.5% of {expected:.1f}"
+    )
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states that {expected} square kilometers burned at "
+            "least once."
+        ),
+        tolerance_rel=0.005,
+        expensive_gt=True,
+    ),
+    Question(
+        id="H05",
+        category="hard_pixel_history",
+        text=(
+            "Take the pixel locations (geohash) where the 2020 AUGUST COMPLEX "
+            "has a row (whatever its bs value, null included). What percentage "
+            "of them also have a row in at least one fire event ignited before "
+            "it (earlier Ig_Date), and which of those earlier fire events has "
+            "rows at the most of these locations? Give the percentage, and that "
+            "event's incident name and year. Count every incident type."
+        ),
+        reference_code="""\
+fire = (
+    lf.filter((pl.col("Incid_Name") == "AUGUST COMPLEX") & (pl.col("year") == 2020))
+    .group_by("Event_ID")
+    .agg(pl.col("Ig_Date").first())
+    .collect(engine="streaming")
+)
+assert fire.height == 1, f"{fire.height} events named AUGUST COMPLEX in 2020"
+fire_id, fire_date = fire["Event_ID"][0], fire["Ig_Date"][0]
+# Two readings of "has a row": any row (the answer) and bs 2-4 rows only.
+tally = {"any": [0, 0, []], "bs 2-4": [0, 0, []]}
+for k in range(16):  # locations are independent: the partitions are exact
+    part = lf.filter(pl.col("geohash") % 16 == k)
+    here = (
+        part.filter(pl.col("Event_ID") == fire_id)
+        .select("geohash", "bs")
+        .collect(engine="streaming")
+    )
+    if here.height == 0:
+        continue
+    assert here["geohash"].is_unique().all(), "AUGUST COMPLEX repeats a location"
+    earlier = (
+        part.filter(pl.col("Ig_Date") < fire_date)
+        .select("geohash", "Event_ID", "bs")
+        .join(here.lazy().select("geohash"), on="geohash", how="semi")
+        .collect(engine="streaming")
+    )
+    burned = pl.col("bs").is_between(2, 4).fill_null(False)
+    for name, locs, prior in (
+        ("any", here, earlier),
+        (
+            "bs 2-4",
+            here.filter(burned),
+            earlier.filter(burned).join(
+                here.filter(burned).select("geohash"), on="geohash", how="semi"
+            ),
+        ),
+    ):
+        t = tally[name]
+        t[0] += locs.height
+        t[1] += prior["geohash"].n_unique()
+        t[2].append(
+            prior.group_by("Event_ID").agg(pl.col("geohash").n_unique().alias("n"))
+        )
+
+
+def ranked(frames):
+    if not frames:
+        return pl.DataFrame(schema={"Event_ID": pl.String, "n": pl.Int64})
+    return (
+        pl.concat(frames)
+        .group_by("Event_ID")
+        .agg(pl.col("n").cast(pl.Int64).sum())
+        .sort(["n", "Event_ID"], descending=[True, False])
+    )
+
+
+def describe(ids):
+    return (
+        lf.filter(pl.col("Event_ID").is_in(ids))
+        .group_by("Event_ID")
+        .agg(pl.col("Incid_Name").first(), pl.col("year").first())
+        .collect(engine="streaming")
+    )
+
+
+share = {name: t[1] / t[0] * 100 if t[0] else None for name, t in tally.items()}
+top = {name: ranked(t[2]).head(5) for name, t in tally.items()}
+named = describe(sorted({e for f in top.values() for e in f["Event_ID"]}))
+names = {
+    r["Event_ID"]: (r["Incid_Name"], r["year"]) for r in named.iter_rows(named=True)
+}
+for name in tally:
+    logger.info(
+        "H05 [%s]: %s of %d locations have an earlier fire; top earlier events %s",
+        name,
+        share[name],
+        tally[name][0],
+        [(names[e], n) for e, n in top[name].iter_rows()],
+    )
+best = top["any"]
+assert tally["any"][0] > 0, "the AUGUST COMPLEX has no rows"
+assert best.height > 0, "no AUGUST COMPLEX location has an earlier fire"
+if best.height > 1:
+    assert best["n"][0] > best["n"][1], (
+        f"tie for most locations: {names[best['Event_ID'][0]]} and "
+        f"{names[best['Event_ID'][1]]}"
+    )
+name, year = names[best["Event_ID"][0]]
+expected = {"percent": share["any"], "name": name, "year": int(year)}
+wrong = share["bs 2-4"]
+assert wrong is None or abs(wrong - share["any"]) > 0.5, (
+    f"the bs 2-4 reading gives {wrong:.2f}%, within 0.5 pp of {share['any']:.2f}%"
+)
+""",
+        answer_kind="fields",
+        criterion=(
+            "The response states the percentage of 2020 AUGUST COMPLEX locations "
+            "with an earlier fire, and the earlier event at the most of them, "
+            "as {expected}."
+        ),
+        expensive_gt=True,
+    ),
+    Question(
+        id="H09",
+        category="hard_pixel_history",
+        text=(
+            "For wildfire rows (Incid_Type 1 or 3) in Northwestern Forested "
+            "Mountains (eco1 = 6) with bs 1-4 and year 1995 through 2022, mark "
+            "a row as a reburn if its pixel location (geohash) also has a row "
+            "from a fire event with a strictly earlier Ig_Date (any incident "
+            "type, any bs value, null included, back to 1984; an event with "
+            "the same Ig_Date does not count). What is the high-severity share "
+            "(bs = 4 among bs 1-4) of the reburn rows minus that of the other "
+            "rows, in percentage points? Give one decimal."
+        ),
+        reference_code="""\
+wildfire = (pl.col("Incid_Type") == 1) | (pl.col("Incid_Type") == 3)
+target = (
+    wildfire
+    & (pl.col("eco1") == 6)
+    & pl.col("bs").is_between(1, 4)
+    & pl.col("year").is_between(1995, 2022)
+).fill_null(False)
+# Each lookback is the earliest Ig_Date at the location among the rows it
+# counts; a row is a reburn when that date is strictly earlier than its own.
+lookbacks = {
+    "answer": None,
+    "wildfire-only lookback": wildfire.fill_null(False),
+    "filtered-set lookback": target,
+    "1995-only lookback": (pl.col("year") >= 1995).fill_null(False),
+    "bs 2-4 lookback": pl.col("bs").is_between(2, 4).fill_null(False),
+}
+# Per reading: [reburn bs 4, reburn bs 1-4, other bs 4, other bs 1-4]; the
+# row-duplicating join weights each reburn row by its earlier rows.
+tally = {name: [0, 0, 0, 0] for name in [*lookbacks, "row-duplicating join"]}
+date = pl.col("Ig_Date")
+for k in range(16):  # locations are independent: the partitions are exact
+    part = lf.filter(pl.col("geohash") % 16 == k)
+    first = part.group_by("geohash").agg(
+        [
+            (date if mask is None else date.filter(mask)).min().alias(name)
+            for name, mask in lookbacks.items()
+        ]
+    )
+    earlier_rows = (
+        part.group_by("geohash", "Ig_Date")
+        .agg(pl.len().cast(pl.Int64).alias("n"))
+        .collect(engine="streaming")
+        .sort("geohash", "Ig_Date")
+        .with_columns(
+            (pl.col("n").cum_sum().over("geohash") - pl.col("n")).alias("earlier")
+        )
+        .select("geohash", "Ig_Date", "earlier")
+    )
+    rows = (
+        part.filter(target)
+        .select(
+            "geohash", "Ig_Date", (pl.col("bs") == 4).fill_null(False).alias("high")
+        )
+        .join(first, on="geohash", how="left")
+        .join(earlier_rows.lazy(), on=["geohash", "Ig_Date"], how="left")
+        .collect(engine="streaming")
+    )
+    if rows.height == 0:
+        continue
+    assert rows["earlier"].null_count() == 0, "a target row lost its location"
+    high = pl.col("high").cast(pl.Int64)
+    for name in lookbacks:
+        reburn = (pl.col(name) < pl.col("Ig_Date")).fill_null(False)
+        sums = rows.select(
+            (high * reburn).sum().alias("reburn_high"),
+            reburn.cast(pl.Int64).sum().alias("reburn"),
+            (high * ~reburn).sum().alias("other_high"),
+            (~reburn).cast(pl.Int64).sum().alias("other"),
+        ).row(0)
+        tally[name] = [a + int(b) for a, b in zip(tally[name], sums)]
+    w = pl.col("earlier")
+    sums = rows.select(
+        (high * w).sum().alias("reburn_high"),
+        w.sum().alias("reburn"),
+        (high * (w == 0)).sum().alias("other_high"),
+        (w == 0).cast(pl.Int64).sum().alias("other"),
+    ).row(0)
+    t = tally["row-duplicating join"]
+    tally["row-duplicating join"] = [a + int(b) for a, b in zip(t, sums)]
+
+
+def difference(t):
+    assert t[1] > 0 and t[3] > 0, f"an empty group (reburn {t[1]}, other {t[3]})"
+    return t[0] / t[1] * 100 - t[2] / t[3] * 100
+
+
+expected = difference(tally["answer"])
+readings = {name: difference(t) for name, t in tally.items() if name != "answer"}
+reburn, other = tally["answer"][0:2], tally["answer"][2:4]
+logger.info(
+    "H09 reburn %d/%d bs 4, other %d/%d; difference %.3f pp (%s); readings %s",
+    *reburn,
+    *other,
+    expected,
+    "reburns less severe" if expected < 0 else "reburns not less severe",
+    readings,
+)
+for name, value in readings.items():
+    assert abs(value - expected) > 0.1, (
+        f"reading '{name}' gives {value:.3f}, within 0.1 pp of {expected:.3f}"
+    )
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states that the high-severity share of reburn rows "
+            "minus that of the other rows is {expected} percentage points."
+        ),
+        tolerance_abs=0.1,
+        expensive_gt=True,
+    ),
+    Question(
+        id="H03",
+        category="hard_pixel_history",
+        text=(
+            "For each pixel location (geohash), order the distinct fire events "
+            "with a row there (whatever its bs value, null included) by Ig_Date. "
+            "Over all consecutive pairs of fires at the same location, take the "
+            "pairs whose earlier fire has bs = 4 at that location. In what "
+            "percentage of those pairs does the later fire also have bs = 4 "
+            "there? A later fire with bs null, 5 or 6 counts as not high "
+            "severity. Count every incident type."
+        ),
+        reference_code="""\
+def consecutive(fires):
+    # [pairs, pairs from a bs = 4 fire, of those bs = 4 again, same-date pairs]
+    # over fires sorted by location, then date.
+    same = pl.col("geohash") == pl.col("geohash").shift(1)
+    after_high = same & pl.col("high").shift(1)
+    return [
+        int(v)
+        for v in fires.select(
+            same.fill_null(False).sum().alias("pairs"),
+            after_high.fill_null(False).sum().alias("from_high"),
+            (after_high & pl.col("high")).fill_null(False).sum().alias("again"),
+            (same & (pl.col("Ig_Date") == pl.col("Ig_Date").shift(1)))
+            .fill_null(False)
+            .sum()
+            .alias("same_date"),
+        ).row(0)
+    ]
+
+
+def every_later(fires):
+    # [later fires after a bs = 4 fire, of those bs = 4], over all pairs.
+    loc = pl.col("geohash")
+    high = pl.col("high").cast(pl.Int64)
+    later = pl.len().over(loc).cast(pl.Int64) - pl.int_range(pl.len()).over(loc) - 1
+    later_high = high.sum().over(loc) - high.cum_sum().over(loc)
+    sums = fires.select(
+        (later * high).sum().alias("later"), (later_high * high).sum().alias("again")
+    )
+    return [int(v) for v in sums.row(0)]
+
+
+tally = {
+    name: [0, 0, 0, 0]
+    for name in ("answer", "same-date ties reversed", "bs 2-4 fires", "bs 1-4 fires")
+}
+later_pairs = [0, 0]
+for k in range(16):  # locations are independent: the partitions are exact
+    fires = (
+        lf.filter(pl.col("geohash") % 16 == k)
+        .select(
+            "geohash",
+            "Event_ID",
+            "Ig_Date",
+            "bs",
+            (pl.col("bs") == 4).fill_null(False).alias("high"),
+        )
+        .collect(engine="streaming")
+    )
+    assert fires["Ig_Date"].null_count() == 0, "a row has no Ig_Date"
+    assert not fires.select("geohash", "Event_ID").is_duplicated().any(), (
+        "an event has two rows at one location"
+    )
+    ordered = fires.sort("geohash", "Ig_Date", "Event_ID")
+    reversed_ties = fires.sort(
+        ["geohash", "Ig_Date", "Event_ID"], descending=[False, False, True]
+    )
+    del fires
+    for name, frame in (
+        ("answer", ordered),
+        ("same-date ties reversed", reversed_ties),
+        ("bs 2-4 fires", ordered.filter(pl.col("bs").is_between(2, 4))),
+        ("bs 1-4 fires", ordered.filter(pl.col("bs").is_between(1, 4))),
+    ):
+        tally[name] = [a + b for a, b in zip(tally[name], consecutive(frame))]
+    later_pairs = [a + b for a, b in zip(later_pairs, every_later(ordered))]
+    del ordered, reversed_ties
+
+
+def share(high_after, from_high):
+    assert from_high > 0, "no consecutive pair starts at a bs = 4 fire"
+    return high_after / from_high * 100
+
+
+pairs, from_high, high_again, same_date = tally["answer"]
+expected = share(high_again, from_high)
+same_date_pct = same_date / pairs * 100
+readings = {
+    name: share(t[2], t[1]) for name, t in tally.items() if name != "answer"
+}
+readings["every later fire"] = share(later_pairs[1], later_pairs[0])
+logger.info(
+    "H03 %d pairs, %d from bs 4, %d bs 4 again: %.3f%%; same-date pairs %.3f%%; "
+    "readings %s",
+    pairs,
+    from_high,
+    high_again,
+    expected,
+    same_date_pct,
+    readings,
+)
+assert same_date_pct < 0.5, f"{same_date_pct:.2f}% of consecutive pairs share a date"
+tie_shift = abs(readings.pop("same-date ties reversed") - expected)
+assert tie_shift < 0.1, f"the same-date tie order moves the answer {tie_shift:.3f} pp"
+for name, value in readings.items():
+    assert abs(value - expected) > 0.5, (
+        f"reading '{name}' gives {value:.3f}%, within 0.5 pp of {expected:.3f}%"
+    )
+""",
+        answer_kind="scalar",
+        criterion=(
+            "The response states that in {expected} percent of consecutive "
+            "fire pairs whose earlier fire has bs = 4, the later fire also has "
+            "bs = 4."
+        ),
+        tolerance_abs=0.5,
+        expensive_gt=True,
+    ),
+]
+HARD_CATEGORIES = (
+    "hard_semantics",
+    "hard_pixel_history",
+    "hard_statistics",
+    "hard_interaction",
+)
+
+assert len(HARD) == 9
+assert HARD[-1].id == "H03", "the heaviest reference runs last"
+assert {q.category for q in HARD} == set(HARD_CATEGORIES)
+
+
+@dataclass(frozen=True)
+class Tier:
+    questions: tuple[Question, ...]
+    categories: tuple[str, ...]
+
+
+# One run dir holds one tier; select("all") spans them in this order.
+TIERS: dict[str, Tier] = {
+    "core": Tier(tuple(QUESTIONS), CATEGORIES),
+    "extended": Tier(tuple(EXTENDED), EXTENDED_CATEGORIES),
+    "hard": Tier(tuple(HARD), HARD_CATEGORIES),
+}
+_TIER_OF_CATEGORY = {c: name for name, t in TIERS.items() for c in t.categories}
+assert len(_TIER_OF_CATEGORY) == sum(len(t.categories) for t in TIERS.values())
+
+BY_ID: dict[str, Question] = {q.id: q for t in TIERS.values() for q in t.questions}
+assert len(BY_ID) == sum(len(t.questions) for t in TIERS.values()), (
+    "duplicate question ids"
+)
 
 
 def tier_of(q: Question) -> str:
-    """'core' or 'extended'; one run dir holds one tier."""
-    return "extended" if q.category in EXTENDED_CATEGORIES else "core"
+    """The name of the tier ('core', 'extended', 'hard') a question belongs
+    to; one run dir holds one tier."""
+    return _TIER_OF_CATEGORY[q.category]
 
 
 def select(spec: str | None) -> list[Question]:
     """Select questions by tier, category name, or comma-separated ids.
 
-    None, "" or "core" selects the 25 core questions; "extended" the extended
-    tier; "all" both; a category name of either tier that category; otherwise
-    comma-separated ids from either tier ("L01,E04").
+    None, "" or "core" selects the 25 core questions; a tier name
+    ("extended", "hard") that tier; "all" every tier; a category name of any
+    tier that category; otherwise comma-separated ids from any tier
+    ("L01,E04").
     """
-    if not spec or spec == "core":
-        return list(QUESTIONS)
-    if spec == "extended":
-        return list(EXTENDED)
+    if not spec:
+        spec = "core"
+    if spec in TIERS:
+        return list(TIERS[spec].questions)
     if spec == "all":
-        return [*QUESTIONS, *EXTENDED]
-    if spec in CATEGORIES or spec in EXTENDED_CATEGORIES:
-        return [q for q in (*QUESTIONS, *EXTENDED) if q.category == spec]
+        return [q for t in TIERS.values() for q in t.questions]
+    if spec in _TIER_OF_CATEGORY:
+        return [q for q in BY_ID.values() if q.category == spec]
     out = []
     for token in spec.split(","):
         token = token.strip()

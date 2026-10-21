@@ -687,10 +687,10 @@ async def run_bench(args) -> Path:
     questions = select(args.questions)
     tiers = sorted({tier_of(q) for q in questions})
     if len(tiers) > 1:
+        named = f"{', '.join(tiers[:-1])} and {tiers[-1]}"
         raise BenchAbort(
-            f"--questions {args.questions!r} spans the {' and '.join(tiers)} "
-            "tiers; a run dir holds one tier, so run each tier into its own "
-            "--run-dir"
+            f"--questions {args.questions!r} spans the {named} tiers; a run dir "
+            "holds one tier, so run each tier into its own --run-dir"
         )
     parquet = Path(args.parquet)
     if not parquet.exists():

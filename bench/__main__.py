@@ -10,11 +10,13 @@
     python -m bench audit-web --run-dir DIR [--port 8765]
     python -m bench compare A [B] [--out FILE] [--seed 0] [--resamples 10000]
 
-SPEC = a tier: "core" (the default, the 25 core questions) or "extended";
-"all" (both tiers; gt only, since run takes one tier per run dir); a category
-name ("lookup", "aggregation", "trend", "multistep", "ext_semantics",
-"ext_behavior", "ext_interaction", "ext_multistep"); or comma-separated
-question ids ("L01,M04").
+SPEC = a tier: "core" (the default, the 25 core questions), "extended" or
+"hard"; "all" (every tier; gt only, since run takes one tier per run dir); a
+category name ("lookup", "aggregation", "trend", "multistep", "ext_semantics",
+"ext_behavior", "ext_interaction", "ext_multistep", "hard_semantics",
+"hard_pixel_history", "hard_statistics", "hard_interaction"); or
+comma-separated question ids ("L01,M04"). The hard tier can be run but not
+yet graded.
 
 gt is local Polars only (no API call); on the full parquet it takes ~1.5 min
 and single queries reach 80-90 GB, so run nothing heavy alongside it. gt and
@@ -193,7 +195,12 @@ def main() -> None:
 
         main_run(args)
     elif args.command == "grade":
-        from bench.grading import AdjudicationFileError, StaleTraceError, grade_run
+        from bench.grading import (
+            AdjudicationFileError,
+            StaleTraceError,
+            UngradableTierError,
+            grade_run,
+        )
         from bench.judge import ExtractorFatal
 
         dirs = expand_run_dirs(Path(args.run_dir))
@@ -201,7 +208,12 @@ def main() -> None:
         try:
             for d in dirs:
                 grade_run(d, client, regrade=args.regrade)
-        except (StaleTraceError, AdjudicationFileError, ExtractorFatal) as e:
+        except (
+            StaleTraceError,
+            AdjudicationFileError,
+            ExtractorFatal,
+            UngradableTierError,
+        ) as e:
             sys.exit(str(e))
     elif args.command == "report":
         from bench.report import build_report

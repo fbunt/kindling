@@ -29,6 +29,7 @@ from bench.questions import (
     ECO1_SHARE_MAX_ROWS,
     EXTENDED,
     EXTENDED_CATEGORIES,
+    HARD,
     QUESTIONS,
     TOP5_2020_EVENT_IDS,
     TOP5_2020_HISTORY,
@@ -53,7 +54,7 @@ def test_default_selection_is_the_core_tier():
 
 def test_select_by_tier_category_and_ids():
     assert select("extended") == EXTENDED
-    assert select("all") == [*QUESTIONS, *EXTENDED]
+    assert select("all") == [*QUESTIONS, *EXTENDED, *HARD]
     assert [q.id for q in select("ext_behavior")] == ["E04", "E05", "E06", "E07"]
     assert len(select("lookup")) == 8
     for cat in EXTENDED_CATEGORIES:
@@ -66,7 +67,7 @@ def test_select_by_tier_category_and_ids():
 def test_ids_are_unique_across_tiers():
     assert sorted(EXT_IDS) == [f"E{i:02d}" for i in range(1, 15)]
     assert not set(CORE_IDS) & set(EXT_IDS)
-    assert set(BY_ID) == {*CORE_IDS, *EXT_IDS}
+    assert set(BY_ID) == {*CORE_IDS, *EXT_IDS, *(q.id for q in HARD)}
     assert not set(CATEGORIES) & set(EXTENDED_CATEGORIES)
 
 

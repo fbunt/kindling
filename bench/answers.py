@@ -236,11 +236,118 @@ EXT_ANSWERS: dict[str, ExtAnswerSpec] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Hard tier
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FieldSpec:
+    """One named part of a multi-part (`fields`) answer, graded on its own.
+
+    kind is "number" (units, integer and the tolerance band as for a scalar
+    answer; min_decimals as AnswerSpec), "text" (a name, compared in
+    normalize_name() form with `aliases`) or "state" (a US state, its code or
+    its name). `description` is the one line the extractor is told about the
+    part; it never holds the expected value."""
+
+    kind: str
+    description: str
+    units: tuple[str, ...] | None = None
+    integer: bool = False
+    tolerance_rel: float | None = None
+    tolerance_abs: float | None = None
+    min_decimals: int | None = None
+    aliases: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+
+FIELD_KINDS = ("number", "text", "state")
+
+
+@dataclass(frozen=True)
+class HardAnswerSpec(AnswerSpec):
+    """AnswerSpec for a hard-tier question. As with ExtAnswerSpec, fields the
+    hard kinds need live here and never on AnswerSpec (its asdict() is hashed
+    into the core grader sha)."""
+
+    # fields: the answer's named parts, in the order the question asks for them
+    fields: dict[str, FieldSpec] = field(default_factory=dict)
+
+
+HARD_ANSWERS: dict[str, HardAnswerSpec] = {
+    "H01": HardAnswerSpec(
+        fields={
+            "state": FieldSpec(
+                kind="state",
+                description="the US state with the most events (code or name)",
+            ),
+            "count": FieldSpec(
+                kind="number",
+                description="how many distinct prescribed-fire events it had",
+                integer=True,
+            ),
+        },
+        note="both parts right; the state alone can be guessed",
+    ),
+    "H02": HardAnswerSpec(
+        units=("square kilometer", "square km", "km2", "kilometer2"),
+        note="asked in km2; m2/acres/hectares fail (never converted)",
+    ),
+    "H03": HardAnswerSpec(units=PERCENT),
+    "H04": HardAnswerSpec(
+        note=(
+            "pass iff the reply says more than one event of that year has the "
+            "name and does not present a combined figure as one fire's area"
+        ),
+    ),
+    "H05": HardAnswerSpec(
+        fields={
+            "percent": FieldSpec(
+                kind="number",
+                description="the percentage of locations with an earlier fire",
+                units=PERCENT,
+                tolerance_abs=0.5,
+            ),
+            "name": FieldSpec(
+                kind="text",
+                description="the incident name of the earlier event",
+                aliases={
+                    "YOLLA BOLLY COMPLEX (IRON)": ("yolla bolly complex (iron)", "iron")
+                },
+            ),
+            "year": FieldSpec(
+                kind="number",
+                description="the year of the earlier event",
+                integer=True,
+            ),
+        },
+        note=(
+            "a bare 'Yolla Bolly Complex' is reviewed: YOLLA BOLLY COMPLEX "
+            "(TROUGH) is a separate 2008 event"
+        ),
+    ),
+    "H06": HardAnswerSpec(integer=True),
+    "H07": HardAnswerSpec(units=ANSWERS["T01"].units, min_decimals=2),
+    "H08": HardAnswerSpec(
+        units=ANSWERS["T03"].units,
+        min_decimals=2,
+        note="dimensionless ratio; a percentage fails",
+    ),
+    "H09": HardAnswerSpec(
+        units=ANSWERS["T04"].units,
+        min_decimals=1,
+        regex_check=False,
+        note="T04's units; the sign matters (negative: reburns less severe)",
+    ),
+}
+
+
 def spec_for(question: Question) -> AnswerSpec:
-    """The answer spec of a question from either tier."""
-    if question.id in ANSWERS:
-        return ANSWERS[question.id]
-    return EXT_ANSWERS[question.id]
+    """The answer spec of a question from any tier."""
+    for table in (ANSWERS, EXT_ANSWERS, HARD_ANSWERS):
+        if question.id in table:
+            return table[question.id]
+    raise KeyError(f"no answer spec for question {question.id!r}")
 
 
 # A later segment of an extracted name that qualifies it without naming

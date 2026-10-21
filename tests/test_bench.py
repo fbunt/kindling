@@ -20,10 +20,16 @@ import bench.runner as runner
 from app.chat_loop import run_chat_turn
 from app.config import CHAT_MODEL_IDS, LITE_MODEL, MAX_TOOL_ROUNDS
 from app.sandbox.pool import SandboxBusy
-from bench import provenance
+from bench import judge, provenance
 from bench.__main__ import build_parser
 from bench.compare import compare_runs, resolve_pair
-from bench.grading import grader_sha, is_executable, stale_reference
+from bench.grading import (
+    ext_grader_sha,
+    grade_trace,
+    grader_sha,
+    is_executable,
+    stale_reference,
+)
 from bench.ground_truth import parquet_identity, reference_sha
 from bench.io import atomic_write_json, move_aside, read_trace
 from bench.questions import BY_ID, QUESTIONS
@@ -278,32 +284,44 @@ def test_legacy_run_meta_without_tier_resumes_as_core(tmp_path):
 
 
 @pytest.mark.parametrize("allow_drift", [False, True])
-@pytest.mark.parametrize("stored", [None, "core"])
-def test_resume_into_another_tier_is_refused(tmp_path, stored, allow_drift):
+@pytest.mark.parametrize(
+    ("stored", "other"),
+    [(None, "extended"), ("core", "extended"), ("core", "hard"), ("extended", "hard")],
+)
+def test_resume_into_another_tier_is_refused(tmp_path, stored, other, allow_drift):
     d = tmp_path / "run"
     meta = _meta() if stored is None else _meta(tier=stored)
     runner.open_run_dir(d, meta, allow_drift=False)
     before = (d / "run_meta.json").read_text()
-    with pytest.raises(runner.BenchAbort, match="core tier, not extended"):
-        runner.open_run_dir(d, _meta(tier="extended"), allow_drift=allow_drift)
+    held = stored or "core"
+    with pytest.raises(runner.BenchAbort, match=f"{held} tier, not {other}"):
+        runner.open_run_dir(d, _meta(tier=other), allow_drift=allow_drift)
     # Checked before the model/dataset identity, so a tier change names itself.
     with pytest.raises(runner.BenchAbort, match="tier"):
         runner.open_run_dir(
-            d, _meta(tier="extended", model="other"), allow_drift=allow_drift
+            d, _meta(tier=other, model="other"), allow_drift=allow_drift
         )
     assert (d / "run_meta.json").read_text() == before
 
 
-@pytest.mark.parametrize("spec", ["all", "L01,E01"])
-async def test_run_refuses_questions_from_both_tiers(spec):
+@pytest.mark.parametrize(
+    ("spec", "named"),
+    [
+        ("all", "core, extended and hard tiers"),
+        ("L01,E01", "core and extended tiers"),
+        ("E01,H07", "extended and hard tiers"),
+        ("H01,L03,E04", "core, extended and hard tiers"),
+    ],
+)
+async def test_run_refuses_questions_from_more_than_one_tier(spec, named):
     args = SimpleNamespace(
         models=None, model=CHAT_MODEL, questions=spec, parquet="/nonexistent"
     )
-    with pytest.raises(runner.BenchAbort, match="core and extended tiers"):
+    with pytest.raises(runner.BenchAbort, match=named):
         await runner.run_bench(args)
 
 
-@pytest.mark.parametrize("spec", [None, "extended", "E01,E04"])
+@pytest.mark.parametrize("spec", [None, "extended", "E01,E04", "hard", "H01,H07"])
 async def test_run_accepts_one_tier(spec):
     args = SimpleNamespace(
         models=None, model=CHAT_MODEL, questions=spec, parquet="/nonexistent"
@@ -353,6 +371,66 @@ def test_core_references_match_the_archived_ground_truth():
 
 def test_core_grader_matches_the_archived_run():
     assert grader_sha() == "ee57b57a09b8"
+
+
+def test_extended_grader_matches_the_graded_extended_run():
+    # The three-model extended run of 2026-10-20 was graded under this sha.
+    assert ext_grader_sha() == "1da536285bd3"
+
+
+# Every field grade_trace derives from the trace and its extraction.
+REPLAYED_FIELDS = (
+    "grader_sha",
+    "executable",
+    "executability_reason",
+    "resource_violation",
+    "had_query_errors",
+    "answer_ok",
+    "answer_reason",
+    "partial_data",
+    "partial_data_evidence",
+    "sampled_disclosed",
+    "grounded",
+    "regex_check",
+    "regex_disagree",
+    "review_reasons",
+    "needs_review",
+    "auto_accurate",
+    "auto_reason",
+)
+
+
+def test_archived_verdicts_replay_unchanged(tmp_path, monkeypatch):
+    """Grader shas hash data (tables, prompts, versions), not code. Grading the
+    archived run's stored extractions again, through grade_trace with the
+    extractor replaced by each trace's stored extraction (is_executable,
+    partial_data with answer_query, which names the "answer query" in the
+    evidence, check_answer, the cross-checks and review_reasons), must give
+    the verdicts stored with them, so a code change cannot move a core verdict
+    unseen."""
+    with tarfile.open(ARCHIVE / "traces.tar.gz") as tar:
+        tar.extractall(tmp_path, filter="data")
+    paths = sorted((tmp_path / "pro-vs-flash").glob("*/*/trial_*.json"))
+    assert len(paths) == 250
+    stored = {}
+
+    def replay_extraction(client, question_text, response_text, kind):
+        return {"extraction": stored["extraction"], "error": None}
+
+    monkeypatch.setattr(judge, "extract", replay_extraction)
+    changed = []
+    for path in paths:
+        trace = json.loads(path.read_text())
+        stored["extraction"] = trace["extraction"]
+        got = grade_trace(trace, None)
+        diff = {
+            f: (trace.get(f), got.get(f))
+            for f in REPLAYED_FIELDS
+            if got.get(f) != trace.get(f)
+        }
+        if diff:
+            changed.append((path.relative_to(tmp_path).as_posix(), diff))
+    assert changed == []
 
 
 def test_archived_run_reports_as_archived(tmp_path, monkeypatch):

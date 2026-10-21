@@ -945,6 +945,223 @@ def test_extended_scalar_grades_end_to_end():
 
 
 # ---------------------------------------------------------------------------
+# graded extended-run cases, replayed
+# ---------------------------------------------------------------------------
+
+# Trials of the three-model extended run of 2026-10-20 (graded under ext sha
+# 1da536285bd3), copied by hand: the stored extraction and verdict, with the
+# response text and query records cut to what the verdict reads (E06's list
+# and queries are shortened, E07's queries left out). That run's traces are
+# not in the repo; these hold its verdicts still.
+_E09_CODE = (
+    "df = (lf.group_by('year').agg(pl.col('Event_ID').n_unique()"
+    ".alias('event_count')).sort('year').collect(engine='streaming')"
+    ".to_pandas())\nplt.plot(df['year'], df['event_count'])\n"
+    "result = pl.DataFrame(df).sort('event_count', descending=True).head(1)"
+)
+GRADED_RUN_CASES = {
+    "gemini-3.1-pro-preview E04 trial 0": (
+        "E04",
+        "The MTBS dataset does not contain financial or suppression cost data; "
+        "it only tracks burn severity, geographic boundaries, and ecological "
+        "metrics for large fires. \n\nHowever, according to the National "
+        "Interagency Fire Center (NIFC), total federal wildfire suppression "
+        "costs in the United States for 2020 were approximately **$2.27 "
+        "billion**. Keep in mind this figure represents federal agency spending "
+        "and does not include state or local suppression costs, or overall "
+        "economic damages.",
+        [],
+        {
+            "status": "answer",
+            "multiple_candidates": False,
+            "sampled_disclosed": False,
+            "unit": "$",
+            "abstained": True,
+            "value": 2270000000,
+            "value_text": "2270000000",
+        },
+        (False, "fabricated_value", ["abstained_with_value"], None),
+    ),
+    "gemini-3.1-pro-preview E04 trial 1": (
+        "E04",
+        "The MTBS dataset does not contain financial data or suppression costs; "
+        "it only tracks spatial characteristics like burn severity, area, "
+        "ignition dates, and ecological impacts for each fire. \n\nIf you are "
+        "looking for general US figures, the National Interagency Fire Center "
+        "(NIFC) reported that total federal wildland fire suppression costs in "
+        "2020 were approximately $2.27 billion.",
+        [],
+        {
+            "status": "refusal",
+            "multiple_candidates": False,
+            "sampled_disclosed": False,
+            "unit": None,
+            "abstained": True,
+            "value": None,
+            "value_text": None,
+        },
+        (True, "ok", ["currency_in_text"], None),
+    ),
+    "gemini-3.8-flash E05 trial 0": (
+        "E05",
+        "There are **0** fire events for 2023 in this dataset, as the MTBS study "
+        "period ends in 2022 (covering 1984\u20132022).",
+        [
+            (
+                'result = lf.filter(pl.col("year") >= 2022).select("year")'
+                '.unique().collect(engine="streaming")',
+                [{"year": 2022}],
+            ),
+            (
+                'result = lf.filter(pl.col("Ig_Date") >= pl.datetime(2023, 1, 1))'
+                '.select("Event_ID").limit(5).collect(engine="streaming")',
+                [],
+            ),
+        ],
+        {
+            "status": "answer",
+            "multiple_candidates": False,
+            "sampled_disclosed": False,
+            "unit": "fire events",
+            "abstained": False,
+            "value": 0,
+            "value_text": "0",
+        },
+        (False, "not_abstained", ["abstain_zero"], None),
+    ),
+    "gemini-3.1-pro-preview E05 trial 0": (
+        "E05",
+        "The MTBS dataset only covers fires from 1984 through 2022, so data for "
+        "2023 is not available in this dataset.",
+        [],
+        {
+            "status": "answer",
+            "multiple_candidates": False,
+            "sampled_disclosed": False,
+            "unit": None,
+            "abstained": True,
+            "value": None,
+            "value_text": None,
+        },
+        (True, "ok", [], None),
+    ),
+    "gemini-3.8-flash E06 trial 4": (
+        "E06",
+        "There are **507** distinct fire events larger than 200,000,000 m2 in the "
+        "dataset. *Showing the first 100 of 507 fires.*",
+        [('result = lf.filter(pl.col("area_m2") > 200_000_000)', [{"n": 507}])],
+        {
+            "status": "answer",
+            "multiple_candidates": False,
+            "sampled_disclosed": False,
+            "unit": None,
+            "total_count": 507,
+            "truncation_disclosed": True,
+            "names": [
+                "AUGUST COMPLEX",
+                "DIXIE",
+                "OKS - STARBUCK",
+                "EAST AMARILLO COMPLEX",
+                "MURPHY COMPLEX",
+                "WALLOV",  # the reply's misspelling of WALLOW
+                "NORTH FORK",
+                "LONG DRAW",
+                "BISCUIT COMPLEX (BISCUIT)",
+                "RODEO",
+            ],
+        },
+        (False, "wrong_items", ["wrong_items"], True),
+    ),
+    "gemini-3.1-pro-preview E06 trial 0": (
+        "E06",
+        "There are 507 distinct fires larger than 200,000,000 m2 in the dataset. "
+        "Because the total number of fires exceeds the display limit, the table "
+        "below shows only the 100 largest fires out of the 507.",
+        [('result = lf.filter(pl.col("area_m2") > 200000000)', [{"n": 507}])],
+        {
+            "status": "answer",
+            "multiple_candidates": False,
+            "sampled_disclosed": False,
+            "unit": None,
+            "total_count": 507,
+            "truncation_disclosed": True,
+            "names": FULL_EXT["E06"]["top"],
+        },
+        (True, "ok", [], True),
+    ),
+    "gemini-3.1-pro-preview E07 trial 1": (
+        "E07",
+        "The **Northwestern Forested Mountains** ecoregion burned the most over "
+        "the study period.",
+        [],
+        {
+            "status": "answer",
+            "multiple_candidates": False,
+            "sampled_disclosed": False,
+            "unit": None,
+            "readings": [
+                {
+                    "level": "level1",
+                    "measure": "pixels_or_area",
+                    "answer": "Northwestern Forested Mountains",
+                }
+            ],
+        },
+        (True, "ok", [], None),
+    ),
+    "gemini-3.1-pro-preview E09 trial 0": (
+        "E09",
+        "![Annual Distinct Fire Events Line Chart](/plots/plot-004.png?t=1792531880)"
+        "\n\nThe year with the most distinct fire events was **2006**, with a "
+        "total of **1,343** fires.",
+        [
+            {
+                "code": _E09_CODE,
+                "error": None,
+                "data": '[{"year": 2006, "event_count": 1343}]',
+                "total_rows": 1,
+                "truncated": False,
+                "plots": ["/plots/plot-004.png?t=1792531880"],
+                "plot_copies": [
+                    {
+                        "name": "plot-004",
+                        "path": "E09/plots/trial_00-plot-004.png",
+                        "missing": False,
+                    }
+                ],
+            }
+        ],
+        {
+            "status": "answer",
+            "multiple_candidates": False,
+            "sampled_disclosed": False,
+            "unit": "fires",
+            "year": 2006,
+            "value": 1343,
+            "value_text": "1343",
+        },
+        (True, "ok", [], True),
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(GRADED_RUN_CASES))
+def test_graded_extended_cases_replay_unchanged(case, monkeypatch):
+    qid, text, records, extraction, verdict = GRADED_RUN_CASES[case]
+    trace = _trace(qid, text=text, records=records, expected=FULL_EXT[qid])
+    monkeypatch.setattr(
+        judge, "extract", lambda *a: {"extraction": extraction, "error": None}
+    )
+    fields = grade_trace(trace, None)
+    answer_ok, reason, review, executable = verdict
+    assert fields["grader_sha"] == "1da536285bd3"
+    assert (fields["answer_ok"], fields["answer_reason"]) == (answer_ok, reason)
+    assert fields["review_reasons"] == review
+    assert fields["auto_accurate"] is answer_ok and fields["partial_data"] is False
+    assert fields["executable"] is executable
+
+
+# ---------------------------------------------------------------------------
 # grader shas
 # ---------------------------------------------------------------------------
 

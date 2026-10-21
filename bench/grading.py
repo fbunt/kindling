@@ -129,9 +129,26 @@ def ext_grader_sha() -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
+# The grader sha of each tier that can be graded. A tier missing here (the
+# hard tier, whose answer kinds have no verdict rules yet) is never graded,
+# so none of its traces carries a sha of another tier.
+_TIER_GRADER_SHAS = {"core": grader_sha, "extended": ext_grader_sha}
+
+
+class UngradableTierError(Exception):
+    """A trace of a tier that has no grader."""
+
+
 def grader_sha_for(question: Question) -> str:
-    """The grader sha a trace of this question is graded under."""
-    return ext_grader_sha() if tier_of(question) == "extended" else grader_sha()
+    """The grader sha a trace of this question is graded under. Raises
+    UngradableTierError for a tier without a grader."""
+    tier = tier_of(question)
+    if tier not in _TIER_GRADER_SHAS:
+        raise UngradableTierError(
+            f"{question.id} is a {tier}-tier question, and the {tier} tier has "
+            "no grader yet: its traces cannot be graded"
+        )
+    return _TIER_GRADER_SHAS[tier]()
 
 
 # ---------------------------------------------------------------------------
@@ -1907,7 +1924,8 @@ def grade_run(run_dir: Path, client, *, regrade: bool = False) -> list[dict]:
     A trace is (re)graded unless it already carries a grade from the current
     grader_sha without a grader error; --regrade forces all. Refuses (before
     any extractor call) if a trace that would be graded was produced by
-    different reference code than the current questions.py. Unreadable traces
+    different reference code than the current questions.py, or if any trace
+    is of a tier without a grader (UngradableTierError). Unreadable traces
     are skipped with an error log."""
     entries = load_adjudication(run_dir)  # refuse early on a corrupt overlay
     loaded = []
@@ -1917,6 +1935,19 @@ def grade_run(run_dir: Path, client, *, regrade: bool = False) -> list[dict]:
             logger.error("%s: unreadable trace, skipped (%s)", path, err)
             continue
         loaded.append((path, trace))
+    ungradable = sorted(
+        {
+            f"{q.id} ({tier_of(q)} tier)"
+            for _, trace in loaded
+            if (q := BY_ID.get(trace.get("question_id")))
+            and tier_of(q) not in _TIER_GRADER_SHAS
+        }
+    )
+    if ungradable:
+        raise UngradableTierError(
+            f"refusing to grade {run_dir}: it holds traces of questions whose "
+            f"tier has no grader yet: {', '.join(ungradable)}"
+        )
 
     def needs(trace):
         return regrade or not is_current_grade(trace)
