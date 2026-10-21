@@ -19,16 +19,20 @@ _Updated: 2026-10-20._
 
 ## TODO
 
-- **Extended bench tier (E01-E14): built, full-data ground truth cached (2026-10-20).** Code landed
-  2026-10-19 (`523f6f6`..`8fe1727`; CLAUDE.md *Extended tier*). Plan and its build log are in
-  `.bench-runs/extended-tier-plan.md` (gitignored). Next, in order:
-  1. Optional, not a gate: a blind second reference for E06, E07 and E10-E14, written by someone
-     (or a fresh agent) who has not seen ours; record agreement in the commit message.
-  2. Pilot: `run --models gemini-3.1-pro-preview,gemini-3.8-flash --questions extended
-     --trials 3` (~$3.40), grade, stability regrade, `audit --full E04,E05,E06,E07,E08,E09 --fraction 0.25`,
-     adjudicate; then 5 trials (~$2.30 more if resumed).
-     Scoring rules are fixed in decision 0005: a rule change after the pilot is graded bumps
-     `EXT_GRADER_VERSION` and the final run goes in a new run dir.
+- **Hard bench tier (H01-H09): built and filled from full-data ground truth (2026-10-20,
+  `9dc05e5`..`9ffbdc3`; decision 0006; CLAUDE.md *Hard tier*).** Next: pilot with all three chat
+  models, 3 trials (`run --models gemini-3.1-pro-preview,gemini-3.8-flash,gemini-4-argon
+  --questions hard --trials 3`), grade, `audit --full H01,H04,H05`, adjudicate; then 5 trials. A
+  rule change after the pilot is graded bumps `HARD_GRADER_VERSION` and goes to a new run dir.
+  Plan, reviews and paper survey are in `.bench-runs/hard-tier-*.md` and
+  `.bench-runs/fire-paper-survey.md` (gitignored).
+- **Land-cover bench questions: blocked: waiting on the new dataframe with pre-fire land cover.**
+  Same-year `nlcd` is largely post-fire for moderate and high severity (sample, forest-mode
+  pixels: 41% of bs 4 vs 11% of bs 1 show non-forest, 2001-2022; 1984 uses the 1985 map), and
+  `nlcd_mode` inherits the bias. Held: Parks 2025 / Haugo 2019 fire rotation, Parks-Coop-Davis 2025
+  high-severity fold increase, Buma 2020 reburn share (drafts in the paper survey). When the new
+  dataframe lands: update `_KEY_COLUMNS` and the system prompt's `nlcd` description, recompute
+  ground truth (new parquet identity), and treat runs on it as a new series.
 - **Polars: on 1.41.2, capped `<2` in `pyproject.toml`; 1.44.2 is the latest 1.x and 2.0.0 shipped
   2026-10-06.** Upgrade between bench runs only, bumping `uv.lock` and the Containerfile pin together
   and recomputing ground truth (`bench gt --force`).
@@ -53,6 +57,15 @@ _Updated: 2026-10-20._
 
 ## Recently done
 
+- **2026-10-20 — Three-model bench: core and extended at ceiling; gemini-4-argon added.**
+  `gemini-4-argon` joined `CHAT_MODELS` (`d16ddae`; $2/$10 per 1M through 2026-11-30, doubling
+  2026-12-01). Core, 5 trials interleaved: Pro, Flash and argon all 125/125 (the A06 rewording
+  removed Flash's only misses). Extended, 5 trials: argon 70/70, Pro 66/70, Flash 65/70; the
+  only failures are E04 (quoting NIFC's $2.27B suppression cost from recall after a blocked
+  web_search: Pro 3/5, Flash 5/5, argon 0/5) and one Pro E10 query bug (`explode` of empty lists
+  counted as rows). The extractor misses "0 events, coverage ends 2022" as an abstention every
+  time (E05); review catches it. Runs in `.bench-runs/core-pro-flash-argon` and
+  `.bench-runs/ext-pilot` (argon not interleaved there).
 - **2026-10-20 — Extended-tier ground truth on the full parquet.** Every reference but E07 and E10
   peaks under 7 GB. E07 was OOM-killed at the 100 GB cap: Polars 1.41.2 does not stream `is_in`
   inside a streaming `group_by().agg()`, so memory grows with rows (15 GB on 60 of 623 parts);
