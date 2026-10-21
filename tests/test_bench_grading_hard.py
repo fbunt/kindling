@@ -1,0 +1,689 @@
+"""Bench grading of the hard tier: the fields and disambiguate verdicts and
+their review routes, the answer query of a fields answer, executability and
+partial data per kind, the hard grader sha, and a hard run graded end to end.
+No dataset, no API key, no container runtime: extractions are hand-built and
+the extractor is a scripted fake."""
+
+import dataclasses
+import json
+
+import pytest
+
+from bench import grading, grading_ext, grading_hard, judge
+from bench.answers import HARD_ANSWERS, spec_for
+from bench.grading import (
+    ADJUDICATION_FILE,
+    FAILURE_MODES,
+    answer_query,
+    ext_grader_sha,
+    grade_run,
+    grade_trace,
+    grader_sha,
+    grader_sha_for,
+    hard_grader_sha,
+    is_current_grade,
+    is_executable,
+)
+from bench.ground_truth import reference_sha
+from bench.io import atomic_write_json
+from bench.questions import BY_ID
+from tests.test_bench_grading import FakeExtractor, _by_response, _reply
+
+# Made-up ground truth in each hard question's expected shape.
+HARD = {
+    "H01": {"state": "FL", "count": 1388},
+    "H04": {
+        "year": 1994,
+        "count": 3,
+        "events": [
+            {"Event_ID": f"ID{i}", "Incid_Type": 1, "acres": 100.0 * i}
+            for i in range(1, 4)
+        ],
+    },
+    "H05": {"percent": 24.6775, "name": "YOLLA BOLLY COMPLEX (IRON)", "year": 2008},
+    "H07": 4.208333,
+}
+
+
+def _trace(qid, trial=0, text="answer text", records=(), **extra):
+    """A hard trace; records are (code, data) pairs or full dicts."""
+    q = BY_ID[qid]
+    recs = [
+        r
+        if isinstance(r, dict)
+        else {"code": r[0], "error": None, "data": json.dumps(r[1]), "latency_s": 1}
+        for r in records
+    ]
+    return {
+        "question_id": qid,
+        "trial": trial,
+        "category": q.category,
+        "answer_kind": q.answer_kind,
+        "tier": "hard",
+        "expected": HARD[qid],
+        "reference_sha": reference_sha(q),
+        "parquet_identity": "pid",
+        "infra_error": None,
+        "model_error": None,
+        "text": text,
+        "tool_calls": [
+            {"name": "run_query", "args": {"code": r["code"]}} for r in recs
+        ],
+        "query_records": recs,
+        "rejected_queries": [],
+        "loop_exhausted": False,
+        "turn_latency_s": 5.0,
+        **extra,
+    }
+
+
+def _part(text=None, value=None, unit=None):
+    """A parsed part (judge._parse_parts): `text` as written, `value_text`
+    the number's decimal text."""
+    return {
+        "text": text,
+        "value": value,
+        "value_text": None if value is None else str(value),
+        "unit": unit,
+    }
+
+
+def _fields(status="answer", multiple=False, **parts):
+    return {
+        "status": status,
+        "multiple_candidates": multiple,
+        "sampled_disclosed": False,
+        "parts": parts,
+    }
+
+
+def _check(qid, extraction, text="answer text", records=()):
+    q = BY_ID[qid]
+    trace = _trace(qid, text=text, records=records)
+    return grading_hard.check(q, HARD[qid], extraction, trace, spec_for(q))
+
+
+def _reply_part(text=None, value=None, unit=None):
+    return {"value_text": text, "value": value, "unit": unit}
+
+
+def _grade(qid, reply: dict, text="answer text", records=(), **extra):
+    trace = _trace(qid, text=text, records=records, **extra)
+    return grade_trace(trace, FakeExtractor(lambda p: _reply(**reply)))
+
+
+H01_RIGHT = {"state": _part("Florida (FL)"), "count": _part("1,388", 1388)}
+H05_RIGHT = {
+    "percent": _part("24.7%", 24.7, "%"),
+    "name": _part("Yolla Bolly Complex (Iron)"),
+    "year": _part("2008", 2008),
+}
+
+
+def _h01(**over):
+    return _fields(**{**H01_RIGHT, **over})
+
+
+def _h05(**over):
+    return _fields(**{**H05_RIGHT, **over})
+
+
+# ---------------------------------------------------------------------------
+# fields: H01 (state, count)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("extraction", "verdict", "reason", "review"),
+    [
+        (_h01(), True, "ok", []),
+        (_h01(state=_part("FL")), True, "ok", []),
+        (_h01(state=_part("fl")), True, "ok", []),
+        (_h01(state=_part("Florida")), True, "ok", []),
+        (_h01(state=_part("FLORIDA, USA")), True, "ok", []),
+        (_h01(state=_part("Georgia (GA)")), False, "state:wrong_state", []),
+        (_h01(state=_part("the Southeast")), False, "state:wrong_state", []),
+        (_h01(state=_part()), False, "state:missing_value", []),
+        # A guessed state without the count fails.
+        (_h01(count=_part()), False, "count:missing_value", []),
+        (_h01(count=_part("1,387", 1387)), False, "count:not_exact", []),
+        # A second state: a hedge, or one named in passing.
+        (
+            _h01(state=_part("Florida, ahead of Georgia")),
+            False,
+            "state:several_states",
+            ["second_state"],
+        ),
+        (
+            _h01(state=_part("FL or GA")),
+            False,
+            "state:several_states",
+            ["second_state"],
+        ),
+        (_h01(state=_part("Georgia or Texas")), False, "state:wrong_state", []),
+        # 'West Virginia' is one state, not also Virginia.
+        (_h01(state=_part("West Virginia")), False, "state:wrong_state", []),
+        (_fields("clarification"), False, "clarification", []),
+        (_fields("refusal", **H01_RIGHT), False, "refusal", []),
+        # Right parts plus another candidate: fails, reviewed as a hedge.
+        (
+            _fields(multiple=True, **H01_RIGHT),
+            False,
+            "multiple_candidates",
+            ["multiple_candidates"],
+        ),
+        (
+            _fields(multiple=True, **{**H01_RIGHT, "count": _part("1,200", 1200)}),
+            False,
+            "multiple_candidates",
+            [],
+        ),
+    ],
+)
+def test_state_and_count_verdicts(extraction, verdict, reason, review):
+    assert _check("H01", extraction) == (verdict, reason, review)
+
+
+def test_states_named():
+    named = grading_hard.states_named
+    assert named("Florida (FL)") == {"fl"}
+    assert named("New Mexico") == {"nm"}
+    assert named("North Carolina and South Carolina") == {"nc", "sc"}
+    assert named("Florida, in 2010-2019") == {"fl"}  # 'in' is not Indiana
+    assert named("Event_ID prefix FL") == {"fl"}
+    assert named("or") == {"or"}  # a part that is only a code
+    assert named("") == named(None) == set()
+
+
+# ---------------------------------------------------------------------------
+# fields: H05 (percent, name, year)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("extraction", "verdict", "reason", "review"),
+    [
+        (_h05(), True, "ok", []),
+        (_h05(name=_part("YOLLA BOLLY COMPLEX (IRON)")), True, "ok", []),
+        (_h05(name=_part("Iron")), True, "ok", []),
+        (_h05(name=_part("Iron (Yolla Bolly Complex)")), True, "ok", []),
+        (_h05(percent=_part("24.3", 24.3)), True, "ok", []),  # in band, no unit
+        (_h05(percent=_part("25.3%", 25.3, "%")), False, "percent:out_of_band", []),
+        (_h05(percent=_part()), False, "percent:missing_value", []),
+        # A fraction for a percent: reviewed when 100x is in band.
+        (
+            _h05(percent=_part("0.247", 0.247)),
+            False,
+            "percent:out_of_band",
+            ["fraction_for_percent"],
+        ),
+        (_h05(percent=_part("0.4", 0.4)), False, "percent:out_of_band", []),
+        # A right number failed only on its unit.
+        (
+            _h05(percent=_part("24.7 acres", 24.7, "acres")),
+            False,
+            "percent:wrong_unit",
+            ["unit_only"],
+        ),
+        (_h05(percent=_part("31 acres", 31, "acres")), False, "percent:wrong_unit", []),
+        # Year tokens are taken out of the name before it is matched.
+        (_h05(name=_part("Yolla Bolly Complex (Iron), 2008")), True, "ok", []),
+        (_h05(name=_part("the 2008 Yolla Bolly Complex (Iron) fire")), True, "ok", []),
+        (_h05(name=_part("Yolla Bolly Complex (Iron, 2008)")), True, "ok", []),
+        (_h05(name=_part("Yolla Bolly Complex (Iron) in 2008")), True, "ok", []),
+        # The bare complex name: YOLLA BOLLY COMPLEX (TROUGH) is another 2008
+        # event, so the reply is decided by hand.
+        (
+            _h05(name=_part("Yolla Bolly Complex")),
+            False,
+            "name:wrong_name",
+            ["unqualified_name"],
+        ),
+        (
+            _h05(name=_part("Yolla Bolly Complex 2008")),
+            False,
+            "name:wrong_name",
+            ["unqualified_name"],
+        ),
+        (
+            _h05(name=_part("Yolla Bolly Complex (Trough)")),
+            False,
+            "name:wrong_name",
+            [],
+        ),
+        (_h05(name=_part("MENDENHALL")), False, "name:wrong_name", []),
+        # A parenthetical that matches when the outside text does not.
+        (
+            _h05(name=_part("Mendenhall (Iron)")),
+            False,
+            "name:wrong_name",
+            ["name_reading_conflict"],
+        ),
+        (_h05(name=_part()), False, "name:missing_value", []),
+        # The year part, read from the name or a date when its value is empty.
+        (
+            _h05(name=_part("Yolla Bolly Complex (Iron) 2008"), year=_part()),
+            True,
+            "ok",
+            [],
+        ),
+        (_h05(year=_part("July 12, 2008")), True, "ok", []),
+        (_h05(year=_part("2008-07-12")), True, "ok", []),
+        (_h05(year=_part()), False, "year:missing_value", []),
+        (_h05(year=_part("2007", 2007)), False, "year:not_exact", []),
+        # A year in the name that disagrees goes to review; the year part
+        # decides when it has a value, and two years without one fail.
+        (
+            _h05(name=_part("Yolla Bolly Complex (Iron), 2007")),
+            True,
+            "ok",
+            ["year_disagreement"],
+        ),
+        (
+            _h05(
+                name=_part("Yolla Bolly Complex (Iron), 2008"), year=_part("2007", 2007)
+            ),
+            False,
+            "year:not_exact",
+            ["year_disagreement"],
+        ),
+        (
+            _h05(
+                name=_part("Yolla Bolly Complex (Iron), 2008"), year=_part("2007-08-01")
+            ),
+            False,
+            "year:conflicting_years",
+            ["year_disagreement"],
+        ),
+        # Several failed parts: the first, in the order asked, is the reason;
+        # every part's review flags are kept.
+        (
+            _h05(
+                percent=_part("0.247", 0.247),
+                name=_part("Yolla Bolly Complex"),
+            ),
+            False,
+            "percent:out_of_band",
+            ["fraction_for_percent", "unqualified_name"],
+        ),
+        (
+            _fields(multiple=True, **H05_RIGHT),
+            False,
+            "multiple_candidates",
+            ["multiple_candidates"],
+        ),
+    ],
+)
+def test_percent_name_and_year_verdicts(extraction, verdict, reason, review):
+    assert _check("H05", extraction) == (verdict, reason, review)
+
+
+def test_without_years():
+    strip = grading_hard.without_years
+    assert strip("Yolla Bolly Complex (Iron)") == "Yolla Bolly Complex (Iron)"
+    assert strip("2008: Yolla Bolly Complex (Iron)") == "Yolla Bolly Complex (Iron)"
+    assert strip("Yolla Bolly Complex (2008, Iron)") == "Yolla Bolly Complex (Iron)"
+    assert strip("YOLLA BOLLY COMPLEX (IRON) (2008)") == "YOLLA BOLLY COMPLEX (IRON)"
+
+
+def test_fields_numbers_use_the_part_band_and_spec():
+    # H05's percent is banded at 0.5 pp whatever the question's own band; the
+    # integer parts are exact.
+    q = BY_ID["H05"]
+    part_q = grading_hard._part_question(q, HARD_ANSWERS["H05"].fields["percent"])
+    assert (part_q.tolerance_abs, part_q.answer_kind) == (0.5, "scalar")
+    count = grading_hard._part_question(
+        BY_ID["H01"], HARD_ANSWERS["H01"].fields["count"]
+    )
+    assert count.tolerance_abs == 0.0
+    assert _check("H05", _h05(percent=_part("24.18", 24.18)))[0] is True
+    assert _check("H05", _h05(percent=_part("24.17", 24.17)))[0] is False
+
+
+# ---------------------------------------------------------------------------
+# disambiguate: H04
+# ---------------------------------------------------------------------------
+
+
+def _events(n):
+    return [
+        {"identifier": f"COTTONWOOD {i}", "area_text": f"{100 * i} acres"}
+        for i in range(1, n + 1)
+    ]
+
+
+def _disambiguated(status="answer", noted=True, combined=False, events=3):
+    return {
+        "status": status,
+        "multiple_candidates": False,
+        "sampled_disclosed": False,
+        "unit": None,
+        "several_noted": noted,
+        "combined_as_one": combined,
+        "events": _events(events),
+    }
+
+
+@pytest.mark.parametrize(
+    ("extraction", "verdict", "reason", "review"),
+    [
+        (_disambiguated(), True, "ok", []),
+        # Under any status: a question that lists the namesakes passes.
+        (_disambiguated("clarification"), True, "ok", []),
+        (_disambiguated("refusal"), True, "ok", []),
+        # The largest given as the answer with the others noted.
+        (_disambiguated(events=3), True, "ok", []),
+        # A blind "which one?" fails.
+        (
+            _disambiguated("clarification", noted=False, events=0),
+            False,
+            "namesakes_not_noted",
+            [],
+        ),
+        (_disambiguated(noted=False, events=1), False, "namesakes_not_noted", []),
+        (_disambiguated(combined=True), False, "combined_as_one", []),
+        (_disambiguated(noted=False, combined=True), False, "namesakes_not_noted", []),
+        # Fewer events listed than exist: passes, reviewed.
+        (_disambiguated(events=2), True, "ok", ["fewer_events_listed"]),
+        (_disambiguated(events=0), True, "ok", ["fewer_events_listed"]),
+    ],
+)
+def test_disambiguate_verdicts(extraction, verdict, reason, review):
+    assert _check("H04", extraction) == (verdict, reason, review)
+
+
+def test_disambiguate_counts_listed_events_up_to_the_extractor_cap():
+    q = BY_ID["H04"]
+    many = {**HARD["H04"], "count": judge.HARD_EVENTS_CAP + 2}
+    full = _disambiguated(events=judge.HARD_EVENTS_CAP)
+    trace = _trace("H04")
+    assert grading_hard.check(q, many, full, trace, spec_for(q)) == (True, "ok", [])
+    short = _disambiguated(events=judge.HARD_EVENTS_CAP - 1)
+    assert grading_hard.check(q, many, short, trace, spec_for(q))[2] == [
+        "fewer_events_listed"
+    ]
+
+
+def test_check_refuses_other_kinds():
+    q = BY_ID["H07"]
+    with pytest.raises(ValueError, match="not a hard answer kind: 'scalar'"):
+        grading_hard.check(q, 4.2, {}, _trace("H07"), spec_for(q))
+
+
+# ---------------------------------------------------------------------------
+# executability, partial data and the answer query per kind
+# ---------------------------------------------------------------------------
+
+
+def test_kind_registry():
+    modules = grading._kind_modules()
+    assert {k for k, m in modules.items() if m is grading_hard} == {
+        "fields",
+        "disambiguate",
+    }
+    assert {k for k, m in modules.items() if m is grading_ext} == grading_ext.KINDS
+    assert not {"scalar", "series", "set", "text"} & set(modules)
+
+
+@pytest.mark.parametrize("kind", ["fields", "disambiguate"])
+def test_executability_applies_to_hard_kinds(kind):
+    trace = _trace("H04")
+    assert is_executable(trace, "answer", kind) == (False, "no_queries")
+    assert is_executable(trace, "clarification", kind) == (False, "clarified")
+    ran = _trace("H04", records=[("result = 1", {"n": 1})])
+    assert is_executable(ran, "answer", kind) == (True, "ok")
+
+
+def test_a_disambiguation_without_a_query_is_not_executable():
+    fields = _grade(
+        "H04",
+        {"several_noted": True, "combined_as_one": False, "events": _events(3)},
+        "Three fires were named COTTONWOOD in 1994.",
+    )
+    assert fields["auto_accurate"] is True
+    assert (fields["executable"], fields["executability_reason"]) == (
+        False,
+        "no_queries",
+    )
+
+
+_H05_QUERY = (
+    "shares = earlier.group_by('Event_ID').agg(pl.len()).collect()\n"
+    "result = {'percent': 24.68, 'name': 'YOLLA BOLLY COMPLEX (IRON)', 'year': 2008}",
+    {"percent": 24.68, "name": "YOLLA BOLLY COMPLEX (IRON)", "year": 2008},
+)
+_PREVIEW = ("result = lf.head(5).collect()", [{"year": 1984}])
+_H05_REPLY = {
+    "parts": {
+        "percent": _reply_part("24.68%", 24.68, "%"),
+        "name": _reply_part("Yolla Bolly Complex (Iron)"),
+        "year": _reply_part("2008", 2008),
+    }
+}
+
+
+def test_fields_answer_query_is_located_by_the_first_strong_number_part():
+    q = BY_ID["H05"]
+    trace = _trace("H05", records=[_H05_QUERY, _PREVIEW])
+    assert answer_query(q, trace, _h05(percent=_part("24.68%", 24.68, "%"))) == 0
+    # No percent: the year (not a weak integer) locates it.
+    assert answer_query(q, trace, _h05(percent=_part())) == 0
+    # H01's count under 1000 is weak, and the state is not a number.
+    small = _trace("H01", records=[("result = n", {"FL": 5})])
+    assert answer_query(BY_ID["H01"], small, _h01(count=_part("5", 5))) is None
+    big = _trace("H01", records=[("result = n", {"FL": 1388}), _PREVIEW])
+    assert answer_query(BY_ID["H01"], big, _h01()) == 0
+    assert answer_query(q, trace, None) is None
+    assert answer_query(BY_ID["H04"], _trace("H04"), _disambiguated()) is None
+
+
+def test_fields_preview_after_the_answer_query_is_not_partial_data():
+    fields = _grade("H05", _H05_REPLY, "24.68%.", [_H05_QUERY, _PREVIEW])
+    assert fields["answer_ok"] is True and fields["partial_data"] is False
+    assert fields["auto_accurate"] is True and fields["auto_reason"] == "ok"
+    assert fields["grounded"] is None  # not checked for a multi-part answer
+    assert fields["regex_check"] is None
+
+
+def test_fields_fail_on_a_row_cut_in_the_answer_query():
+    cut = (
+        "sub = lf.head(100000).collect()\n"
+        "result = sub.group_by('Event_ID').agg(pl.col('geohash').n_unique())",
+        _H05_QUERY[1],
+    )
+    fields = _grade("H05", _H05_REPLY, "24.68%.", [cut])
+    assert fields["answer_ok"] is True and fields["partial_data"] is True
+    assert fields["auto_reason"] == "partial_data"
+    assert fields["review_reasons"] == ["partial_data_heuristic"]
+    sampled = ("result = lf.collect().sample(1000)", _H05_QUERY[1])
+    fields = _grade("H05", _H05_REPLY, "24.68%.", [sampled])
+    assert fields["auto_reason"] == "partial_data" and fields["review_reasons"] == []
+
+
+def test_disambiguate_fails_only_on_sampling():
+    reply = {"several_noted": True, "combined_as_one": False, "events": _events(3)}
+    cut = ("result = named.head(3).collect()", [{"Event_ID": "ID1"}])
+    fields = _grade("H04", reply, "Three COTTONWOOD fires.", [cut])
+    assert fields["partial_data_evidence"] and fields["partial_data"] is False
+    assert fields["auto_accurate"] is True
+    sampled = ("result = named.collect().sample(3)", [{"Event_ID": "ID1"}])
+    fields = _grade("H04", reply, "Three COTTONWOOD fires.", [sampled])
+    assert fields["partial_data"] is True and fields["auto_reason"] == "partial_data"
+
+
+def test_empty_response_fails_every_hard_kind():
+    fake = FakeExtractor(lambda p: pytest.fail("no call expected"))
+    for qid in ("H01", "H04", "H05"):
+        fields = grade_trace(_trace(qid, text="", model_error="MALFORMED"), fake)
+        assert fields["extraction"]["status"] == "no_answer"
+        assert fields["auto_accurate"] is False, qid
+        assert fields["executability_reason"] == "model_malformed"
+
+
+def test_failure_modes_cover_the_hard_tier():
+    assert "conflated_namesakes" in FAILURE_MODES
+
+
+# ---------------------------------------------------------------------------
+# grader shas
+# ---------------------------------------------------------------------------
+
+
+def test_hard_traces_record_the_hard_grader_sha():
+    fields = _grade(
+        "H04", {"several_noted": True, "combined_as_one": False, "events": _events(3)}
+    )
+    assert fields["grader_sha"] == hard_grader_sha()
+    assert hard_grader_sha() not in (grader_sha(), ext_grader_sha())
+    assert fields["hard_grader_version"] == 1 and "ext_grader_version" not in fields
+    assert grader_sha() == "ee57b57a09b8" and ext_grader_sha() == "1da536285bd3"
+    for q in ("H01", "H04", "H05", "H07"):
+        assert grader_sha_for(BY_ID[q]) == hard_grader_sha()
+    graded = {**_trace("H04"), **fields, "accurate": True}
+    assert is_current_grade(graded)
+    assert not is_current_grade({**graded, "grader_sha": ext_grader_sha()})
+    assert not is_current_grade({**graded, "grader_error": "malformed reply"})
+    # A hard scalar question grades through the core rules, under the hard sha.
+    scalar = _grade(
+        "H07", {"value": 4.21, "unit": "fires per year"}, "4.21 fires per year"
+    )
+    assert scalar["grader_sha"] == hard_grader_sha() and scalar["auto_accurate"]
+    assert scalar["regex_check"]["disagree"] is False
+
+
+def test_hard_grader_sha_moves_with_hard_rules_only(monkeypatch):
+    core, ext, hard = (
+        grader_sha.__wrapped__(),
+        ext_grader_sha.__wrapped__(),
+        hard_grader_sha.__wrapped__(),
+    )
+    assert (core, ext) == ("ee57b57a09b8", "1da536285bd3")
+
+    def only_hard_moved():
+        assert hard_grader_sha.__wrapped__() != hard
+        assert grader_sha.__wrapped__() == core
+        assert ext_grader_sha.__wrapped__() == ext
+        monkeypatch.undo()
+        assert hard_grader_sha.__wrapped__() == hard
+
+    h05 = HARD_ANSWERS["H05"]
+    percent = dataclasses.replace(h05.fields["percent"], tolerance_abs=0.4)
+    monkeypatch.setitem(
+        HARD_ANSWERS,
+        "H05",
+        dataclasses.replace(h05, fields={**h05.fields, "percent": percent}),
+    )
+    only_hard_moved()
+    monkeypatch.setitem(
+        HARD_ANSWERS, "H07", dataclasses.replace(HARD_ANSWERS["H07"], min_decimals=3)
+    )
+    only_hard_moved()
+    monkeypatch.setitem(
+        judge._HARD_KIND_GUIDANCE,
+        "disambiguate",
+        judge._HARD_KIND_GUIDANCE["disambiguate"] + "!",
+    )
+    only_hard_moved()
+    monkeypatch.setattr("bench.grading.HARD_GRADER_VERSION", 2)
+    only_hard_moved()
+
+
+# ---------------------------------------------------------------------------
+# a hard run graded end to end
+# ---------------------------------------------------------------------------
+
+
+def _write_run(run_dir, traces, model="gemini-3.8-flash"):
+    atomic_write_json(
+        run_dir / "run_meta.json",
+        {"model": model, "trials": 2, "parquet_identity": "pid", "tier": "hard"},
+    )
+    for t in traces:
+        path = run_dir / t["question_id"] / f"trial_{t['trial']:02d}.json"
+        atomic_write_json(path, t)
+
+
+def test_a_hard_run_grades_end_to_end(tmp_path):
+    count = ("result = rx.group_by('state').len()", [{"state": "FL", "len": 1388}])
+    namesakes = ("result = named.filter(pl.col('year') == 1994)", [{"n": 3}])
+    traces = [
+        _trace("H01", 0, "Florida (FL), with 1,388 events.", [count]),
+        _trace("H01", 1, "Florida, I think.", [count]),
+        _trace("H04", 0, "Three COTTONWOOD fires burned in 1994.", [namesakes]),
+        _trace("H04", 1, "The COTTONWOOD fire burned 600 acres.", [namesakes]),
+        _trace("H05", 0, "24.68%: the Yolla Bolly Complex (Iron), 2008.", [_H05_QUERY]),
+        _trace("H05", 1, "24.68%: the Yolla Bolly Complex of 2008.", [_H05_QUERY]),
+        _trace("H07", 0, "4.21 fires per year.", [("result = slope", {"s": 4.21})]),
+    ]
+    _write_run(tmp_path, traces)
+    disambiguation = {"several_noted": True, "combined_as_one": False}
+    table = {
+        "Florida (FL), with": _reply(
+            parts={
+                "state": _reply_part("Florida (FL)"),
+                "count": _reply_part("1,388", 1388),
+            }
+        ),
+        "Florida, I think": _reply(
+            parts={"state": _reply_part("Florida"), "count": _reply_part()}
+        ),
+        "Three COTTONWOOD": _reply(**disambiguation, events=[]),
+        "burned 600 acres": _reply(
+            several_noted=False,
+            combined_as_one=True,
+            events=[{"identifier": "COTTONWOOD", "area_text": "600 acres"}],
+        ),
+        "(Iron), 2008": _reply(
+            parts={
+                "percent": _reply_part("24.68%", 24.68, "%"),
+                "name": _reply_part("Yolla Bolly Complex (Iron), 2008"),
+                "year": _reply_part(),
+            }
+        ),
+        "Complex of 2008": _reply(
+            parts={
+                "percent": _reply_part("24.68%", 24.68, "%"),
+                "name": _reply_part("Yolla Bolly Complex"),
+                "year": _reply_part("2008", 2008),
+            }
+        ),
+        "4.21 fires": _reply(value=4.21, unit="fires per year"),
+    }
+    fake = FakeExtractor(_by_response(table))
+    graded = {(t["question_id"], t["trial"]): t for t in grade_run(tmp_path, fake)}
+    assert len(fake.calls) == len(traces)
+    verdicts = {k: (t["accurate"], t["accuracy_reason"]) for k, t in graded.items()}
+    assert verdicts == {
+        ("H01", 0): (True, "ok"),
+        ("H01", 1): (False, "count:missing_value"),
+        ("H04", 0): (True, "ok"),
+        ("H04", 1): (False, "namesakes_not_noted"),
+        ("H05", 0): (True, "ok"),
+        ("H05", 1): (False, "name:wrong_name"),
+        ("H07", 0): (True, "ok"),
+    }
+    assert {t["grader_sha"] for t in graded.values()} == {hard_grader_sha()}
+    assert all(t["executable"] is True for t in graded.values())
+    # The extractor was told the parts of a fields question, not their values.
+    prompt = next(c["contents"] for c in fake.calls if "(Iron), 2008" in c["contents"])
+    assert "- percent:" in prompt and "24.6775" not in prompt
+    adj = json.loads((tmp_path / ADJUDICATION_FILE).read_text())
+    assert [(e["question_id"], e["trial"], e["review_reasons"]) for e in adj] == [
+        ("H04", 0, ["fewer_events_listed"]),
+        ("H05", 1, ["unqualified_name"]),
+    ]
+    triage = json.loads((tmp_path / "triage.json").read_text())
+    assert {(e["question_id"], e["trial"]) for e in triage} == {
+        ("H01", 1),
+        ("H04", 1),
+        ("H05", 1),
+    }
+    # A hand verdict on the review entry wins; current grades are not redone.
+    adj[1].update(
+        verdict="fail", reason="TROUGH is another 2008 event", adjudicator="fb"
+    )
+    atomic_write_json(tmp_path / ADJUDICATION_FILE, adj)
+    again = FakeExtractor(lambda p: pytest.fail("no call expected"))
+    regraded = {(t["question_id"], t["trial"]): t for t in grade_run(tmp_path, again)}
+    assert regraded[("H05", 1)]["accuracy_reason"] == "adjudicated"
+    assert regraded[("H05", 1)]["accurate"] is False

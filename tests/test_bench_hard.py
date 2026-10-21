@@ -1,8 +1,8 @@
 """Hard benchmark tier: question registry, tier selection, answer specs, the
-grade refusal, the hard extractor kinds (with a fake client), and reference
-semantics on hand-built frames (ties, empty groups, unsigned counts, same-date
-pairs). No dataset, no API key, no container runtime; the one sample-parquet
-check is skipped without it."""
+hard extractor kinds (with a fake client), and reference semantics on
+hand-built frames (ties, empty groups, unsigned counts, same-date pairs). No
+dataset, no API key, no container runtime; the one sample-parquet check is
+skipped without it. Hard-tier verdicts: tests/test_bench_grading_hard.py."""
 
 import ast
 import dataclasses
@@ -28,16 +28,8 @@ from bench.answers import (
     normalize_unit,
     spec_for,
 )
-from bench.grading import (
-    UngradableTierError,
-    ext_grader_sha,
-    grade_run,
-    grade_trace,
-    grader_sha,
-    grader_sha_for,
-)
+from bench.grading import ext_grader_sha, grader_sha
 from bench.ground_truth import GroundTruthError, _normalize, compute_expected
-from bench.io import atomic_write_json
 from bench.questions import (
     BY_ID,
     CATEGORIES,
@@ -259,56 +251,6 @@ def test_hard_expected_shapes_survive_normalization():
 
 
 # ---------------------------------------------------------------------------
-# grading refuses the hard tier
-# ---------------------------------------------------------------------------
-
-
-def _hard_trace(qid="H07"):
-    q = BY_ID[qid]
-    return {
-        "question_id": qid,
-        "trial": 0,
-        "category": q.category,
-        "answer_kind": q.answer_kind,
-        "tier": "hard",
-        "expected": 4.2,
-        "infra_error": None,
-        "model_error": None,
-        "text": "4.21 fires per year",
-        "tool_calls": [],
-        "query_records": [],
-    }
-
-
-def test_hard_traces_get_no_grader_sha():
-    with pytest.raises(UngradableTierError, match="H07 is a hard-tier question"):
-        grader_sha_for(BY_ID["H07"])
-    with pytest.raises(UngradableTierError):
-        grade_trace(_hard_trace(), client=None)
-    assert grader_sha_for(BY_ID["L03"]) == grader_sha() == "ee57b57a09b8"
-    assert grader_sha_for(BY_ID["E04"]) == ext_grader_sha() == "1da536285bd3"
-
-
-def test_grade_run_refuses_a_run_with_hard_traces(tmp_path):
-    path = tmp_path / "H07" / "trial_00.json"
-    atomic_write_json(path, _hard_trace())
-    before = path.read_text()
-    # client=None: any extractor call would fail; the refusal comes first.
-    with pytest.raises(UngradableTierError, match=r"H07 \(hard tier\)"):
-        grade_run(tmp_path, None)
-    assert path.read_text() == before
-    assert not (tmp_path / "adjudication.json").exists()
-
-
-@pytest.mark.parametrize("qid", ["H01", "H04", "H05"])
-def test_hard_kinds_are_refused_before_any_extractor_call(qid):
-    fake = FakeExtractor(lambda p: pytest.fail("no extractor call expected"))
-    with pytest.raises(UngradableTierError):
-        grade_trace(_hard_trace(qid), fake)
-    assert not fake.calls
-
-
-# ---------------------------------------------------------------------------
 # extractor kinds: fields and disambiguate
 # ---------------------------------------------------------------------------
 
@@ -468,7 +410,6 @@ def test_fields_parses_a_well_formed_reply():
         "status": "answer",
         "multiple_candidates": False,
         "sampled_disclosed": False,
-        "unit": None,
         "parts": {
             "state": _parsed("Florida (FL)"),
             "count": _parsed("1,388 events", 1388, "1388"),
@@ -518,13 +459,22 @@ def test_fields_rejects_malformed_reply(parts):
         judge.parse_extraction(raw, "fields", H01_PARTS)
 
 
-@pytest.mark.parametrize(
-    "over", [{"status": "partial"}, {"sampled_disclosed": None}, {"unit": 3}]
-)
+@pytest.mark.parametrize("over", [{"status": "partial"}, {"sampled_disclosed": None}])
 def test_fields_rejects_a_bad_common_field(over):
     raw = json.dumps({**json.loads(_fields_reply()), **over})
     with pytest.raises(judge.ExtractionError):
         judge.parse_extraction(raw, "fields", H01_PARTS)
+
+
+@pytest.mark.parametrize("unit", ["%", 3, None])
+def test_fields_have_no_top_level_unit(unit):
+    # The schema has none (each part carries its unit), so a stray one in the
+    # reply is ignored rather than kept as an always-empty field.
+    raw = json.dumps({**json.loads(_fields_reply()), "unit": unit})
+    out = judge.parse_extraction(raw, "fields", H01_PARTS)
+    assert "unit" not in out
+    assert "unit" not in judge.no_answer_extraction("fields", H01_PARTS)
+    assert "unit" not in judge.response_schema("fields", H01_PARTS)["properties"]
 
 
 def test_disambiguate_parses_a_well_formed_reply():
@@ -555,6 +505,10 @@ def test_disambiguate_keeps_only_the_leading_events():
     assert out["events"] == [
         {"identifier": f"E{i}", "area_text": None} for i in range(judge.HARD_EVENTS_CAP)
     ]
+    # Items past the cap are dropped unread: a bad one cannot reject the reply.
+    past = [*events[: judge.HARD_EVENTS_CAP], {"identifier": 7}, "junk"]
+    out = judge.parse_extraction(_reply(**_disambiguation(events=past)), "disambiguate")
+    assert len(out["events"]) == judge.HARD_EVENTS_CAP
 
 
 @pytest.mark.parametrize(
@@ -568,6 +522,8 @@ def test_disambiguate_keeps_only_the_leading_events():
         {"events": ["COTTONWOOD"]},
         {"events": [{"area_text": "5 acres"}]},
         {"events": [{"identifier": 7, "area_text": None}]},
+        {"events": [{"identifier": "", "area_text": "5 acres"}]},  # blank: missing
+        {"events": [{"identifier": "  ", "area_text": None}]},
         {"events": [{"identifier": "A", "area_text": 1200}]},
     ],
 )
@@ -583,6 +539,7 @@ def test_hard_kind_no_answer_extraction(kind):
     empty = {
         "fields": {"parts": {"state": _parsed(), "count": _parsed()}},
         "disambiguate": {
+            "unit": None,
             "several_noted": False,
             "combined_as_one": False,
             "events": [],
@@ -595,7 +552,6 @@ def test_hard_kind_no_answer_extraction(kind):
         "status": "no_answer",
         "multiple_candidates": False,
         "sampled_disclosed": False,
-        "unit": None,
         **empty,
     }
     assert not fake.calls
@@ -1158,6 +1114,19 @@ def test_high_severity_pairs_log_a_close_bs_1_4_reading(caplog):
     assert expected == pytest.approx(50 / 111 * 100)
     assert abs(readings["bs 1-4 fires"] - expected) < 0.5
     assert abs(readings["bs 2-4 fires"] - expected) > 0.5
+
+
+def test_high_severity_pairs_log_a_bs_1_4_reading_without_pairs(caplog):
+    # The logged-only reading never refuses: with no pair from a bs = 4 fire
+    # (forced here by reading only bs = 1 fires) it is logged as None.
+    caplog.set_level(logging.INFO, logger="bench.ground_truth")
+    swap = (
+        'ordered.filter(pl.col("bs").is_between(1, 4))',
+        'ordered.filter(pl.col("bs") == 1)',
+    )
+    expected = _expected("H03", _pairs_rows(), swap=swap)
+    assert expected == pytest.approx(_expected("H03", _pairs_rows()))
+    assert _logged_readings(caplog.text, "H03")["bs 1-4 fires"] is None
 
 
 # ---------------------------------------------------------------------------

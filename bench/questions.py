@@ -1961,10 +1961,18 @@ pairs, from_high, high_again, same_date = tally["answer"]
 assert pairs > 0, "no location has two fire events"
 expected = share(high_again, from_high)
 same_date_pct = same_date / pairs * 100
+# Logged only: a bs 1-4 reading drops just the fires with bs null, 5 or 6, so
+# it can land close to the answer, and a misreading that close is harmless.
+# It never refuses: with no pair from a bs = 4 fire it is logged as None.
+logged_only = "bs 1-4 fires"
 readings = {
-    name: share(t[2], t[1]) for name, t in tally.items() if name != "answer"
+    name: share(t[2], t[1])
+    for name, t in tally.items()
+    if name not in ("answer", logged_only)
 }
 readings["every later fire"] = share(later_pairs[1], later_pairs[0])
+close_pairs = tally[logged_only]
+close = close_pairs[2] / close_pairs[1] * 100 if close_pairs[1] else None
 logger.info(
     "H03 %d pairs, %d from bs 4, %d bs 4 again: %.3f%%; same-date pairs %.3f%%; "
     "readings %s",
@@ -1973,14 +1981,11 @@ logger.info(
     high_again,
     expected,
     same_date_pct,
-    readings,
+    {**readings, logged_only: close},
 )
 assert same_date_pct < 0.5, f"{same_date_pct:.2f}% of consecutive pairs share a date"
 tie_shift = abs(readings.pop("same-date ties reversed") - expected)
 assert tie_shift < 0.1, f"the same-date tie order moves the answer {tie_shift:.3f} pp"
-# Logged only: a bs 1-4 reading drops just the fires with bs null, 5 or 6, so
-# it can land close to the answer, and a misreading that close is harmless.
-readings.pop("bs 1-4 fires")
 for name, value in readings.items():
     assert abs(value - expected) > 0.5, (
         f"reading '{name}' gives {value:.3f}%, within 0.5 pp of {expected:.3f}%"

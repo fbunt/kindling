@@ -32,7 +32,10 @@ answers.py table, GRADER_VERSION); compare refuses to mix grader versions.
 Extended-tier traces record ext_grader_sha() instead (grader_sha_for): their
 abstain, disclosure, clarify_or_assume and plot kinds are judged by
 bench/grading_ext.py, and executability does not apply to abstain and
-clarify_or_assume (executable None, `not_applicable`).
+clarify_or_assume (executable None, `not_applicable`). Hard-tier traces record
+hard_grader_sha(): their fields and disambiguate kinds are judged by
+bench/grading_hard.py. Each answer kind outside the core ones is dispatched to
+its module (_kind_modules).
 Failure-mode classification is manual: triage.json has a blank failure_mode
 per failed trial, preserved across regrades.
 """
@@ -48,10 +51,11 @@ from dataclasses import asdict
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
-from bench import grading_ext, judge
+from bench import grading_ext, grading_hard, judge
 from bench.answers import (
     ANSWERS,
     EXT_ANSWERS,
+    HARD_ANSWERS,
     LOCATION_QUALIFIERS,
     AnswerSpec,
     name_tokens,
@@ -72,6 +76,9 @@ GRADER_VERSION = 9
 # Bump on any change to the extended-tier verdict rules (bench/grading_ext.py
 # and the extended paths here).
 EXT_GRADER_VERSION = 1
+# Bump on any change to the hard-tier verdict rules (bench/grading_hard.py and
+# the hard paths here).
+HARD_GRADER_VERSION = 1
 
 ADJUDICATION_FILE = "adjudication.json"
 ADJUDICATION_SOURCE = "grader_review"
@@ -89,6 +96,7 @@ FAILURE_MODES = (
     "fabricated_value",
     "unstated_assumption",
     "undisclosed_truncation",
+    "conflated_namesakes",
 )
 
 # Fields written by the pre-2026-09-29 3-vote judge; dropped on regrade.
@@ -129,26 +137,53 @@ def ext_grader_sha() -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
-# The grader sha of each tier that can be graded. A tier missing here (the
-# hard tier, whose answer kinds have no verdict rules yet) is never graded,
-# so none of its traces carries a sha of another tier.
-_TIER_GRADER_SHAS = {"core": grader_sha, "extended": ext_grader_sha}
+@functools.cache
+def hard_grader_sha() -> str:
+    """The grader sha of hard-tier traces: the core grader (whose rules the
+    hard scalar questions share) plus the hard kinds' extractor guidance and
+    every hard question's schema, the HARD_ANSWERS table (field specs
+    included) and HARD_GRADER_VERSION. Kept apart so the core and extended
+    shas hold."""
+    payload = {
+        "version": HARD_GRADER_VERSION,
+        "core": grader_sha(),
+        "extractor": judge.hard_fingerprint(),
+        "answers": {qid: asdict(spec) for qid, spec in sorted(HARD_ANSWERS.items())},
+    }
+    blob = json.dumps(payload, sort_keys=True, default=list)
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
-class UngradableTierError(Exception):
-    """A trace of a tier that has no grader."""
+# The grader sha of each tier.
+_TIER_GRADER_SHAS = {
+    "core": grader_sha,
+    "extended": ext_grader_sha,
+    "hard": hard_grader_sha,
+}
 
 
 def grader_sha_for(question: Question) -> str:
-    """The grader sha a trace of this question is graded under. Raises
-    UngradableTierError for a tier without a grader."""
-    tier = tier_of(question)
-    if tier not in _TIER_GRADER_SHAS:
-        raise UngradableTierError(
-            f"{question.id} is a {tier}-tier question, and the {tier} tier has "
-            "no grader yet: its traces cannot be graded"
-        )
-    return _TIER_GRADER_SHAS[tier]()
+    """The grader sha a trace of this question is graded under."""
+    return _TIER_GRADER_SHAS[tier_of(question)]()
+
+
+def _tier_version(tier: str) -> dict:
+    """The tier's own grader version, stamped on its graded traces next to
+    grader_version (none for the core tier)."""
+    if tier == "extended":
+        return {"ext_grader_version": EXT_GRADER_VERSION}
+    if tier == "hard":
+        return {"hard_grader_version": HARD_GRADER_VERSION}
+    return {}
+
+
+@functools.cache
+def _kind_modules() -> dict:
+    """Answer kind -> the module whose check(), partial_data_fails() and
+    executability_applies() judge it; the core kinds (scalar, series, set,
+    text) are not in it and go through check_answer. Built on first use, as
+    both modules import this one."""
+    return {kind: m for m in (grading_ext, grading_hard) for kind in m.KINDS}
 
 
 # ---------------------------------------------------------------------------
@@ -192,14 +227,15 @@ def is_executable(
     made no queries gets reason `clarified` instead of `no_queries`. For an
     answer `kind` whose right answer needs no query (abstain,
     clarify_or_assume) it is (None, `not_applicable`), except for infra and
-    model errors."""
+    model errors. Each tier module says which of its kinds that is."""
     if trace.get("infra_error"):
         return False, "infra_error"  # excluded from denominators, not failed
     if trace.get("model_error"):
         # Model-caused turn failure (malformed/blocked final response, turn
         # timeout, model-caused API 400): a real failure, kept in denominators.
         return False, "model_malformed"
-    if kind is not None and not grading_ext.executability_applies(kind):
+    module = _kind_modules().get(kind)
+    if module is not None and not module.executability_applies(kind):
         return None, "not_applicable"
     outcomes = _run_query_outcomes(trace)
     if not outcomes:
@@ -1449,7 +1485,10 @@ _WEAK_INT = 1000
 def answer_query(question: Question, trace: dict, extraction: dict | None):
     """Index of the latest successful query_record whose result holds the
     extracted answer (see grounded), or None, also for a small integer answer
-    (_WEAK_INT), which would match by coincidence."""
+    (_WEAK_INT), which would match by coincidence. A fields answer is located
+    by one of its number parts (grading_hard.answer_query)."""
+    if question.answer_kind in grading_hard.KINDS:
+        return grading_hard.answer_query(question, trace, extraction)
     value = (extraction or {}).get("value")
     if question.answer_kind in ("scalar", "plot") and (
         not isinstance(value, int | float)
@@ -1540,11 +1579,10 @@ def grade_trace(trace: dict, client) -> dict:
                 model_anomalies=call_anomalies(trace.get("calls") or []),
             )
             trace = {**trace, **fields}
-    extended = tier_of(question) == "extended"
     fields |= {
         "grader_sha": grader_sha_for(question),
         "grader_version": GRADER_VERSION,
-        **({"ext_grader_version": EXT_GRADER_VERSION} if extended else {}),
+        **_tier_version(tier_of(question)),
         "resource_violation": resource_violation(trace),
         "had_query_errors": bool(_all_errors(trace)),
         "extractor": None,
@@ -1580,21 +1618,22 @@ def grade_trace(trace: dict, client) -> dict:
     fields["extractor"] = ext
     fields["extraction"] = extraction
     kind = question.answer_kind
+    module = _kind_modules().get(kind)
     executable, reason = is_executable(
         trace, extraction.get("status") if extraction else None, kind
     )
     fields.update(executable=executable, executability_reason=reason)
     partial, evidence = partial_data(trace, question, extraction)
-    if kind in grading_ext.KINDS:
-        partial = grading_ext.partial_data_fails(kind, evidence)
+    if module is not None:
+        partial = module.partial_data_fails(kind, evidence)
     fields.update(partial_data=partial, partial_data_evidence=evidence)
     if extraction is None:
         fields.update(grader_error=ext["error"], auto_reason="grader_error")
         return fields
     expected = trace["expected"]
-    if kind in grading_ext.KINDS:
-        return fields | _ext_grade(
-            question, expected, extraction, trace, partial, evidence
+    if module is not None:
+        return fields | _kind_grade(
+            module, question, expected, extraction, trace, partial, evidence
         )
     ok, why = check_answer(question, expected, extraction)
     text = trace.get("text") or ""
@@ -1644,12 +1683,14 @@ def grade_trace(trace: dict, client) -> dict:
     return fields
 
 
-def _ext_grade(question, expected, extraction, trace, partial, evidence) -> dict:
-    """grade_trace's verdict fields for an extended answer kind
-    (bench/grading_ext.py). No cross-check applies; an answer that passes
-    but fails only on the head/tail/limit/slice heuristic is reviewed, as
-    in the core tier."""
-    ok, why, review = grading_ext.check(
+def _kind_grade(
+    module, question, expected, extraction, trace, partial, evidence
+) -> dict:
+    """grade_trace's verdict fields for an answer kind judged by a tier
+    module (bench/grading_ext.py, bench/grading_hard.py). No cross-check
+    applies; an answer that passes but fails only on the head/tail/limit/
+    slice heuristic is reviewed, as in the core tier."""
+    ok, why, review = module.check(
         question, expected, extraction, trace, spec_for(question)
     )
     if partial:
@@ -1928,8 +1969,7 @@ def grade_run(run_dir: Path, client, *, regrade: bool = False) -> list[dict]:
     A trace is (re)graded unless it already carries a grade from the current
     grader_sha without a grader error; --regrade forces all. Refuses (before
     any extractor call) if a trace that would be graded was produced by
-    different reference code than the current questions.py, or if any trace
-    is of a tier without a grader (UngradableTierError). Unreadable traces
+    different reference code than the current questions.py. Unreadable traces
     are skipped with an error log."""
     entries = load_adjudication(run_dir)  # refuse early on a corrupt overlay
     loaded = []
@@ -1939,19 +1979,6 @@ def grade_run(run_dir: Path, client, *, regrade: bool = False) -> list[dict]:
             logger.error("%s: unreadable trace, skipped (%s)", path, err)
             continue
         loaded.append((path, trace))
-    ungradable = sorted(
-        {
-            f"{q.id} ({tier_of(q)} tier)"
-            for _, trace in loaded
-            if (q := BY_ID.get(trace.get("question_id")))
-            and tier_of(q) not in _TIER_GRADER_SHAS
-        }
-    )
-    if ungradable:
-        raise UngradableTierError(
-            f"refusing to grade {run_dir}: it holds traces of questions whose "
-            f"tier has no grader yet: {', '.join(ungradable)}"
-        )
 
     def needs(trace):
         return regrade or not is_current_grade(trace)
@@ -2016,10 +2043,11 @@ def write_triage(run_dir: Path, traces: list[dict]) -> None:
     the question's wording, failed by the strict rule; extended tier:
     fabricated_value = a figure the data cannot give, unstated_assumption =
     an ambiguous question answered without saying how it was read,
-    undisclosed_truncation = a partial list passed off as complete). Hand-filled
-    failure_mode values survive re-grading; entries for now-passing trials
-    are dropped, and a trial whose regrade hit a grader error keeps its
-    previous entry unchanged."""
+    undisclosed_truncation = a partial list passed off as complete; hard
+    tier: conflated_namesakes = several events sharing a name answered as
+    one fire). Hand-filled failure_mode values survive re-grading; entries
+    for now-passing trials are dropped, and a trial whose regrade hit a
+    grader error keeps its previous entry unchanged."""
     triage_path = run_dir / "triage.json"
     existing = {}
     if triage_path.exists():

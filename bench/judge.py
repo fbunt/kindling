@@ -519,10 +519,13 @@ def _optional_text(data: dict, field: str, what: str) -> str | None:
 def _parse_parts(data: dict, parts: dict[str, str]) -> dict:
     """A `fields` answer: every named part must be present as an object, its
     fields of the right types (a missing one reads as null, as for the core
-    kinds); a part the question does not name is dropped. Each parsed part is
-    {text, value, value_text, unit}: `text` is the reply's value_text (the
-    part as written) and `value_text` the number's decimal text, as in a
-    scalar extraction, so a part reads like a scalar extraction."""
+    kinds); a part the question does not name is dropped.
+
+    Each parsed part is {text, value, value_text, unit}. Mind the renaming:
+    the reply's `value_text` (the part as the response writes it, e.g.
+    "Florida (FL)" or "24.7%") is stored under `text`, and the parsed part's
+    `value_text` is the decimal text of `value` (e.g. "24.7"), as in a scalar
+    extraction, so a number part reads like a scalar extraction."""
     got = data.get("parts")
     if not isinstance(got, dict):
         raise ExtractionError(f"parts is not an object: {got!r}")
@@ -551,20 +554,23 @@ def _parse_parts(data: dict, parts: dict[str, str]) -> dict:
 def _parse_disambiguation(data: dict) -> dict:
     """A `disambiguate` answer, filled under any status. Both flags and the
     events list are required (an empty list is a verdict input: no event
-    listed); only the leading HARD_EVENTS_CAP events are kept."""
+    listed). Only the leading HARD_EVENTS_CAP events are kept, and only those
+    are validated, so a bad item past the cap cannot reject the reply; an
+    item without an identifier, or with a blank one, is malformed."""
     events = data.get("events")
     if not isinstance(events, list):
         raise ExtractionError(f"events is not a list: {events!r}")
     kept = []
-    for e in events:
-        if not isinstance(e, dict) or not isinstance(e.get("identifier"), str):
+    for e in events[:HARD_EVENTS_CAP]:
+        identifier = e.get("identifier") if isinstance(e, dict) else None
+        if not isinstance(identifier, str) or not identifier.strip():
             raise ExtractionError(f"bad events item {e!r}")
         area = _optional_text(e, "area_text", "events area_text")
-        kept.append({"identifier": e["identifier"], "area_text": area})
+        kept.append({"identifier": identifier, "area_text": area})
     return {
         "several_noted": _boolean(data, "several_noted"),
         "combined_as_one": _boolean(data, "combined_as_one"),
-        "events": kept[:HARD_EVENTS_CAP],
+        "events": kept,
     }
 
 
@@ -590,10 +596,11 @@ def parse_extraction(
         if not isinstance(data.get(flag), bool):
             raise ExtractionError(f"{flag} is not a boolean: {data.get(flag)!r}")
         out[flag] = data[flag]
-    unit = data.get("unit")
-    if unit is not None and not isinstance(unit, str):
-        raise ExtractionError(f"unit is not a string: {unit!r}")
-    out["unit"] = unit or None
+    if kind != "fields":  # a fields answer has no top-level unit: see its parts
+        unit = data.get("unit")
+        if unit is not None and not isinstance(unit, str):
+            raise ExtractionError(f"unit is not a string: {unit!r}")
+        out["unit"] = unit or None
     if kind == "scalar":
         value = data.get("value")
         if value is None:
@@ -630,8 +637,9 @@ def no_answer_extraction(kind: str, parts: dict[str, str] | None = None) -> dict
         "status": "no_answer",
         "multiple_candidates": False,
         "sampled_disclosed": False,
-        "unit": None,
     }
+    if kind != "fields":
+        out["unit"] = None
     if kind == "scalar":
         out.update(value=None, value_text=None)
     elif kind == "series":
