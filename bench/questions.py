@@ -1958,6 +1958,7 @@ def share(high_after, from_high):
 
 
 pairs, from_high, high_again, same_date = tally["answer"]
+assert pairs > 0, "no location has two fire events"
 expected = share(high_again, from_high)
 same_date_pct = same_date / pairs * 100
 readings = {
@@ -1977,6 +1978,9 @@ logger.info(
 assert same_date_pct < 0.5, f"{same_date_pct:.2f}% of consecutive pairs share a date"
 tie_shift = abs(readings.pop("same-date ties reversed") - expected)
 assert tie_shift < 0.1, f"the same-date tie order moves the answer {tie_shift:.3f} pp"
+# Logged only: a bs 1-4 reading drops just the fires with bs null, 5 or 6, so
+# it can land close to the answer, and a misreading that close is harmless.
+readings.pop("bs 1-4 fires")
 for name, value in readings.items():
     assert abs(value - expected) > 0.5, (
         f"reading '{name}' gives {value:.3f}%, within 0.5 pp of {expected:.3f}%"

@@ -42,6 +42,7 @@ from bench.usage import (
     merge_usage,
     terminal_model_error,
 )
+from tests.test_bench_grading import L06_LIMIT10, M03_Q0, M03_Q1, _ex, _trace
 
 CHAT_MODEL = sorted(CHAT_MODEL_IDS)[0]
 
@@ -431,6 +432,146 @@ def test_archived_verdicts_replay_unchanged(tmp_path, monkeypatch):
         if diff:
             changed.append((path.relative_to(tmp_path).as_posix(), diff))
     assert changed == []
+
+
+# Hand-built core trials on paths the archived run (nearly all passes) seldom
+# takes. Each is (question, response, query records, total_rows of the last
+# record or None), the extraction, and today's verdict: (answer_ok,
+# answer_reason, partial_data_evidence, review_reasons, auto_reason,
+# executable).
+_LEN = "result = lf.select(pl.len())"
+_PARTIAL = ["partial_data_heuristic"]
+HAND_BUILT_CORE_CASES = {
+    "small integer does not locate the answer query": (
+        (
+            "M05",
+            "5 of them.",
+            [(_LEN, [{"n": 5}]), ("result = lf.head(20).collect()", [{"k": 1}])],
+            None,
+        ),
+        _ex(value=5),
+        (
+            True,
+            "ok",
+            [".head( at line 1 in final query 1"],
+            _PARTIAL,
+            "partial_data",
+            True,
+        ),
+    ),
+    "answer query located past a later name lookup": (
+        ("M03", "29.2%.", [(M03_Q0, [{"pct": 29.2}]), (M03_Q1, [{"n": "B"}])], None),
+        _ex(value=29.2, unit="%"),
+        (True, "ok", [], [], "ok", True),
+    ),
+    "row cut in the answer query": (
+        (
+            "M03",
+            "29.2%.",
+            [("result = lf.head(1000).collect()", [{"pct": 29.2}]), (M03_Q1, [])],
+            None,
+        ),
+        _ex(value=29.2, unit="%"),
+        (
+            True,
+            "ok",
+            [".head( at line 1 in answer query 0"],
+            _PARTIAL,
+            "partial_data",
+            True,
+        ),
+    ),
+    "tie pick that filled its limit": (
+        ("L06", "HAYDEN PASS.", [(L06_LIMIT10, [{"elevation": 3786.15625}])], 10),
+        _ex(names=["HAYDEN PASS"]),
+        (
+            True,
+            "ok",
+            [".limit( at line 2 in final query 0"],
+            _PARTIAL,
+            "partial_data",
+            True,
+        ),
+    ),
+    "disclosed sample": (
+        (
+            "L03",
+            "About 27,794.",
+            [("result = lf.collect().sample(1000)", [{"n": 27794}])],
+            None,
+        ),
+        _ex(value=27794, sampled_disclosed=True),
+        (True, "ok", [".sample( in query 0"], [], "partial_data", True),
+    ),
+    "count off by one": (
+        ("L03", "27,795 events.", [(_LEN, [{"n": 27795}])], None),
+        _ex(value=27795),
+        (False, "not_exact", [], [], "not_exact", True),
+    ),
+    "number out of band": (
+        ("A01", "6,100 acres.", [(_LEN, [{"a": 6100}])], None),
+        _ex(value=6100),
+        (False, "out_of_band", [], [], "out_of_band", True),
+    ),
+    "right number in another unit": (
+        ("A01", "5,976.26 hectares.", [(_LEN, [{"a": 5976.26}])], None),
+        _ex(value=5976.26, unit="hectares"),
+        (
+            False,
+            "wrong_unit",
+            [],
+            ["cross_check_disagree", "unit_only"],
+            "wrong_unit",
+            True,
+        ),
+    ),
+    "opposite sign": (
+        ("T05", "10.2 days later.", [("result = 1", [{"a": 10.2}])], None),
+        _ex(value=10.2, unit="days"),
+        (False, "sign", [], [], "sign", True),
+    ),
+    "two candidate answers": (
+        ("L03", "Either 27,794 or 27,800.", [(_LEN, [{"n": 27794}])], None),
+        _ex(value=27794, multiple_candidates=True),
+        (
+            False,
+            "multiple_candidates",
+            [],
+            ["cross_check_disagree"],
+            "multiple_candidates",
+            True,
+        ),
+    ),
+    "clarifying question": (
+        ("L03", "Do you mean wildfires only?", [], None),
+        _ex(status="clarification"),
+        (False, "clarification", [], [], "clarification", False),
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(HAND_BUILT_CORE_CASES))
+def test_hand_built_core_verdicts_replay_unchanged(case, monkeypatch):
+    (qid, text, records, rows), extraction, verdict = HAND_BUILT_CORE_CASES[case]
+    trace = _trace(qid, 0, text, records)
+    if rows is not None:
+        trace["query_records"][-1]["total_rows"] = rows
+    monkeypatch.setattr(
+        judge, "extract", lambda *a, **k: {"extraction": extraction, "error": None}
+    )
+    got = grade_trace(trace, None)
+    assert got["grader_sha"] == "ee57b57a09b8"
+    fields = (
+        "answer_ok",
+        "answer_reason",
+        "partial_data_evidence",
+        "review_reasons",
+        "auto_reason",
+        "executable",
+    )
+    assert tuple(got[f] for f in fields) == verdict
+    assert got["partial_data"] is bool(verdict[2])
+    assert got["auto_accurate"] is (verdict[4] == "ok")
 
 
 def test_archived_run_reports_as_archived(tmp_path, monkeypatch):

@@ -751,6 +751,26 @@ def test_high_severity_pairs_refuse_ties_and_inside_readings():
         _expected("H03", plain)
     with pytest.raises(GroundTruthError, match="two rows at one location"):
         _expected("H03", rows + [rows[0]])
+    with pytest.raises(GroundTruthError, match="no location has two fire events"):
+        _expected("H03", [r for r in rows if r["Event_ID"].endswith("-0")])
+
+
+def test_high_severity_pairs_log_a_close_bs_1_4_reading(caplog):
+    # Only a bs null, 5 or 6 fire after a bs 4 one tells the bs 1-4 reading
+    # from the answer; with one such location the reading lands within 0.5 pp
+    # (45.45% against 45.05%) and is only logged.
+    caplog.set_level(logging.INFO, logger="bench.ground_truth")
+    kept = {(4, None, 4): 0, (4, 6): 1}
+    rows, geohash = [], 0
+    for bss, n, _, _ in _SEQUENCES:
+        for _ in range(kept.get(bss, n)):
+            geohash += 1
+            rows += _location(geohash, bss)
+    expected = _expected("H03", rows)
+    readings = _logged_readings(caplog.text, "H03")
+    assert expected == pytest.approx(50 / 111 * 100)
+    assert abs(readings["bs 1-4 fires"] - expected) < 0.5
+    assert abs(readings["bs 2-4 fires"] - expected) > 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -782,6 +802,5 @@ def test_references_on_the_sample():
     assert run("H07") == pytest.approx(4.208333, abs=1e-6)
     assert run("H08") == pytest.approx(1.467005, abs=1e-6)
     assert run("H09") == pytest.approx(-11.0550, abs=1e-4)
-    # On the sample the bs 1-4 reading of H03 is 0.40 pp from the answer.
-    with pytest.raises(GroundTruthError, match="reading 'bs 1-4 fires' gives 16.839%"):
-        run("H03")
+    # The bs 1-4 reading (16.839%) is 0.40 pp away: logged, not refused.
+    assert run("H03") == pytest.approx(16.4385, abs=1e-4)

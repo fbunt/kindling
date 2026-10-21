@@ -22,7 +22,7 @@ from bench.answers import (
     normalize_unit,
     spec_for,
 )
-from bench.ground_truth import GroundTruthError, compute_expected
+from bench.ground_truth import GroundTruthError, compute_expected, reference_sha
 from bench.questions import (
     BY_ID,
     CATEGORIES,
@@ -160,6 +160,31 @@ def test_question_sha_hashes_history_only_when_present():
     l03 = BY_ID["L03"]
     with_history = dataclasses.replace(l03, history=(("user", "hi"), ("model", "ok")))
     assert provenance.question_sha(with_history) != provenance.question_sha(l03)
+
+
+# (question_sha, reference_sha) of every extended question. A change to any of
+# them makes the graded extended traces stale, so it must be deliberate.
+EXTENDED_SHAS = {
+    "E01": ("ae8a5113b966", "290105bc127e"),
+    "E02": ("c0387400d05f", "43ae72282834"),
+    "E03": ("a4c15032a4be", "eecac3552564"),
+    "E04": ("4c41e658aeac", "e6dd5abc2f8d"),
+    "E05": ("3430404d38ba", "51ad5d9b87bd"),
+    "E06": ("c2ffa13cd90e", "56d767b66d47"),
+    "E07": ("45253285961c", "03f71c1fb86c"),
+    "E08": ("de64cf718b65", "48e72090a692"),
+    "E09": ("0b682f528430", "b35f96ebfeb9"),
+    "E10": ("e1c2883077c3", "4772dbb2cec0"),
+    "E11": ("f137666615ca", "1307ea085cdd"),
+    "E12": ("96fb03a49c98", "2aa4b1e4489e"),
+    "E13": ("81a750575812", "4b4b237590a6"),
+    "E14": ("5a09522c91cc", "efa285fc4671"),
+}
+
+
+def test_extended_question_and_reference_shas_are_pinned():
+    got = {q.id: (provenance.question_sha(q), reference_sha(q)) for q in EXTENDED}
+    assert got == EXTENDED_SHAS
 
 
 def test_eco1_names_match_the_dataset_description():
