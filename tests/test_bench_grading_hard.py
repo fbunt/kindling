@@ -203,16 +203,13 @@ def test_states_named():
     assert named("New Mexico") == {"nm"}
     assert named("North Carolina and South Carolina") == {"nc", "sc"}
     assert named("Florida, in 2010-2019") == {"fl"}  # 'in' is not Indiana
-    assert named("Event_ID prefix FL") == {"fl"}
-    assert named("Event ID prefix FL") == {"fl"}
-    assert named("FL (from the Event ID prefix)") == {"fl"}
-    assert named("the Event ID") == set()
-    assert named("Florida, IN total") == {"fl"}
     assert named("Idaho (ID)") == {"id"}
-    # Codes standing as codes: a list of them, in any case.
+    # A part that is only codes counts them, in any case.
     assert named("FL, GA") == named("fl/ga") == named("FL or GA") == {"fl", "ga"}
-    assert named("FL (or possibly GA)") == {"fl", "ga"}
-    assert named("or") == {"or"}  # a part that is only a code
+    assert named("or") == {"or"}
+    # Codes inside prose are not read as states.
+    assert named("Event ID prefix FL") == set()
+    assert named("NE Florida") == named("Florida, IN total") == {"fl"}
     assert named("") == named(None) == set()
 
 
@@ -243,10 +240,15 @@ def test_states_named():
         "Florida - inferred from ID",
         "Florida (inferred from ID)",
         "Florida (state code in the ID)",
+        # Other capitals in prose are abbreviations, not second states.
+        "NE Florida",
+        "Florida (NE corner)",
+        "Florida, Event IN",
+        "Event GA prefix aside, Florida",
+        "Florida, IN total",
     ],
 )
 def test_state_part_reads_one_state_through_prose(text):
-    assert grading_hard.states_named(text) == {"fl"}
     assert grading_hard._state_part({"text": text}, "FL") == ("ok", [])
 
 
@@ -408,6 +410,8 @@ def test_without_years():
         "Yolla Bolly Complex (Iron), ignition 2008-06-21",
         "Yolla Bolly Complex (Iron), started 2008-06-21",
         "Yolla Bolly Complex (Iron), ignited 2008-06-21.",
+        "Yolla Bolly Complex (Iron), June 21, 2008.",
+        "Yolla Bolly Complex (Iron), 2008.",
         # Ig_Date is a datetime, so polars prints a time after the date.
         "Yolla Bolly Complex (Iron) 2008-06-21 00:00:00",
         "Yolla Bolly Complex (Iron) 2008-06-21T00:00:00",

@@ -201,49 +201,29 @@ def _fraction_for_percent(value, value_text, expected, question, spec) -> bool:
 
 
 _STATE_CODES = frozenset(_STATES.values())
-# Where a state part splits into the pieces a code can stand in: list
-# separators, brackets, a colon or spaced dash, and 'or'/'and'/'vs' between
-# words.
+# Where a state part splits into a list of codes: list separators, brackets,
+# a colon or spaced dash, and 'or'/'and'/'vs' between words.
 _CODE_SEPARATORS = re.compile(
     r"[,;/|&()\[\]:]|\s[-\u2013\u2014]+\s|\s(?:or|and|vs\.?|versus)\s", re.IGNORECASE
 )
-_CAPITAL_CODE = re.compile(r"[A-Z]{2}")
-_WORD = re.compile(r"\w+(?:'\w+)?")
-# State codes that are also English words or abbreviations ('IN total',
-# 'the fire ID'). In prose they are codes only where nothing else reads them
-# as words: alone in their piece, or (all but ID) ending it.
-_WORDLIKE_CODES = frozenset({"in", "or", "me", "ok", "hi", "oh", "id"})
 
 
-def _codes_named(text: str) -> set[str]:
-    """The state codes a part writes as codes. A part made only of codes
-    counts them in any case ('fl', 'FL, GA', 'fl/ga'). Otherwise a capital
-    code counts anywhere ('FL state', 'Event ID prefix FL', 'Florida (FL)'),
-    except a word-like code (_WORDLIKE_CODES), which counts only alone in its
-    piece or, ID aside, ending it. So the 'ID' of 'Event ID' or 'the fire ID'
-    and the 'IN' of 'IN total' are not states."""
+def _listed_codes(text: str) -> set[str]:
+    """The codes of a part that is nothing but state codes, in any case ('fl',
+    'FL, GA', 'fl/ga', 'FL or GA'); empty for anything else. A code inside
+    prose is not read as a state here: two-letter capitals are too often
+    words or abbreviations ('IN total', 'Event ID', 'NE Florida')."""
     pieces = [p.strip(" .'\"") for p in _CODE_SEPARATORS.split(text)]
     pieces = [p for p in pieces if p]
     if pieces and all(p.casefold() in _STATE_CODES for p in pieces):
         return {p.casefold() for p in pieces}
-    found = set()
-    for piece in pieces:
-        words = _WORD.findall(piece)
-        for i, word in enumerate(words):
-            code = word.casefold()
-            if not _CAPITAL_CODE.fullmatch(word) or code not in _STATE_CODES:
-                continue
-            alone = len(words) == 1
-            ending = i == len(words) - 1 and code != "id"
-            if code not in _WORDLIKE_CODES or alone or ending:
-                found.add(code)
-    return found
+    return set()
 
 
 def states_named(text: str | None) -> set[str]:
-    """The codes of the US states a part names: by name, in any case
-    (longest first, so 'West Virginia' is not also Virginia), or by a code
-    standing as one (_codes_named)."""
+    """The codes of the US states a part names: by full name, in any case
+    (longest first, so 'West Virginia' is not also Virginia), or as a part
+    that is only a list of codes (_listed_codes)."""
     tokens = name_tokens(text or "")
     found = set()
     i = 0
@@ -256,10 +236,7 @@ def states_named(text: str | None) -> set[str]:
                 break
         else:
             i += 1
-    found |= _codes_named(text or "")
-    if len(tokens) == 1 and tokens[0] in _STATE_CODES:
-        found.add(tokens[0])
-    return found
+    return found | _listed_codes(text or "")
 
 
 def _state_code(expected) -> str:
@@ -268,13 +245,20 @@ def _state_code(expected) -> str:
 
 
 def _state_part(part: dict, expected) -> tuple[str, list[str]]:
-    """(reason, review) for a state part: exactly one state, the expected
-    one. A part naming the expected state and another fails, and goes to
-    review (a hedge, or a second state named in passing)."""
-    states = states_named(part.get("text"))
-    if not states:
-        return ("missing_value" if part.get("text") is None else "wrong_state"), []
+    """(reason, review) for a state part: the expected state, by full name,
+    by a code list, or by its capital code anywhere in the part ('FL per the
+    Event ID prefix'), and no other state by full name or code list. A part
+    naming the expected state and another fails, and goes to review (a hedge,
+    or a second state named in passing). Other codes inside prose are not
+    read as states ('NE Florida', 'Event IN'); a hedge written that way is
+    left to the extractor's multiple_candidates flag."""
+    text = part.get("text")
+    if text is None:
+        return "missing_value", []
     want = _state_code(expected)
+    states = states_named(text)
+    if re.search(rf"\b{re.escape(want.upper())}\b", text):
+        states = states | {want}
     if states == {want}:
         return "ok", []
     if want in states:
@@ -310,7 +294,7 @@ _TIE = (
     r"|burned|date|ig_date)\b\s*(?:on|in)?\s*[:=]?\s*)?"
 )
 _DATED = re.compile(
-    rf"{_TIE}(?:(?<![\w.]){_DATE}(?!\w|\.\d)|(?<![\d.]){_Y}(?![\d.]))",
+    rf"{_TIE}(?:(?<![\w.]){_DATE}(?!\w|\.\d)|(?<![\d.]){_Y}(?!\d|\.\d))",
     re.IGNORECASE,
 )
 
@@ -318,7 +302,7 @@ _DATED = re.compile(
 def without_years(text: str) -> str:
     """A name part with its dates and year tokens taken out, and with them
     the words that tied each on and any parenthesis left empty."""
-    if not grading._YEAR.search(text):
+    if not _DATED.search(text):
         return text
     rest = _DATED.sub(" ", text)
     rest = re.sub(r"\(\s*[,;]?\s*", "(", rest)  # '(2008, Iron)' -> '(Iron)'

@@ -178,9 +178,10 @@ grounded and the regex cross-check are n/a for both):
   names, never values. Pass iff status answer, no multiple candidates or partial data, and every
   part right under its `FieldSpec`: numbers by the core numeric rules in the part's band, names
   by core resolution with aliases after dates (with any time) and years and the words tying them
-  on are stripped, a state by its name or a capital code (a part of only codes in any case;
-  word-like IN/OR/ME/OK/HI/OH only alone or ending a phrase, ID only alone). The year part may
-  be read from a name or date and never locates the answer query.
+  on are stripped, a state by its full name, a part that is only codes, or the expected
+  state's capital code anywhere (other codes inside prose are not read as states: 'NE
+  Florida', 'Event IN'; a hedge written that way is left to `multiple_candidates`). The year
+  part may be read from a name or date and never locates the answer query.
 - **disambiguate** (H04): pass iff the reply notes that several events of that year share the
   name and does not present a sum over them as one fire's area, whatever its status (listing them
   in a clarifying question passes, a blind "which one?" fails); executability applies; only
