@@ -11,3 +11,4 @@ one's status is marked superseded, never rewritten.
 - [0003](0003-spawn-workers-as-siblings-via-host-runtime-socket.md) Spawn worker containers as siblings via the host runtime socket, not a nested runtime -- Accepted
 - [0004](0004-score-the-bench-strictly-with-rules-fixed-before-grading.md) Score the bench strictly, with rules fixed before grading and judged in Python -- Accepted
 - [0005](0005-score-the-extended-tier-per-answer-kind-under-its-own-grader.md) Score the extended bench tier per answer kind, under its own grader version -- Accepted
+- [0006](0006-add-a-hard-tier-scored-by-parts-and-namesake-disclosure.md) Add a hard bench tier, scored by answer parts and namesake disclosure -- Accepted

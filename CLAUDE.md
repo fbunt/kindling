@@ -138,7 +138,7 @@ hard tier (H01-H09), see below, are each run, graded and reported apart. Subcomm
 
 Runs behind published numbers are archived under `bench/results/<run>/` (reports, hand-filled
 adjudication/audit/triage, run_meta, ground truth, and every trace in `traces.tar.gz`; its README
-says how to restore and re-report). Scoring rules and why: `docs/decisions/0004-*.md` (core), `0005-*.md` (extended).
+says how to restore and re-report). Scoring rules and why: `docs/decisions/0004-*.md` (core), `0005-*.md` (extended), `0006-*.md` (hard).
 
 **Extended tier** (`EXTENDED`, categories `ext_semantics`/`ext_behavior`/`ext_interaction`/
 `ext_multistep`): one tier per run dir (`run` refuses a mixed SPEC; resume refuses a tier change
