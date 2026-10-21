@@ -9,6 +9,7 @@ allowlist for the `model` field on POST /api/chat.
 CHAT_MODELS: list[dict[str, str]] = [
     {"id": "gemini-3.1-pro-preview", "label": "3.1 Pro Preview"},
     {"id": "gemini-3.8-flash", "label": "3.8 Flash"},
+    {"id": "gemini-4-argon", "label": "4 Argon"},
 ]
 CHAT_MODEL_IDS: frozenset[str] = frozenset(m["id"] for m in CHAT_MODELS)
 DEFAULT_CHAT_MODEL = "gemini-3.1-pro-preview"

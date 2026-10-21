@@ -1,7 +1,7 @@
 """Per-model token prices for the report's dollar estimate.
 
 USD per 1M tokens, Gemini Developer API paid tier (Standard), from
-https://ai.google.dev/gemini-api/docs/pricing (page last updated 2026-09-24).
+https://ai.google.dev/gemini-api/docs/pricing (page last updated 2026-10-19).
 Output price applies to candidates + thoughts tokens (thinking is billed as
 output). Context-cache storage ($/1M tokens/hour) is not modelled; the app
 uses no explicit cache, so cached tokens are implicit-cache hits only.
@@ -12,9 +12,11 @@ Two things the estimate does not model:
   threshold so an undercount is visible.
 - 3.8 Flash's price doubles on 2027-01-01 ($1.50 in / $7.50 out / $0.15
   cached). Update this table for any run after that date.
+- 4 Argon's price doubles on 2026-12-01 ($4 in / $20 out / $0.20 cached).
+  Update this table for any run after that date.
 """
 
-PRICES_AS_OF: str | None = "2026-09-24"
+PRICES_AS_OF: str | None = "2026-10-19"
 
 # Prompt size (per call) above which TIERED_MODELS bill at a higher rate.
 LONG_CONTEXT_THRESHOLD = 200_000
@@ -24,6 +26,7 @@ TIERED_MODELS: frozenset[str] = frozenset({"gemini-3.1-pro-preview"})
 PRICES: dict[str, dict[str, float | None]] = {
     "gemini-3.1-pro-preview": {"input": 2.00, "cached_input": 0.20, "output": 12.00},
     "gemini-3.8-flash": {"input": 0.75, "cached_input": 0.075, "output": 3.75},
+    "gemini-4-argon": {"input": 2.00, "cached_input": 0.10, "output": 10.00},
     "gemini-3.5-flash-lite": {"input": 0.30, "cached_input": 0.03, "output": 2.50},
 }
 

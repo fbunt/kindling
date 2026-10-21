@@ -357,7 +357,10 @@ def test_core_grader_matches_the_archived_run():
 
 def test_archived_run_reports_as_archived(tmp_path, monkeypatch):
     """report and compare render the archived core run exactly as archived;
-    the one addition is the report-only undisclosed-truncation line."""
+    the one addition is the report-only undisclosed-truncation line. The
+    archive was priced from the 2026-09-24 page; its models' prices have not
+    changed since, so only the date is pinned back."""
+    monkeypatch.setattr("bench.report.PRICES_AS_OF", "2026-09-24")
     with tarfile.open(ARCHIVE / "traces.tar.gz") as tar:
         tar.extractall(tmp_path / ".bench-runs", filter="data")
     run = Path(".bench-runs") / "pro-vs-flash"
