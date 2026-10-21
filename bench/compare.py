@@ -14,14 +14,15 @@ independent:
 
 compare refuses runs that are not comparable: different parquet identity,
 different reference_sha for any question, different grader_sha, different
-question sets, runs of different tiers (core vs extended), or any ungraded /
-grader-error trial. Per-category rows are descriptive only (a handful of
-questions each; no interval), and so is a whole extended-tier comparison: its
-questions probe chosen behaviours, so its interval and p-value describe those
-questions rather than test the models. A review-status
-table shows, per run, the flagged trials still pending review and the
-unparseable / stale adjudications, since the headline rates use automated
-verdicts for all of those.
+question sets, runs of different tiers (core, extended or hard), or any
+ungraded / grader-error trial. Per-category rows are descriptive only (a
+handful of questions each; no interval), and so is a whole comparison of a
+tier other than the core (DESCRIPTIVE_TIERS): the extended questions probe
+chosen behaviours and the hard tier has too few questions for a test, so the
+interval and p-value describe those questions rather than test the models. A
+review-status table shows, per run, the flagged trials still pending review
+and the unparseable / stale adjudications, since the headline rates use
+automated verdicts for all of those.
 """
 
 import random
@@ -30,12 +31,18 @@ from pathlib import Path
 from statistics import mean, median
 
 from bench.prices import estimate_usd
-from bench.questions import BY_ID, CATEGORIES, EXTENDED_CATEGORIES
+from bench.questions import BY_ID, TIERS
 from bench.report import _md_table, is_graded, load_run, pending_review, run_tier
 from bench.usage import merge_usage, total_tokens
 
 DEFAULT_RESAMPLES = 10_000
 DEFAULT_PERMUTATIONS = 10_000
+# Tiers compared descriptively only, with why their interval and p-value
+# describe the questions rather than test the models.
+DESCRIPTIVE_TIERS = {
+    "extended": "Its questions probe chosen behaviours",
+    "hard": "It has too few questions for a test",
+}
 
 
 class CompareError(Exception):
@@ -76,8 +83,8 @@ def check_comparable(runs: list[tuple[Path, dict, list[dict]]]) -> None:
     if tiers[0] != tiers[1] or "mixed" in tiers:
         raise CompareError(
             f"runs are not of one tier (A: {tiers[0]}, B: {tiers[1]}); "
-            "compare two runs of one tier (the extended tier is reported apart "
-            "from the core)"
+            "compare two runs of one tier (the extended and hard tiers are each "
+            "reported apart from the core)"
         )
     identities = {meta.get("parquet_identity") for _, meta, _ in runs}
     identities |= {t.get("parquet_identity") for _, _, ts in runs for t in ts}
@@ -235,7 +242,8 @@ def compare_runs(
     meta_a, ta = _load(a)
     meta_b, tb = _load(b)
     check_comparable([(a, meta_a, ta), (b, meta_b, tb)])
-    extended = run_tier(meta_a, ta) == "extended"
+    tier = run_tier(meta_a, ta)
+    why_descriptive = DESCRIPTIVE_TIERS.get(tier)
     name_a = meta_a.get("model") or a.name
     name_b = meta_b.get("model") or b.name
     if name_a == name_b:
@@ -263,17 +271,17 @@ def compare_runs(
 
     parts = [
         f"# Compare - {name_a} vs {name_b}"
-        + (" (extended tier, descriptive)" if extended else ""),
+        + (f" ({tier} tier, descriptive)" if why_descriptive else ""),
         "",
         *(
             [
-                "Extended tier: a descriptive comparison, reported apart from the "
-                "core headline. Its questions probe chosen behaviours, so the "
+                f"{tier.capitalize()} tier: a descriptive comparison, reported "
+                f"apart from the core headline. {why_descriptive}, so the "
                 "interval and p-value below describe these questions; they are "
                 "not a test of which model is better.",
                 "",
             ]
-            if extended
+            if why_descriptive
             else []
         ),
         f"- A: `{a}` ({len(ta)} graded trials)",
@@ -348,7 +356,7 @@ def compare_runs(
             "",
         ]
     rows = []
-    for cat in (*CATEGORIES, *EXTENDED_CATEGORIES):
+    for cat in (c for t in TIERS.values() for c in t.categories):
         cq = [i for i, q in enumerate(qids) if BY_ID[q].category == cat]
         if not cq:
             continue

@@ -1,8 +1,8 @@
 """Bench grading of the hard tier: the fields and disambiguate verdicts and
 their review routes, the answer query of a fields answer, executability and
-partial data per kind, the hard grader sha, and a hard run graded end to end.
-No dataset, no API key, no container runtime: extractions are hand-built and
-the extractor is a scripted fake."""
+partial data per kind, the hard grader sha, a hard run graded end to end, and
+its report, compare and audit. No dataset, no API key, no container runtime:
+extractions are hand-built and the extractor is a scripted fake."""
 
 import dataclasses
 import json
@@ -41,6 +41,7 @@ HARD = {
         ],
     },
     "H05": {"percent": 24.6775, "name": "YOLLA BOLLY COMPLEX (IRON)", "year": 2008},
+    "H06": 212,
     "H07": 4.208333,
 }
 
@@ -777,3 +778,196 @@ def test_a_hard_run_grades_end_to_end(tmp_path):
     regraded = {(t["question_id"], t["trial"]): t for t in grade_run(tmp_path, again)}
     assert regraded[("H05", 1)]["accuracy_reason"] == "adjudicated"
     assert regraded[("H05", 1)]["accurate"] is False
+
+
+# ---------------------------------------------------------------------------
+# report, compare and audit over hard traces
+# ---------------------------------------------------------------------------
+
+_H06_HISTORY = [{"role": r, "text": t} for r, t in BY_ID["H06"].history]
+
+
+def _hard_run(run_dir, model, h01_right: int):
+    """Two trials each of H01, H04, H05 and H06, graded by a scripted
+    extractor: H01 right in its first `h01_right` trials, H04 and H05 right
+    in trial 0 only (H05 trial 1 goes to review), H06 right in both."""
+    count = ("result = rx.group_by('state').len()", [{"state": "FL", "len": 1388}])
+    namesakes = ("result = named.filter(pl.col('year') == 1994)", [{"n": 3}])
+    h06 = ("result = n", {"n": 212})
+    traces = [
+        _trace(
+            "H01",
+            i,
+            "Florida (FL), with 1,388 events."
+            if i < h01_right
+            else "Florida, I think.",
+            [count],
+        )
+        for i in range(2)
+    ]
+    traces += [
+        _trace("H04", 0, "Three COTTONWOOD fires burned in 1994.", [namesakes]),
+        _trace("H04", 1, "The COTTONWOOD fire burned 600 acres.", [namesakes]),
+        _trace("H05", 0, "24.68%: the Yolla Bolly Complex (Iron), 2008.", [_H05_QUERY]),
+        _trace("H05", 1, "24.68%: the Yolla Bolly Complex of 2008.", [_H05_QUERY]),
+    ]
+    traces += [
+        _trace("H06", i, "212 events.", [h06], history=_H06_HISTORY) for i in range(2)
+    ]
+    traces[0]["usage"] = {model: {"calls": 1, "total_token_count": 1000}}
+    _write_run(run_dir, traces, model=model)
+    table = {
+        "Florida (FL), with": _reply(
+            parts={
+                "state": _reply_part("Florida (FL)"),
+                "count": _reply_part("1,388", 1388),
+            }
+        ),
+        "Florida, I think": _reply(
+            parts={"state": _reply_part("Florida"), "count": _reply_part()}
+        ),
+        "Three COTTONWOOD": _reply(
+            several_noted=True,
+            combined_as_one=False,
+            events=[{"identifier": f"ID{i}", "area_text": None} for i in range(3)],
+        ),
+        "burned 600 acres": _reply(
+            several_noted=False,
+            combined_as_one=True,
+            events=[{"identifier": "COTTONWOOD", "area_text": "600 acres"}],
+        ),
+        "(Iron), 2008": _reply(
+            parts={
+                "percent": _reply_part("24.68%", 24.68, "%"),
+                "name": _reply_part("Yolla Bolly Complex (Iron)"),
+                "year": _reply_part("2008", 2008),
+            }
+        ),
+        "Complex of 2008": _reply(
+            parts={
+                "percent": _reply_part("24.68%", 24.68, "%"),
+                "name": _reply_part("Yolla Bolly Complex"),
+                "year": _reply_part("2008", 2008),
+            }
+        ),
+        "212 events": _reply(value=212),
+    }
+    grade_run(run_dir, FakeExtractor(_by_response(table)))
+    return run_dir
+
+
+def test_hard_report_renders_its_own_sections(tmp_path):
+    from bench.report import build_report
+
+    report = build_report(_hard_run(tmp_path / "flash", "gemini-3.8-flash", 1))
+    lines = report.splitlines()
+    assert lines[0] == "# Benchmark report - flash (hard tier)"
+    assert "## Hard tier (reported separately)" in lines
+    assert "## Per category" not in lines  # no core headline
+    assert "### Per category" in lines and "### Per answer kind" in lines
+    for row in (
+        "| hard_semantics | 2 | 2/4 (50%) | 4/4 (100%) | 2/4 (50%) |",
+        "| hard_pixel_history | 1 | 1/2 (50%) | 2/2 (100%) | 1/2 (50%) |",
+        "| hard_interaction | 1 | 2/2 (100%) | 2/2 (100%) | 2/2 (100%) |",
+    ):
+        assert any(line.startswith(row) for line in lines), row
+    for row in (
+        "| scalar | H06 | 2/2 (100%) | 2/2 (100%) | - | - |",
+        "| fields | H01, H05 | 2/4 (50%) | 4/4 (100%) | every part given 3/4 (75%); "
+        "multiple candidates 0/4 (0%) | count:missing_value x1, name:wrong_name x1 |",
+        "| disambiguate | H04 | 1/2 (50%) | 2/2 (100%) | namesakes noted 1/2 (50%); "
+        "combined as one 1/2 (50%); events listed (median) 2.0 | "
+        "namesakes_not_noted x1 |",
+    ):
+        assert row in lines, row
+    # Both hard kinds need a query: no n/a executability.
+    assert "Executability does not apply" not in report
+    assert (
+        "- H05 trial 1: unqualified_name; auto=False (name:wrong_name), extracted "
+        "{'percent': '24.68%', 'name': 'Yolla Bolly Complex', 'year': '2008'}"
+    ) in lines  # a fields answer's units are in its parts
+    assert "current grader" not in report and "old_grader" not in report
+
+
+def test_report_keeps_each_tier_of_a_mixed_run_apart(tmp_path):
+    from bench.report import build_report
+    from tests.test_bench_grading import _graded_trace
+
+    run_dir = _hard_run(tmp_path, "gemini-3.8-flash", 2)
+    core = _graded_trace("L03", 0, True)
+    atomic_write_json(run_dir / "L03" / "trial_00.json", core)
+    lines = build_report(run_dir).splitlines()
+    assert lines[0] == f"# Benchmark report - {tmp_path.name} (mixed tier)"
+    assert any(
+        line.startswith(
+            "**This run dir holds trials of more than one tier** (core, hard;"
+        )
+        for line in lines
+    )
+    assert "## Per category" in lines and "## Hard tier (reported separately)" in lines
+
+
+def test_compare_two_hard_runs_is_descriptive(tmp_path):
+    from bench.compare import compare_runs
+
+    a = _hard_run(tmp_path / "pro", "gemini-3.1-pro-preview", 2)
+    b = _hard_run(tmp_path / "flash", "gemini-3.8-flash", 1)
+    lines = compare_runs(a, b, resamples=200, permutations=200).splitlines()
+    assert lines[0] == (
+        "# Compare - gemini-3.1-pro-preview vs gemini-3.8-flash "
+        "(hard tier, descriptive)"
+    )
+    assert any(line.startswith("Hard tier: a descriptive comparison") for line in lines)
+    assert f"`{hard_grader_sha()}`" in "\n".join(lines)
+    assert "| H01 | hard_semantics | 2/2 | 1/2 | +50.0 pp |" in lines
+    assert "| hard_semantics | 2 | 75.0% | 50.0% | +25.0 pp |" in lines
+    assert "| hard_interaction | 1 | 100.0% | 100.0% | +0.0 pp |" in lines
+
+
+def test_compare_refuses_a_hard_run_against_another_tier(tmp_path):
+    from bench.compare import CompareError, compare_runs
+    from tests.test_bench_grading import _run
+    from tests.test_bench_grading_ext import _extended_run
+
+    hard = _hard_run(tmp_path / "hard", "gemini-3.8-flash", 2)
+    core = _run(tmp_path / "core", "gemini-3.1-pro-preview", {"L03": 2})
+    ext = _extended_run(tmp_path / "ext", "gemini-3.1-pro-preview", 2)
+    with pytest.raises(CompareError, match=r"not of one tier \(A: core, B: hard\)"):
+        compare_runs(core, hard)
+    with pytest.raises(CompareError, match=r"not of one tier \(A: extended, B: hard\)"):
+        compare_runs(ext, hard)
+
+
+def test_audit_full_takes_every_trial_of_hard_questions(tmp_path):
+    from bench.audit import load_audit, write_audit
+    from bench.audit_web import AuditStore
+
+    run_dir = _hard_run(tmp_path / "flash", "gemini-3.8-flash", 1)
+    write_audit(run_dir, fraction=0.5, seed=0, full="H01,H04,H05")
+    audit = load_audit(run_dir)
+    keys = [(e["question_id"], e["trial"]) for e in audit["entries"]]
+    assert keys[:6] == [(q, i) for q in ("H01", "H04", "H05") for i in range(2)]
+    assert [k[0] for k in keys[6:]] == ["H06"]  # ceil(0.5 * 2)
+    assert audit["full"] == ["H01", "H04", "H05"] and audit["eligible"] == 8
+    entries = {(e["question_id"], e["trial"]): e for e in audit["entries"]}
+    h05 = entries[("H05", 1)]
+    assert h05["expected"] == HARD["H05"] and h05["grader_reason"] == "name:wrong_name"
+    assert h05["extraction"]["parts"]["name"]["text"] == "Yolla Bolly Complex"
+    h04 = entries[("H04", 0)]
+    assert [e["identifier"] for e in h04["extraction"]["events"]] == [
+        "ID0",
+        "ID1",
+        "ID2",
+    ]
+    (h06,) = [e for k, e in entries.items() if k[0] == "H06"]
+    assert h06["history"] == _H06_HISTORY and h06["plots"] == []
+
+    # The review page serves them as they are, with each trace's queries.
+    items = {i["id"]: i for i in AuditStore([run_dir]).items()}
+    page = items["flash/H05/1"]
+    assert page["expected"] == HARD["H05"]
+    assert page["extraction"]["parts"] == h05["extraction"]["parts"]
+    assert [q["code"] for q in page["queries"]] == [_H05_QUERY[0]]
+    assert items[f"flash/H06/{h06['trial']}"]["history"] == _H06_HISTORY
+    assert items["flash/H04/0"]["expected"]["events"][0]["Event_ID"] == "ID1"
+    json.dumps(list(items.values()))  # what /api/items sends

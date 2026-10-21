@@ -49,12 +49,12 @@ fill `verdict` (pass/fail), `reason` and `adjudicator`; grade and report apply
 decided entries over the automated verdict, and grade never overwrites them.
 
 report writes DIR/report.md. A run dir holds one tier: a core run reports as
-the core headline; an extended run gets its own "Extended tier (reported
-separately)" section (extended categories, a per-answer-kind table,
-executability n/a where the right answer needs no query). Both print an
-undisclosed-truncation line (the answer query's result was cut and the
-response does not say so), a report-only figure tagged with its definition
-version.
+the core headline; an extended or hard run gets its own "Extended tier
+(reported separately)" or "Hard tier (reported separately)" section (that
+tier's categories, a per-answer-kind table, executability n/a where the right
+answer needs no query). Every tier prints an undisclosed-truncation line
+(the answer query's result was cut and the response does not say so), a
+report-only figure tagged with its definition version.
 
 audit samples --fraction of the graded trials (seeded) into DIR/audit.json for
 a hand `human_verdict`; --full E04,E09 adds every graded trial of those
@@ -70,8 +70,8 @@ exactly two model subdirs) and writes compare-<A>-vs-<B>.md next to A (or
 sign-flip permutation test on per-question differences, the questions where
 the models disagree, and tokens/cost/latency. It refuses runs whose tier,
 parquet identity, reference_shas, grader_sha or question sets differ, or that
-have ungraded trials; a comparison of two extended runs is labelled
-descriptive.
+have ungraded trials; a comparison of two extended or two hard runs is
+labelled descriptive.
 """
 
 import argparse

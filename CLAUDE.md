@@ -49,8 +49,8 @@ live in `[project.optional-dependencies] worker` — the host/app never import t
 
 `bench/` is the ICFFR paper's 25-question accuracy harness (4 categories: lookup, aggregation,
 trend, multistep). Trend questions (T01-T05) count wildfire only (`Incid_Type == 1`); every
-other event-count question says "Count every incident type". An extended tier (E01-E14, see
-Extended tier below) is run, graded and reported apart. Subcommands (usage in
+other event-count question says "Count every incident type". An extended tier (E01-E14) and a
+hard tier (H01-H09), see below, are each run, graded and reported apart. Subcommands (usage in
 `bench/__main__.py`):
 
 - `gt [--force]` precomputes reference-Polars ground truth, cached under
@@ -67,7 +67,8 @@ Extended tier below) is run, graded and reported apart. Subcommands (usage in
   be in `CHAT_MODEL_IDS`; `--max-rounds` defaults to `MAX_TOOL_ROUNDS` (a parity test pins
   bench, evals and `run_chat_turn` to it). Pool/sandbox settings come from the same
   `KINDLING_SANDBOX_*` / `KINDLING_POOL_SIZE` env as the app (2 warm / 3 max). SPEC: `core`
-  (default, the 25), `extended`, `all` (`gt` only), a category name, or ids (`L01,E04`).
+  (default, the 25), `extended`, `hard`, `all` (every tier, `gt` only), a category name, or ids
+  (`L01,E04`).
 - `grade --run-dir DIR [--regrade]` makes one blind extractor call per non-infra trial
   (`bench/judge.py`: `LITE_MODEL`, temperature 0, JSON schema; sees question + response, never
   the expected value; not `tests/evals/judge.py`) and decides accuracy in Python
@@ -105,10 +106,10 @@ Extended tier below) is run, graded and reported apart. Subcommands (usage in
   clarification rate, exec-gated accuracy (secondary), partial data disclosed/undisclosed,
   grounded rate, adjudication and audit status, and tokens/cost (list prices as of 2026-10-19
   in `bench/prices.py`; calls over Pro's 200k long-context tier are flagged, not repriced).
-  A core run renders as archived; an extended run gets an "(extended tier)" title and an
-  "Extended tier (reported separately)" section (extended category rows, a per-answer-kind
-  table, executability n/a where it does not apply) instead of the core headline. Both tiers
-  print an undisclosed-truncation line (answer query returned `truncated`; neither
+  A core run renders as archived; an extended or hard run gets an "(extended tier)" / "(hard
+  tier)" title and its own "... tier (reported separately)" section (that tier's category rows,
+  a per-answer-kind table, executability n/a where it does not apply) instead of the core
+  headline. Every tier prints an undisclosed-truncation line (answer query returned `truncated`; neither
   `sampled_disclosed` nor, for disclosure, `truncation_disclosed`), tagged with its definition version (`UNDISCLOSED_TRUNCATION_VERSION`): report-only,
   no grader sha moves.
 - `audit --run-dir DIR [--fraction 0.1] [--seed 0] [--full IDS]` samples graded trials into
@@ -131,7 +132,8 @@ Extended tier below) is run, graded and reported apart. Subcommands (usage in
   seeded resamples), a Monte Carlo sign-flip test, disagreeing questions, descriptive
   per-category rows, tokens/cost/latency, and pending/unparseable/stale adjudication counts per
   run. Refuses differing tiers, parquet identity, `reference_sha`, `grader_sha` or question
-  sets, and ungraded trials; two extended runs compare as "(extended tier, descriptive)".
+  sets, and ungraded trials; two extended or two hard runs compare as "(extended tier,
+  descriptive)" / "(hard tier, descriptive)".
   grade, report and audit also accept an interleaved run's parent `DIR`.
 
 Runs behind published numbers are archived under `bench/results/<run>/` (reports, hand-filled
@@ -163,6 +165,35 @@ model errors, and is left out of those denominators. Review routes (to adjudicat
 `multiple_candidates` (abstain, disclosure), `clarification_with_total`, `wrong_items`,
 `no_table`, `other_measure`, `reading_conflict`, `plot_not_referenced` and `ungrounded` (E08
 right with no query).
+
+**Hard tier** (`HARD`, categories `hard_semantics`/`hard_pixel_history`/`hard_statistics`/
+`hard_interaction`): questions whose obvious query gives a plausible wrong number (H01's state is
+only in the Event_ID prefix, H02 unique burned area, H03/H05/H09 per-pixel fire history, H07
+Theil-Sen, H08 a median ratio, H06 a follow-up to a scripted history), one tier per run dir as
+above. Traces are graded under `hard_grader_sha()` (`HARD_GRADER_VERSION` + the core sha +
+`judge.hard_fingerprint()` + `HARD_ANSWERS`), so the core and extended shas do not move. Scalar
+questions grade through the core rules; two kinds have their own (`bench/grading_hard.py`;
+grounded and the regex cross-check are n/a for both):
+- **fields** (H01 state + count, H05 percent + name + year): the extractor is told the part
+  names, never values. Pass iff status answer, no multiple candidates or partial data, and every
+  part right under its `FieldSpec`: numbers by the core numeric rules in the part's band, names
+  by core resolution with aliases after dates (with any time) and years and the words tying them
+  on are stripped, a state by its name or a capital code (a part of only codes in any case;
+  word-like IN/OR/ME/OK/HI/OH only alone or ending a phrase, ID only alone). The year part may
+  be read from a name or date and never locates the answer query.
+- **disambiguate** (H04): pass iff the reply notes that several events of that year share the
+  name and does not present a sum over them as one fire's area, whatever its status (listing them
+  in a clarifying question passes, a blind "which one?" fails); executability applies; only
+  `.sample(`/`.fetch(`/`.gather_every(` count as partial data.
+
+Review routes add `fraction_for_percent` (0.247 for 24.7%), `unqualified_name` (the name
+without its qualifier, which another event shares), `year_disagreement`, `second_state` and
+`fewer_events_listed` (an H04 pass listing fewer events than exist); triage adds the
+`conflated_namesakes` failure mode. H04's `[YEAR]` and H06's `[N]` are placeholders
+(`COTTONWOOD_YEAR`, `ECO8_2020_WILDFIRE_EVENTS` in `bench/questions.py`) until set from the table
+their references log on full data; those references refuse until then, so `gt hard`/`gt all`
+fails. Run `gt` with the worker extra (`uv sync --extra worker`): H07's reference also checks
+sklearn's TheilSenRegressor reading, skipped with a warning without it.
 
 `gt` and `run` hold a host-wide `fcntl` lock (`$KINDLING_BENCH_LOCK`, default
 `/tmp/kindling-bench.lock`): one bench per host. Output goes to `.bench-runs/<run-dir>/`.

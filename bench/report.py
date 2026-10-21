@@ -25,7 +25,7 @@ from bench.prices import (
     estimate_usd,
     long_context_calls,
 )
-from bench.questions import BY_ID, CATEGORIES, EXTENDED_CATEGORIES, tier_of
+from bench.questions import BY_ID, CATEGORIES, TIERS, tier_of
 from bench.usage import merge_usage, total_tokens
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,16 @@ logger = logging.getLogger(__name__)
 # It is computed here, not by the grader, so changing it moves no grader sha.
 UNDISCLOSED_TRUNCATION_VERSION = 1
 # Answer kinds in the order the per-kind table lists them.
-ANSWER_KINDS = ("scalar", "text", "abstain", "disclosure", "clarify_or_assume", "plot")
+ANSWER_KINDS = (
+    "scalar",
+    "text",
+    "abstain",
+    "disclosure",
+    "clarify_or_assume",
+    "plot",
+    "fields",
+    "disambiguate",
+)
 
 
 def load_run(run_dir: Path) -> tuple[dict, list[dict], list[dict], list[str]]:
@@ -106,15 +115,17 @@ def _current_sha(trace: dict) -> str:
 
 
 def trace_tier(trace: dict) -> str:
-    """'core' or 'extended', from the question registry (the trace's own
-    `tier` for an id the registry no longer has; core when neither says)."""
+    """'core', 'extended' or 'hard', from the question registry (the trace's
+    own `tier` for an id the registry no longer has; core when neither
+    says)."""
     question = BY_ID.get(trace.get("question_id"))
     return tier_of(question) if question else trace.get("tier") or "core"
 
 
 def run_tier(meta: dict, traces: list[dict]) -> str:
-    """The tier a run dir holds: its traces' tier ('mixed' if they disagree),
-    else run_meta `tier` (absent in runs from before tiers: core)."""
+    """The tier a run dir holds ('core', 'extended' or 'hard'): its traces'
+    tier ('mixed' if they disagree), else run_meta `tier` (absent in runs
+    from before tiers: core)."""
     tiers = {trace_tier(t) for t in traces}
     if len(tiers) > 1:
         return "mixed"
@@ -205,7 +216,8 @@ def _category_rows(
 
 
 def _kind_detail(kind: str, ts: list[dict]) -> str:
-    """What the trials of an extended answer kind did, beyond the verdict."""
+    """What the trials of an extended or hard answer kind did, beyond the
+    verdict."""
     exs = [t.get("extraction") or {} for t in ts]
 
     def share(pred) -> str:
@@ -240,6 +252,27 @@ def _kind_detail(kind: str, ts: list[dict]) -> str:
             for t in ts
         )
         return f"plot copied {_pct(copied, len(ts))}"
+    if kind == "fields":
+        given = share(
+            lambda e: (
+                e.get("parts")
+                and all(
+                    p.get("text") is not None or p.get("value") is not None
+                    for p in e["parts"].values()
+                )
+            )
+        )
+        return (
+            f"every part given {given}; multiple candidates "
+            f"{share(lambda e: e.get('multiple_candidates'))}"
+        )
+    if kind == "disambiguate":
+        listed = [len(e.get("events") or ()) for e in exs]
+        return (
+            f"namesakes noted {share(lambda e: e.get('several_noted'))}; "
+            f"combined as one {share(lambda e: e.get('combined_as_one'))}; "
+            f"events listed (median) {_median_or_dash(listed)}"
+        )
     return "-"
 
 
@@ -459,7 +492,12 @@ def _grading_section(
                 f"- {t['question_id']} trial {t['trial']}: "
                 f"{', '.join(t.get('review_reasons') or ())}; auto="
                 f"{t.get('auto_accurate')} ({t.get('auto_reason')}), extracted "
-                f"{_extracted(t)!r}, unit {(t.get('extraction') or {}).get('unit')!r}"
+                f"{_extracted(t)!r}"
+                + (
+                    ""  # a fields answer's units are in its parts
+                    if "parts" in (t.get("extraction") or {})
+                    else f", unit {(t.get('extraction') or {}).get('unit')!r}"
+                )
                 for t in pending
             ),
             "",
@@ -473,7 +511,17 @@ def pending_review(graded: list[dict]) -> list[dict]:
 
 
 def _extracted(trace: dict):
+    """The extracted answer, for a pending-review line: a fields answer's
+    parts as written ({part: text}, the value when there is no text), a
+    disambiguation's listed event identifiers."""
     ex = trace.get("extraction") or {}
+    if "parts" in ex:
+        return {
+            name: p.get("text") if p.get("text") is not None else p.get("value")
+            for name, p in (ex["parts"] or {}).items()
+        }
+    if "events" in ex and "several_noted" in ex:
+        return [e.get("identifier") for e in ex["events"] or ()]
     return ex.get("value", ex.get("values", ex.get("names")))
 
 
@@ -592,7 +640,9 @@ def _category_section(
     level: str,
 ) -> list[str]:
     acc = sum(bool(t.get("accurate")) for t in graded)
-    not_applicable = any(t.get("executable") is None for t in graded)
+    not_applicable = sorted(
+        {_answer_kind(t) for t in graded if t.get("executable") is None}
+    )
     return [
         f"{level} Per category",
         "",
@@ -619,7 +669,7 @@ def _category_section(
         *(
             [
                 "Executability does not apply to a question whose right answer "
-                "needs no query (abstain, clarify_or_assume): n/a, and left out "
+                f"needs no query ({', '.join(not_applicable)}): n/a, and left out "
                 "of the executability, exec & accurate and exec-gated "
                 "denominators (a model error still counts as not executable).",
                 "",
@@ -679,9 +729,12 @@ def build_report(run_dir: Path) -> str:
         "",
     ]
     if tier == "mixed":
+        held = sorted({trace_tier(t) for t in traces})
         parts += [
-            "**This run dir holds trials of both tiers** (a run dir is meant "
-            "to hold one); the core and extended rates below are kept apart.",
+            "**This run dir holds trials of more than one tier** ("
+            + ", ".join(held)
+            + "; a run dir is meant to hold one); each tier's rates below are "
+            "kept apart.",
             "",
         ]
     if corrupt:
@@ -714,20 +767,22 @@ def build_report(run_dir: Path) -> str:
             CATEGORIES,
             "##",
         )
-    extended = [t for t in graded if trace_tier(t) == "extended"]
-    if extended:
+    for name, tier_def in TIERS.items():
+        in_tier = [t for t in graded if trace_tier(t) == name]
+        if name == "core" or not in_tier:
+            continue
         parts += [
-            "## Extended tier (reported separately)",
+            f"## {name.capitalize()} tier (reported separately)",
             "",
-            "The extended questions are scored and reported apart from the core "
+            f"The {name} questions are scored and reported apart from the core "
             "tier: none of these rates is part of the core headline, and they "
             "are never pooled with a core run's.",
             "",
             *_category_section(
-                extended,
-                [t for t in infra if trace_tier(t) == "extended"],
+                in_tier,
+                [t for t in infra if trace_tier(t) == name],
                 target,
-                EXTENDED_CATEGORIES,
+                tier_def.categories,
                 "###",
             ),
             "### Per answer kind",
@@ -741,7 +796,7 @@ def build_report(run_dir: Path) -> str:
                     "what the trials did",
                     "fail reasons",
                 ],
-                _kind_rows(extended),
+                _kind_rows(in_tier),
             ),
             "",
         ]
