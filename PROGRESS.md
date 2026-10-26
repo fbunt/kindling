@@ -6,7 +6,7 @@ Architecture, invariants, and run/deploy wiring live in `CLAUDE.md`; user-facing
 `README.md`; the *what changed* history in `git log` (commit messages are detailed). This file
 holds only what those don't: in-flight work, the *why* behind non-obvious decisions, and blockers.
 
-_Updated: 2026-10-20._
+_Updated: 2026-10-26._
 
 > **Maintaining this file.** New work is appended to _Recently done_ with a date. When that
 > section passes ~10 items, compact it: fold anything that would stop someone redoing or
@@ -19,12 +19,11 @@ _Updated: 2026-10-20._
 
 ## TODO
 
-- **Hard bench tier (H01-H09): built and filled from full-data ground truth (2026-10-20,
-  `9dc05e5`..`9ffbdc3`; decision 0006; CLAUDE.md *Hard tier*).** Next: pilot with all three chat
-  models, 3 trials (`run --models gemini-3.1-pro-preview,gemini-3.8-flash,gemini-4-argon
-  --questions hard --trials 3`), grade, `audit --full H01,H04,H05`, adjudicate; then 5 trials. A
-  rule change after the pilot is graded bumps `HARD_GRADER_VERSION` and goes to a new run dir.
-  Plan, reviews and paper survey are in `.bench-runs/hard-tier-*.md` and
+- **A bench set that separates the models.** Core, extended and hard are all at or near ceiling
+  (see *Recently done*). Fully specified questions are easy for every chat model; the next set needs
+  questions where the model must choose the method, graded like E07 (it asks, or states its
+  reading and gets that reading's answer), or reproductions from the paper survey. The hard
+  tier's plan and reviews are in `.bench-runs/hard-tier-*.md`, the survey in
   `.bench-runs/fire-paper-survey.md` (gitignored).
 - **Land-cover bench questions: blocked: waiting on the new dataframe with pre-fire land cover.**
   Same-year `nlcd` is largely post-fire for moderate and high severity (sample, forest-mode
@@ -57,6 +56,16 @@ _Updated: 2026-10-20._
 
 ## Recently done
 
+- **2026-10-26 — Hard tier piloted: at ceiling, no 5-trial run.** Built and filled from full-data
+  ground truth (`9dc05e5`..`9ffbdc3`; decision 0006). Three trials per model: argon 27/27, Flash
+  26/27, Pro 25/27, $3.79 in all; no review entries; hand audit (every H01/H04/H05 trial plus a
+  sample) agreed with the grader 33/33. The only failures: Pro H07 twice (`pl.len()` is UInt32, so
+  numpy pair differences wrapped to ~2.1e9 and the median slope came out 33.00 instead of 4.40;
+  Pro's third trial caught it) and Flash H03 once (its query OOM-killed the worker and it spent
+  the remaining rounds on the dead worker). Every trap was otherwise avoided: the review pass made
+  each question spell out its method, which turned the tier into a test of careful execution.
+  5 trials skipped: at ceiling they would only narrow intervals around 100%. Run in
+  `.bench-runs/hard-pilot`.
 - **2026-10-20 — Three-model bench: core and extended at ceiling; gemini-4-argon added.**
   `gemini-4-argon` joined `CHAT_MODELS` (`d16ddae`; $2/$10 per 1M through 2026-11-30, doubling
   2026-12-01). Core, 5 trials interleaved: Pro, Flash and argon all 125/125 (the A06 rewording
