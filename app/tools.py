@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 
 from google import genai
 from google.genai import types
@@ -153,17 +154,46 @@ FIRE_DATA_TOOLS = types.Tool(
 )
 
 
+_URL_RE = re.compile(r"https?://[^\s<>\"'()\[\]]+")
+
+# The inner model may answer about a linked page from search or memory instead
+# of reading it; this asks it to read, and to say where the answer came from.
+_WEB_SEARCH_INSTRUCTION = (
+    "If the request contains URLs, read each one with URL context and base the "
+    "answer on its content. If a URL cannot be read, say so plainly and say where "
+    "the answer came from instead (search results or prior knowledge). Never "
+    "describe a linked page from memory as if you had read it."
+)
+
+
+def _unread_urls(query: str, urls_read: list[dict]) -> list[str]:
+    """URLs in the query that no successful read accounts for.
+
+    A redirect is read under its final URL, so when there are at least as many
+    successful reads as query URLs, every query URL counts as read.
+    """
+    wanted = [u.rstrip(".,;:!?") for u in _URL_RE.findall(query)]
+    read = [r["url"] for r in urls_read if r["status"] == "success"]
+    if len(read) >= len(wanted):
+        return []
+    done = {u.rstrip("/") for u in read}
+    return [u for u in wanted if u.rstrip("/") not in done]
+
+
 def _web_search(query: str, client: genai.Client, model: str) -> dict:
     """Answer a query with a Gemini call that has Google Search and URL context
     (reads the pages and PDFs whose URLs appear in the query).
 
     Returns the answer text plus the search sources and the URLs read, so the
-    chat model can cite them; the inner call's text alone names no source.
+    chat model can cite them; the inner call's text alone names no source. A
+    query URL that was not read gets a note, since the answer then came from
+    search or the inner model's memory, not the page.
     """
     response = client.models.generate_content(
         model=model,
         contents=query,
         config=types.GenerateContentConfig(
+            system_instruction=_WEB_SEARCH_INSTRUCTION,
             tools=[
                 types.Tool(google_search=types.GoogleSearch()),
                 types.Tool(url_context=types.UrlContext()),
@@ -189,6 +219,13 @@ def _web_search(query: str, client: genai.Client, model: str) -> dict:
         urls_read.append({"url": m.retrieved_url, "status": status.lower()})
     if urls_read:
         out["urls_read"] = urls_read
+    unread = _unread_urls(query, urls_read)
+    if unread:
+        out["note"] = (
+            f"Not read: {', '.join(unread)}. This answer did not come from those "
+            "pages; it may come from search results or the model's memory. Say "
+            "so if you use it, or retry with a different URL for the same page."
+        )
     return out
 
 

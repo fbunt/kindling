@@ -107,3 +107,66 @@ def test_declaration_tells_the_model_it_can_read_urls():
         d for d in FIRE_DATA_TOOLS.function_declarations if d.name == "web_search"
     ]
     assert "URL" in decl.description
+
+
+def _read(url, status):
+    return types.UrlMetadata(
+        retrieved_url=url,
+        url_retrieval_status=getattr(
+            types.UrlRetrievalStatus, f"URL_RETRIEVAL_STATUS_{status.upper()}"
+        ),
+    )
+
+
+def test_inner_call_is_told_to_read_urls():
+    client = _FakeClient(_response())
+    _web_search("q", client, "m")
+    instruction = client.models.calls[0][2].system_instruction
+    assert "URL" in instruction and "memory" in instruction
+
+
+def test_unread_url_gets_a_note():
+    out = _web_search(
+        "What does https://arxiv.org/pdf/1706.03762 propose?",
+        _FakeClient(_response()),
+        "m",
+    )
+    assert "Not read: https://arxiv.org/pdf/1706.03762." in out["note"]
+
+
+def test_failed_read_gets_a_note():
+    url_meta = types.UrlContextMetadata(
+        url_metadata=[_read("https://link.springer.com/article/x", "error")]
+    )
+    out = _web_search(
+        "Summarize https://fireecology.example/x.",
+        _FakeClient(_response(url_meta=url_meta)),
+        "m",
+    )
+    # the sentence's full stop is not part of the URL
+    assert out["note"].startswith("Not read: https://fireecology.example/x. This")
+
+
+def test_read_url_and_redirect_get_no_note():
+    url_meta = types.UrlContextMetadata(
+        url_metadata=[_read("https://arxiv.org/abs/2510.01234/", "success")]
+    )
+    out = _web_search(
+        "Title of https://arxiv.org/abs/2510.01234 ?",
+        _FakeClient(_response(url_meta=url_meta)),
+        "m",
+    )
+    assert "note" not in out
+    redirected = types.UrlContextMetadata(
+        url_metadata=[_read("https://final.example/page", "success")]
+    )
+    out = _web_search(
+        "Read https://short.example/p", _FakeClient(_response(url_meta=redirected)), "m"
+    )
+    assert "note" not in out
+
+
+def test_query_without_url_gets_no_note():
+    assert "note" not in _web_search(
+        "largest fire in 2021", _FakeClient(_response()), "m"
+    )
