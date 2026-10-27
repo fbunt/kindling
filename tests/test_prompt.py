@@ -1,7 +1,9 @@
 """What SYSTEM_INSTRUCTION tells the model about execution and encodings."""
 
 import re
+from pathlib import Path
 
+from app.query_engine import _KEY_COLUMNS
 from app.tools import FIRE_DATA_TOOLS, SYSTEM_INSTRUCTION
 
 
@@ -26,17 +28,27 @@ def test_prompt_states_row_cap():
     assert "Never present a truncated table as complete" in SYSTEM_INSTRUCTION
 
 
-def test_prompt_does_not_claim_eco2_eco3_mappings():
-    # Only the columns query_engine actually maps are named as mapped.
+def test_prompt_names_ecoregions_through_the_lookup():
+    # get_dataset_info maps only the non-ecoregion codes; names come from the
+    # preloaded eco_names frame, whose every column the prompt lists.
     m = re.search(
         r"authoritative integer-to-label mapping for ([^.]*)\.", SYSTEM_INSTRUCTION
     )
     assert m
     mapped = m.group(1)
-    assert "`eco1`" in mapped and "`nlcd`" in mapped
-    assert "eco2" not in mapped and "eco3" not in mapped
-    assert "`eco2` and `eco3` have NO name mapping" in SYSTEM_INSTRUCTION
-    assert "web_search" in SYSTEM_INSTRUCTION
+    assert "`nlcd`" in mapped and "eco" not in mapped
+    csv = Path(__file__).resolve().parents[1] / "app/sandbox/ecoregions.csv"
+    header = csv.read_text().splitlines()[0]
+    for column in header.split(","):
+        assert f"`{column}`" in SYSTEM_INSTRUCTION, column
+    assert "`eco_names`" in SYSTEM_INSTRUCTION
+    assert "eco2s" not in SYSTEM_INSTRUCTION and "eco1s" not in SYSTEM_INSTRUCTION
+
+
+def test_prompt_lists_every_dataset_column():
+    # The statistics table names each column the key-column descriptions cover.
+    for column in _KEY_COLUMNS:
+        assert f"| {column} |" in SYSTEM_INSTRUCTION, column
 
 
 def test_prompt_examples_deduplicate_fire_level_stats():

@@ -32,7 +32,7 @@ ENV MPLBACKEND=Agg \
 # worker, since the runtime tmpfs can't reuse a baked, root-owned cache dir.)
 RUN python -m compileall -q /usr/local/lib/python3.12
 
-COPY app/sandbox/worker.py /worker.py
+COPY app/sandbox/worker.py app/sandbox/ecoregions.csv /
 
 # Run as a non-root user as a second line of defense behind the container itself.
 RUN useradd -u 1000 -m runner

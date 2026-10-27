@@ -38,4 +38,4 @@ class TestGetDatasetInfo:
 
     def test_row_count(self):
         info = get_dataset_info()
-        assert info["row_count_approx"] == "~745 million"
+        assert info["row_count_approx"] == "~749 million"

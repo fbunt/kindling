@@ -1,0 +1,82 @@
+eco1,eco1_name,eco2,eco2_code,eco2_name,eco3,eco3_code,eco3_name
+5,Northern Forests,52,5.2,Mixed Wood Shield,5201,5.2.1,Northern Lakes and Forests
+5,Northern Forests,52,5.2,Mixed Wood Shield,5202,5.2.2,Northern Minnesota Wetlands
+5,Northern Forests,53,5.3,Atlantic Highlands,5301,5.3.1,Northern Appalachian and Atlantic Maritime Highlands
+5,Northern Forests,53,5.3,Atlantic Highlands,5303,5.3.3,North Central Appalachians
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6203,6.2.3,Columbia Mountains/Northern Rockies
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6204,6.2.4,Canadian Rockies
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6205,6.2.5,North Cascades
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6207,6.2.7,Cascades
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6208,6.2.8,Eastern Cascades Slopes and Foothills
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6209,6.2.9,Blue Mountains
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6210,6.2.10,Middle Rockies
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6211,6.2.11,Klamath Mountains
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6212,6.2.12,Sierra Nevada
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6213,6.2.13,Wasatch and Uinta Mountains
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6214,6.2.14,Southern Rockies
+6,Northwestern Forested Mountains,62,6.2,Western Cordillera,6215,6.2.15,Idaho Batholith
+7,Marine West Coast Forest,71,7.1,Marine West Coast Forest,7108,7.1.8,Coast Range
+7,Marine West Coast Forest,71,7.1,Marine West Coast Forest,7109,7.1.9,Willamette Valley
+8,Eastern Temperate Forests,81,8.1,Mixed Wood Plains,8101,8.1.1,Eastern Great Lakes Lowlands
+8,Eastern Temperate Forests,81,8.1,Mixed Wood Plains,8103,8.1.3,Northern Allegheny Plateau
+8,Eastern Temperate Forests,81,8.1,Mixed Wood Plains,8104,8.1.4,North Central Hardwood Forests
+8,Eastern Temperate Forests,81,8.1,Mixed Wood Plains,8105,8.1.5,Driftless Area
+8,Eastern Temperate Forests,81,8.1,Mixed Wood Plains,8106,8.1.6,Southern Michigan/Northern Indiana Drift Plains
+8,Eastern Temperate Forests,81,8.1,Mixed Wood Plains,8107,8.1.7,Northeastern Coastal Zone
+8,Eastern Temperate Forests,81,8.1,Mixed Wood Plains,8108,8.1.8,Acadian Plains and Hills
+8,Eastern Temperate Forests,82,8.2,Central USA Plains,8201,8.2.1,Southeastern Wisconsin Till Plains
+8,Eastern Temperate Forests,82,8.2,Central USA Plains,8203,8.2.3,Central Corn Belt Plains
+8,Eastern Temperate Forests,82,8.2,Central USA Plains,8204,8.2.4,Eastern Corn Belt Plains
+8,Eastern Temperate Forests,83,8.3,Southeastern USA Plains,8301,8.3.1,Northern Piedmont
+8,Eastern Temperate Forests,83,8.3,Southeastern USA Plains,8302,8.3.2,Interior River Valleys and Hills
+8,Eastern Temperate Forests,83,8.3,Southeastern USA Plains,8303,8.3.3,Interior Plateau
+8,Eastern Temperate Forests,83,8.3,Southeastern USA Plains,8304,8.3.4,Piedmont
+8,Eastern Temperate Forests,83,8.3,Southeastern USA Plains,8305,8.3.5,Southeastern Plains
+8,Eastern Temperate Forests,83,8.3,Southeastern USA Plains,8306,8.3.6,Mississippi Valley Loess Plains
+8,Eastern Temperate Forests,83,8.3,Southeastern USA Plains,8307,8.3.7,South Central Plains
+8,Eastern Temperate Forests,83,8.3,Southeastern USA Plains,8308,8.3.8,East Central Texas Plains
+8,Eastern Temperate Forests,84,8.4,Ozark/Ouachita-Appalachian Forests,8401,8.4.1,Ridge and Valley
+8,Eastern Temperate Forests,84,8.4,Ozark/Ouachita-Appalachian Forests,8402,8.4.2,Central Appalachians
+8,Eastern Temperate Forests,84,8.4,Ozark/Ouachita-Appalachian Forests,8403,8.4.3,Western Allegheny Plateau
+8,Eastern Temperate Forests,84,8.4,Ozark/Ouachita-Appalachian Forests,8404,8.4.4,Blue Ridge
+8,Eastern Temperate Forests,84,8.4,Ozark/Ouachita-Appalachian Forests,8405,8.4.5,Ozark Highlands
+8,Eastern Temperate Forests,84,8.4,Ozark/Ouachita-Appalachian Forests,8406,8.4.6,Boston Mountains
+8,Eastern Temperate Forests,84,8.4,Ozark/Ouachita-Appalachian Forests,8407,8.4.7,Arkansas Valley
+8,Eastern Temperate Forests,84,8.4,Ozark/Ouachita-Appalachian Forests,8408,8.4.8,Ouachita Mountains
+8,Eastern Temperate Forests,84,8.4,Ozark/Ouachita-Appalachian Forests,8409,8.4.9,Southwestern Appalachians
+8,Eastern Temperate Forests,85,8.5,Mississippi Alluvial and Southeast USA Coastal Plains,8501,8.5.1,Middle Atlantic Coastal Plain
+8,Eastern Temperate Forests,85,8.5,Mississippi Alluvial and Southeast USA Coastal Plains,8502,8.5.2,Mississippi Alluvial Plain
+8,Eastern Temperate Forests,85,8.5,Mississippi Alluvial and Southeast USA Coastal Plains,8503,8.5.3,Southern Coastal Plain
+8,Eastern Temperate Forests,85,8.5,Mississippi Alluvial and Southeast USA Coastal Plains,8504,8.5.4,Atlantic Coastal Pine Barrens
+9,Great Plains,92,9.2,Temperate Prairies,9201,9.2.1,Aspen Parkland/Northern Glaciated Plains
+9,Great Plains,92,9.2,Temperate Prairies,9202,9.2.2,Lake Manitoba and Lake Agassiz Plain
+9,Great Plains,92,9.2,Temperate Prairies,9203,9.2.3,Western Corn Belt Plains
+9,Great Plains,92,9.2,Temperate Prairies,9204,9.2.4,Central Irregular Plains
+9,Great Plains,93,9.3,West-Central Semiarid Prairies,9301,9.3.1,Northwestern Glaciated Plains
+9,Great Plains,93,9.3,West-Central Semiarid Prairies,9303,9.3.3,Northwestern Great Plains
+9,Great Plains,93,9.3,West-Central Semiarid Prairies,9304,9.3.4,Nebraska Sand Hills
+9,Great Plains,94,9.4,South Central Semiarid Prairies,9401,9.4.1,High Plains
+9,Great Plains,94,9.4,South Central Semiarid Prairies,9402,9.4.2,Central Great Plains
+9,Great Plains,94,9.4,South Central Semiarid Prairies,9403,9.4.3,Southwestern Tablelands
+9,Great Plains,94,9.4,South Central Semiarid Prairies,9404,9.4.4,Flint Hills
+9,Great Plains,94,9.4,South Central Semiarid Prairies,9405,9.4.5,Cross Timbers
+9,Great Plains,94,9.4,South Central Semiarid Prairies,9406,9.4.6,Edwards Plateau
+9,Great Plains,94,9.4,South Central Semiarid Prairies,9407,9.4.7,Texas Blackland Prairies
+9,Great Plains,95,9.5,Texas-Louisiana Coastal Plain,9501,9.5.1,Western Gulf Coastal Plain
+9,Great Plains,96,9.6,Tamaulipas-Texas Semiarid Plain,9601,9.6.1,Southern Texas Plains/Interior Plains and Hills with Xerophytic Shrub and Oak Forest
+10,North American Deserts,101,10.1,Cold Deserts,10102,10.1.2,Columbia Plateau
+10,North American Deserts,101,10.1,Cold Deserts,10103,10.1.3,Northern Basin and Range
+10,North American Deserts,101,10.1,Cold Deserts,10104,10.1.4,Wyoming Basin
+10,North American Deserts,101,10.1,Cold Deserts,10105,10.1.5,Central Basin and Range
+10,North American Deserts,101,10.1,Cold Deserts,10106,10.1.6,Colorado Plateaus
+10,North American Deserts,101,10.1,Cold Deserts,10107,10.1.7,Arizona/New Mexico Plateau
+10,North American Deserts,101,10.1,Cold Deserts,10108,10.1.8,Snake River Plain
+10,North American Deserts,102,10.2,Warm Deserts,10201,10.2.1,Mojave Basin and Range
+10,North American Deserts,102,10.2,Warm Deserts,10202,10.2.2,Sonoran Desert
+10,North American Deserts,102,10.2,Warm Deserts,10204,10.2.4,Chihuahuan Desert
+11,Mediterranean California,111,11.1,Mediterranean California,11101,11.1.1,"California Coastal Sage, Chaparral, and Oak Woodlands"
+11,Mediterranean California,111,11.1,Mediterranean California,11102,11.1.2,Central California Valley
+11,Mediterranean California,111,11.1,Mediterranean California,11103,11.1.3,Southern and Baja California Pine-Oak Mountains
+12,Southern Semiarid Highlands,121,12.1,Western Sierra Madre Piedmont,12101,12.1.1,Madrean Archipelago
+13,Temperate Sierras,131,13.1,Upper Gila Mountains,13101,13.1.1,Arizona/New Mexico Mountains
+15,Tropical Wet Forests,154,15.4,Everglades,15401,15.4.1,Southern Florida Coastal Plain

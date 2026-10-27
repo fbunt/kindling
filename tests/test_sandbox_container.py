@@ -163,12 +163,10 @@ requires_container = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def tiny_parquet(tmp_path_factory) -> Path:
-    """A small parquet carrying the __null_dask_index__ column that
-    _build_lazyframe drops, plus a few real columns."""
+    """A small parquet with a few real columns."""
     path = tmp_path_factory.mktemp("data") / "tiny.parquet"
     pl.DataFrame(
         {
-            "__null_dask_index__": list(range(5)),
             "year": [1990, 1995, 2000, 2005, 2010],
             "area_m2": [10, 20, 30, 40, 50],
             "geohash": [1000, 2000, 3000, 4000, 5000],
@@ -196,6 +194,22 @@ async def test_basic_query(pool):
         assert "error" not in out, out
         assert len(out["data"]) == 3
         assert {"year", "area_m2"} <= set(out["data"][0].keys())
+    finally:
+        pool.release_session(session)
+
+
+@requires_container
+async def test_eco_names_ships_in_the_image(pool):
+    session = await pool.acquire_session()
+    try:
+        out = await session.run_query(
+            "result = eco_names.filter(pl.col('eco3') == 6205)"
+            ".select('eco2_code', 'eco3_code', 'eco3_name')"
+        )
+        assert "error" not in out, out
+        assert out["data"] == [
+            {"eco2_code": "6.2", "eco3_code": "6.2.5", "eco3_name": "North Cascades"}
+        ]
     finally:
         pool.release_session(session)
 

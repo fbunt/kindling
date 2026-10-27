@@ -25,13 +25,19 @@ _Updated: 2026-10-26._
   reading and gets that reading's answer), or reproductions from the paper survey. The hard
   tier's plan and reviews are in `.bench-runs/hard-tier-*.md`, the survey in
   `.bench-runs/fire-paper-survey.md` (gitignored).
-- **Land-cover bench questions: blocked: waiting on the new dataframe with pre-fire land cover.**
-  Same-year `nlcd` is largely post-fire for moderate and high severity (sample, forest-mode
-  pixels: 41% of bs 4 vs 11% of bs 1 show non-forest, 2001-2022; 1984 uses the 1985 map), and
-  `nlcd_mode` inherits the bias. Held: Parks 2025 / Haugo 2019 fire rotation, Parks-Coop-Davis 2025
-  high-severity fold increase, Buma 2020 reburn share (drafts in the paper survey). When the new
-  dataframe lands: update `_KEY_COLUMNS` and the system prompt's `nlcd` description, recompute
-  ground truth (new parquet identity), and treat runs on it as a new series.
+- **Bench on the 2026-10-26 dataframe: not yet run.** The app runs on it; the bench needs work
+  first. E07 and E13 references group by `eco2s`/`eco3s`, which no longer exist, and E13's text
+  asks for "its eco2s code": rewrite both on `eco2`/`eco3` (E13's accepted answers are the dotted
+  `8.5` form; `eco_names` now hands models the official dotted codes and names). H01's trap
+  (state only in the `Event_ID` prefix) is gone now that a `state` column exists: the question says
+  "the state MTBS records for it", but a model may reasonably use `state` instead (count unchecked).
+  L05 (earliest Wildland Fire Use event) moves from 1988-03-26 to a 1986-08-09 event. Fix
+  `grading_ext._region_code_matches` in the same pass: it joins dotted parts unpadded, so `6.2.5`
+  reads as `625` and the dataset's own integer code `6205` (or `10105`) fails; add a test.
+  Then `gt` (new parquet identity) and treat runs as a new series; 1986 alone moves most counts.
+  The land-cover questions held for pre-fire NLCD (Parks 2025 / Haugo 2019 fire rotation,
+  Parks-Coop-Davis 2025 high-severity fold increase, Buma 2020 reburn share; drafts in the paper
+  survey) can now use `nlcd_pre`, which covers fires from 1986 on.
 - **Polars: on 1.41.2, capped `<2` in `pyproject.toml`; 1.44.2 is the latest 1.x and 2.0.0 shipped
   2026-10-06.** Upgrade between bench runs only, bumping `uv.lock` and the Containerfile pin together
   and recomputing ground truth (`bench gt --force`).
@@ -56,6 +62,16 @@ _Updated: 2026-10-26._
 
 ## Recently done
 
+- **2026-10-26 — App switched to the 2026-10-26 dataframe.** 748,822,169 rows: 1986 restored
+  (129 to 398 events), 8,239 border pixels dropped, new `state` (the pixel's state, which differs
+  from the `Event_ID` prefix on 1.8% of rows), `area_acres`, `nlcd_pre`/`nlcd_post` (prior- and
+  next-year maps), `slope`, `aspect` (-1 = flat); `eco1s`/`eco2s`/`eco3s` and the dask index gone.
+  `nlcd` is null for 1984 and `nlcd_pre` for 1984-85 (the annual maps start in 1985); with
+  `nlcd_pre`, high-severity forest rows showing non-forest drop from 41% to 5% (2001-2022 sample).
+  Ecoregion names come from `app/sandbox/ecoregions.csv` (EPA/CEC Level III shapefile attributes,
+  81 rows), preloaded in the worker as `eco_names` and joined on the integer codes, instead of
+  names typed into the prompt or web_search. `.eval-runs/sample.parquet` was rebuilt by hand: the
+  test and eval fixtures never invalidate it.
 - **2026-10-26 — Hard tier piloted: at ceiling, no 5-trial run.** Built and filled from full-data
   ground truth (`9dc05e5`..`9ffbdc3`; decision 0006). Three trials per model: argon 27/27, Flash
   26/27, Pro 25/27, $3.79 in all; no review entries; hand audit (every H01/H04/H05 trial plus a

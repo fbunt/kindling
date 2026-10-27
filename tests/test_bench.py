@@ -109,7 +109,6 @@ def test_ground_truth_cache_records_peak_memory(tmp_path, monkeypatch):
     f = tmp_path / "a.parquet"
     pl.DataFrame(
         {
-            "__null_dask_index__": [0, 1, 2],
             "Event_ID": ["a", "a", "b"],
             "Incid_Type": [2, 2, 2],
             "year": [2020] * 3,

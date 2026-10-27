@@ -6,13 +6,13 @@ hand-written reference Polars code that defines ground truth. Reference code is
 executed HOST-SIDE by bench/ground_truth.py in a namespace containing:
 
 - `lf`  — the LazyFrame built by app.query_engine._build_lazyframe (imported,
-          never reimplemented, so the `__null_dask_index__` drop can't diverge)
+          never reimplemented, so the scan can't diverge)
 - `pl`  — polars
 - `ols_slope(xs, ys)` — plain-Python ordinary-least-squares slope
 - `logger` - the ground-truth logger, for tables a reference reports
 
 Conventions: every `.collect()` uses engine="streaming" (the full dataset is
-745M rows); the code must assign `expected`, which is normalized to a
+749M rows); the code must assign `expected`, which is normalized to a
 JSON-serializable scalar, dict (series), or sorted list (set / tie-safe text).
 
 Questions are phrased to fix a single defensible interpretation (dedup rule,

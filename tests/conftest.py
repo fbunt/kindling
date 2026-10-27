@@ -11,9 +11,9 @@ _SAMPLE_MOD = 1000  # keep ~1/1000 of rows via geohash % N == 0
 
 def _synthetic_sample() -> Path:
     """A tiny schema-shaped parquet for environments without the real dataset
-    (e.g. CI, where data/ is a dangling symlink). Carries __null_dask_index__
-    (dropped by _build_lazyframe) plus the key columns + a few rows, so
-    get_dataset_info works. NOT for query correctness — just schema/sample reads.
+    (e.g. CI, where data/ is a dangling symlink). Carries the key columns + a
+    few rows, so get_dataset_info works. NOT for query correctness — just
+    schema/sample reads.
     """
     if _SYNTHETIC.exists():
         return _SYNTHETIC
@@ -30,14 +30,13 @@ def _synthetic_sample() -> Path:
             return [44.0 + i for i in range(n)]
         if name == "Ig_Date":
             return [date(1984 + i, 1, 1) for i in range(n)]
-        if name in ("Incid_Name", "Event_ID", "eco1s", "eco2s", "eco3s"):
+        if name in ("Incid_Name", "Event_ID", "state"):
             return [f"{name}-{i}" for i in range(n)]
         if name == "year":
             return [1984 + i for i in range(n)]
         return list(range(n))
 
-    data = {"__null_dask_index__": list(range(n))}
-    data.update({k: col(k) for k in _KEY_COLUMNS})
+    data = {k: col(k) for k in _KEY_COLUMNS}
     _SYNTHETIC.parent.mkdir(parents=True, exist_ok=True)
     pl.DataFrame(data).write_parquet(_SYNTHETIC)
     return _SYNTHETIC

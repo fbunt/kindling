@@ -18,9 +18,14 @@ pytest.importorskip("pandas")
 @pytest.fixture(scope="module")
 def worker(tmp_path_factory):
     path = tmp_path_factory.mktemp("w") / "w.parquet"
-    pl.DataFrame({"__null_dask_index__": [0, 1], "year": [1990, 1991]}).write_parquet(
-        path
-    )
+    pl.DataFrame(
+        {
+            "year": [1990, 1991],
+            "eco1": pl.Series([6, 9], dtype=pl.UInt8),
+            "eco2": pl.Series([62, 94], dtype=pl.UInt8),
+            "eco3": pl.Series([6205, 9402], dtype=pl.Int16),
+        }
+    ).write_parquet(path)
     mp = pytest.MonkeyPatch()
     mp.setenv("KINDLING_PARQUET_PATH", str(path))
     sys.modules.pop("app.sandbox.worker", None)
@@ -67,7 +72,7 @@ def test_pandas_series_keeps_index(worker):
 
 
 def test_lazyframe_collected(worker):
-    out = _run(worker, "result = lf")
+    out = _run(worker, "result = lf.select('year')")
     assert out["data"] == [{"year": 1990}, {"year": 1991}]
 
 
@@ -87,3 +92,25 @@ def test_fit_reply_note_matches_rows_returned(worker, monkeypatch):
     assert n < 100
     assert out["total_rows"] == 400
     assert out["note"].startswith(f"Showing the first {n} of 400 rows")
+
+
+def test_eco_names_joins_on_the_dataset_codes(worker):
+    out = _run(
+        worker,
+        "result = lf.collect().join(eco_names, on=['eco1', 'eco2', 'eco3'])"
+        ".select('year', 'eco2_code', 'eco3_code', 'eco3_name')",
+    )
+    assert out["data"] == [
+        {
+            "year": 1990,
+            "eco2_code": "6.2",
+            "eco3_code": "6.2.5",
+            "eco3_name": "North Cascades",
+        },
+        {
+            "year": 1991,
+            "eco2_code": "9.4",
+            "eco3_code": "9.4.2",
+            "eco3_name": "Central Great Plains",
+        },
+    ]

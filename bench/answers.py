@@ -174,8 +174,9 @@ class ExtAnswerSpec(AnswerSpec):
     top_k: int | None = None
 
 
-# Level-1 ecoregion names by eco1 code, as app/query_engine.py describes eco1
-# to the model (a test keeps the two in step).
+# Level-1 ecoregion names by eco1 code, as the worker's ecoregion lookup
+# (app/sandbox/ecoregions.csv) names them for the codes in the data (a test
+# keeps the two in step).
 ECO1_NAMES: dict[int, str] = {
     1: "Arctic Cordillera",
     2: "Tundra",

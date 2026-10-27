@@ -5,13 +5,12 @@ container runtime."""
 import ast
 import dataclasses
 import logging
-import re
 from datetime import datetime
+from pathlib import Path
 
 import polars as pl
 import pytest
 
-from app.query_engine import _KEY_COLUMNS
 from bench import provenance
 from bench.answers import (
     ANSWERS,
@@ -187,12 +186,14 @@ def test_extended_question_and_reference_shas_are_pinned():
     assert got == EXTENDED_SHAS
 
 
-def test_eco1_names_match_the_dataset_description():
-    described = dict(
-        (int(code), name)
-        for code, name in re.findall(r"(\d+)=([^,)]+)", _KEY_COLUMNS["eco1"])
+def test_eco1_names_match_the_ecoregion_lookup():
+    named = dict(
+        pl.read_csv(Path(__file__).resolve().parents[1] / "app/sandbox/ecoregions.csv")
+        .select("eco1", "eco1_name")
+        .unique()
+        .iter_rows()
     )
-    assert described == ECO1_NAMES
+    assert named == {code: ECO1_NAMES[code] for code in named}
     assert EXT_ANSWERS["E12"].aliases["6"] == ("06", "northwestern forested mountains")
     assert EXT_ANSWERS["E12"].aliases["11"] == ("mediterranean california",)
 

@@ -130,11 +130,34 @@ def _build_lazyframe(path):
     Any divergence from the host expression changes query semantics relative to
     what the eval suite validates.
     """
-    return pl.scan_parquet(path).drop("__null_dask_index__")
+    return pl.scan_parquet(path)
+
+
+# Ecoregion names for the eco codes in the dataset, one row per level III
+# ecoregion, from the attribute table of the EPA/CEC North American Level III
+# ecoregion shapefile (NA_CEC_Eco_Level3). Shipped next to this file in the
+# image.
+_ECO_NAMES_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "ecoregions.csv"
+)
+
+
+def _load_eco_names(lf) -> pl.DataFrame:
+    """The ecoregion lookup, its code columns cast to the dataset's dtypes so
+    `.join(eco_names, on="eco3")` needs no cast."""
+    names = pl.read_csv(
+        _ECO_NAMES_PATH,
+        schema_overrides={"eco2_code": pl.String, "eco3_code": pl.String},
+    )
+    schema = lf.collect_schema()
+    return names.with_columns(
+        pl.col(c).cast(schema[c]) for c in ("eco1", "eco2", "eco3") if c in schema
+    )
 
 
 _PARQUET_PATH = os.environ["KINDLING_PARQUET_PATH"]
 LF = _build_lazyframe(_PARQUET_PATH)
+ECO_NAMES = _load_eco_names(LF)
 
 
 class _Namespace(dict):
@@ -156,15 +179,17 @@ def build_namespace() -> _Namespace:
     """Create the persistent execution namespace.
 
     No "__builtins__" key is set, so exec() injects the FULL builtins — the
-    container is the boundary, not a restricted builtins table. Only two names are
-    preloaded: `lf` (the bound LazyFrame, which can't be imported) and `pl`
-    (polars, used in every query). Every other library in the image — numpy,
-    pandas, matplotlib, seaborn, scipy, scikit-learn, xgboost — is importable on
-    demand; the model imports what it uses."""
+    container is the boundary, not a restricted builtins table. Three names are
+    preloaded: `lf` (the bound LazyFrame, which can't be imported), `pl`
+    (polars, used in every query) and `eco_names` (the ecoregion lookup). Every
+    other library in the image — numpy, pandas, matplotlib, seaborn, scipy,
+    scikit-learn, xgboost — is importable on demand; the model imports what it
+    uses."""
     return _Namespace(
         {
             "pl": pl,
             "lf": LF.clone(),
+            "eco_names": ECO_NAMES.clone(),
         }
     )
 

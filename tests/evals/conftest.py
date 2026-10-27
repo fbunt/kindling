@@ -76,8 +76,8 @@ def genai_client(api_key) -> genai.Client:
 def _configure_parquet():
     """Configure query_engine with a small streamed sample of the parquet.
 
-    Running the full 745M-row dataset through repeated eval queries OOMs the
-    host. We sub-sample to ~745k rows (1/1000 via geohash modulo) so the
+    Running the full 749M-row dataset through repeated eval queries OOMs the
+    host. We sub-sample to ~749k rows (1/1000 via geohash modulo) so the
     sandbox executes real Polars but the memory footprint stays bounded.
     """
     if not _PARQUET.exists():

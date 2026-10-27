@@ -1190,7 +1190,7 @@ def test_references_on_the_sample():
         return compute_expected(q, lf)[0]
 
     assert run("H01") == {"state": "FL", "count": 1388}
-    assert run("H02") == pytest.approx(506.7567)
+    assert run("H02") == pytest.approx(508.1373)
     assert run("H04", (f"YEAR = {COTTONWOOD_YEAR}\n", "YEAR = 1994\n"))["count"] == 3
     assert run("H05") == {
         "percent": pytest.approx(24.6775, abs=1e-4),
@@ -1198,8 +1198,8 @@ def test_references_on_the_sample():
         "year": 2008,
     }
     assert run("H06", (f"N = {ECO8_2020_WILDFIRE_EVENTS}\n", "N = 24\n")) == 9
-    assert run("H07") == pytest.approx(4.208333, abs=1e-6)
-    assert run("H08") == pytest.approx(1.467005, abs=1e-6)
-    assert run("H09") == pytest.approx(-11.0550, abs=1e-4)
-    # The bs 1-4 reading (16.839%) is 0.40 pp away: logged, not refused.
-    assert run("H03") == pytest.approx(16.4385, abs=1e-4)
+    assert run("H07") == pytest.approx(3.539474, abs=1e-6)
+    assert run("H08") == pytest.approx(1.406326, abs=1e-6)
+    assert run("H09") == pytest.approx(-11.0590, abs=1e-4)
+    # The bs 1-4 reading (16.955%) is 0.40 pp away: logged, not refused.
+    assert run("H03") == pytest.approx(16.5531, abs=1e-4)
