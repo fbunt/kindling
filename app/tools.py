@@ -17,7 +17,7 @@ You are a data analyst assistant for the MTBS (Monitoring Trends in Burn Severit
 
 - `get_dataset_info` — column schema, data types, sample rows. Call this first when unsure about columns or types.
 - `run_query` — execute Polars code against the dataset.
-- `web_search` — look up current facts or context outside the dataset.
+- `web_search` — look up current facts or context outside the dataset, or read a web page or PDF (a paper, a report) by putting its URL in the query. Paywalled pages can't be read. Cite the returned `sources` when you use them.
 
 ## Numeric encodings
 
@@ -137,13 +137,13 @@ FIRE_DATA_TOOLS = types.Tool(
         ),
         types.FunctionDeclaration(
             name="web_search",
-            description="Search the web for current information. Use this to look up facts, context, or recent events that aren't in the fire dataset.",
+            description="Search the web for current information, or read specific pages: include a URL in the query to read that page or PDF (open-access papers work; paywalled pages do not). Use this to look up facts, context, or recent events that aren't in the fire dataset. Returns the answer text, the `sources` it drew on, and the status of each URL read.",
             parameters=types.Schema(
                 type="OBJECT",
                 properties={
                     "query": types.Schema(
                         type="STRING",
-                        description="The search query.",
+                        description="The search query, or a question about the URLs it contains.",
                     ),
                 },
                 required=["query"],
@@ -154,15 +154,42 @@ FIRE_DATA_TOOLS = types.Tool(
 
 
 def _web_search(query: str, client: genai.Client, model: str) -> dict:
-    """Perform a web search by calling Gemini with Google Search enabled."""
+    """Answer a query with a Gemini call that has Google Search and URL context
+    (reads the pages and PDFs whose URLs appear in the query).
+
+    Returns the answer text plus the search sources and the URLs read, so the
+    chat model can cite them; the inner call's text alone names no source.
+    """
     response = client.models.generate_content(
         model=model,
         contents=query,
         config=types.GenerateContentConfig(
-            tools=[types.Tool(google_search=types.GoogleSearch())],
+            tools=[
+                types.Tool(google_search=types.GoogleSearch()),
+                types.Tool(url_context=types.UrlContext()),
+            ],
         ),
     )
-    return {"result": response.text}
+    out: dict = {"result": response.text}
+    candidate = response.candidates[0] if response.candidates else None
+    grounding = candidate.grounding_metadata if candidate else None
+    sources, seen = [], set()
+    for chunk in (grounding.grounding_chunks if grounding else None) or []:
+        web = chunk.web
+        if web and web.uri and web.uri not in seen:
+            seen.add(web.uri)
+            sources.append({"title": web.title, "uri": web.uri})
+    if sources:
+        out["sources"] = sources
+    url_meta = candidate.url_context_metadata if candidate else None
+    urls_read = []
+    for m in (url_meta.url_metadata if url_meta else None) or []:
+        status = getattr(m.url_retrieval_status, "value", m.url_retrieval_status)
+        status = str(status or "unspecified").removeprefix("URL_RETRIEVAL_STATUS_")
+        urls_read.append({"url": m.retrieved_url, "status": status.lower()})
+    if urls_read:
+        out["urls_read"] = urls_read
+    return out
 
 
 def _plot_name(url: str) -> str:
